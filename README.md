@@ -11,9 +11,16 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | Fase | Contenido | Estado |
 |------|-----------|--------|
 | 1 | Esqueleto Flask, login, GPS → nombre del lugar | ✅ Hecho |
-| 2 | Open-Meteo + Overpass + recomendaciones de Claude | ✅ Hecho |
+| 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
+| 2b | Proveedor intercambiable: Anthropic / Gemini / Kimi | ✅ Hecho |
+| — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
 | 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
+
+Desplegado en PythonAnywhere (plan gratuito) y probado desde un iPhone con datos
+móviles: GPS con precisión de ±18 m, lugar resuelto, tiempo, y recomendaciones
+generadas por Gemini en ~13 s. Las seis comprobaciones de
+[`docs/validacion-movil.md`](docs/validacion-movil.md) en verde.
 
 ## Diagnóstico rápido
 
@@ -177,12 +184,30 @@ va por síntomas.
       ```bash
       git clone <tu-repo> ~/roadtrip
       ```
-- [ ] **Crear el virtualenv** (Python 3.11; el código no usa nada posterior):
+- [ ] **Crear el virtualenv** (Python 3.11; el código no usa nada posterior).
+      Con `venv`, el módulo estándar, **no con `mkvirtualenv`**:
       ```bash
-      mkvirtualenv --python=/usr/bin/python3.11 roadtrip
+      python3.11 -m venv ~/.virtualenvs/roadtrip
+      source ~/.virtualenvs/roadtrip/bin/activate
+      ```
+- [ ] **Comprobar que el venv está sano antes de instalar nada:**
+      ```bash
+      python -c "import subprocess, _posixsubprocess; print('venv OK')"
+      ```
+- [ ] **Instalar** (no instales `requirements-dev.txt`: el servidor no corre los tests):
+      ```bash
       pip install -r ~/roadtrip/requirements.txt
       ```
-      No instales `requirements-dev.txt`: el servidor no corre los tests.
+
+> **Por qué `venv` y no `mkvirtualenv`.** La documentación de PythonAnywhere
+> recomienda `mkvirtualenv --python=/usr/bin/python3.11`, y **en esta cuenta no
+> funciona**: crea un virtualenv cuyo `sys.path` no incluye el directorio de
+> módulos compilados de C, y el primer `pip install` muere con
+> `ModuleNotFoundError: No module named '_posixsubprocess'`. Ese módulo es parte
+> del núcleo de Python: si "falta", el intérprete está mal montado y no hay nada
+> que instalar para arreglarlo. `python3.11 -m venv` lo crea bien y en la misma
+> ruta, así que la pestaña *Web* se configura igual. De ahí la comprobación de
+> arriba: son dos segundos, y te ahorran depurar después de bajar 100 MB.
 
 > **Cuota de disco (plan gratuito: 512 MB).** El virtualenv completo ocupa unos
 > 100 MB. Entra de sobra, pero si andas justo, `anthropic` son 13 MB que puedes

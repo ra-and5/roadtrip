@@ -74,14 +74,21 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 | 2b | Proveedor de LLM intercambiable (Anthropic / Gemini / Kimi) | ✅ Hecho |
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
-| — | **Desplegado en PythonAnywhere y validado en iPhone** | ⬜ Pendiente |
+| — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
-**Dónde está el despliegue.** El código está listo y verificado en un virtualenv
-limpio, pero **no se ha desplegado todavía**. El GPS solo funciona en HTTPS, así
-que la funcionalidad central del proyecto sigue sin probarse de verdad: es el
-trabajo inmediato, por delante de la Fase 3.
+**Desplegado y validado.** `https://d10sdrebrasov.pythonanywhere.com` (plan
+gratuito). Las seis comprobaciones del móvil en verde desde un iPhone con datos
+móviles: GPS a **±18 m** (satélite, no triangulación por wifi), lugar resuelto,
+tiempo con sus veredictos, y recomendaciones de Gemini en ~13 s. Con eso queda
+probada por primera vez la funcionalidad central del proyecto: hasta desplegar
+en HTTPS no había forma de saber si el GPS funcionaba.
+
+La degradación se validó **sola y de verdad**: Overpass estaba caído durante la
+prueba, salió su aviso en la interfaz, y todas las actividades aparecieron
+marcadas como "sugerencia general" en vez de "✓ verificado en el mapa". El
+sistema no fingió haber verificado nada.
 
 - Checklist de despliegue: sección *Despliegue* del `README.md`.
 - Las seis comprobaciones en el móvil: [`docs/validacion-movil.md`](docs/validacion-movil.md).
@@ -282,8 +289,30 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     estarlo, y eso hay que saberlo **antes** de pagar la recarga, no después.
     También están `api.anthropic.com`, `api.moonshot.cn` y `openrouter.ai`.
 
+22. **Los espejos de Overpass están casi todos muertos, y no se sustituyen a
+    ciegas.** Medido el 27-07-2026: de los tres configurados, `kumi.systems` y
+    `private.coffee` no responden a nadie, y `overpass-api.de` devuelve **504
+    intermitente** por saturación (falla en una coordenada y a los segundos
+    funciona en otra). Es decir: la estrategia de peticiones escalonadas de la
+    decisión 7 está corriendo sobre un solo servidor, y flojo.
+
+    Se buscaron reemplazos y **no se añadió ninguno**, que es la parte que
+    importa: `overpass.osm.ch` responde `200` en 0,5 s pero devuelve **cero
+    elementos** en España porque es un espejo regional suizo. Añadirlo habría
+    sido peor que el fallo actual — la app diría "aquí no hay nada que ver" en
+    vez de "no he podido consultarlo", convirtiendo un fallo ruidoso en uno
+    silencioso (decisión 11). `maps.mail.ru` funciona a veces, en 22-36 s.
+
+    Corolario para cuando se retome: un espejo no se valida con que responda
+    `200`, sino comprobando que **devuelve elementos para una coordenada
+    española conocida**. Y si algún día se añaden espejos regionales, el código
+    tendría que distinguir "sin resultados" de "no consultado".
+
 ## 7. Roadmap
 
+- **Espejos de Overpass** (ver decisión 22). Hoy solo hay uno vivo y saturado,
+  así que los POIs son intermitentes en producción. Hay que buscar espejos y
+  validarlos con datos españoles reales, no con que devuelvan `200`.
 - **Fase 3.** Notas geolocalizadas con cola offline (IndexedDB en el móvil,
   sincronización cuando hay red) y mapa acumulado con Leaflet.
 - **Fase 4.** Resumen narrativo del viaje generado por el LLM a partir de todas
