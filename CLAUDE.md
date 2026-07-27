@@ -59,6 +59,7 @@ python run.py                              # servidor local (127.0.0.1:5000)
 python -m pytest -q                        # tests (sin red, sin API keys)
 python tools/diagnostico.py                # estado de cada dependencia
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
+python tools/listar_modelos.py             # qué modelos de Gemini sirven con tu key
 python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HASH
 ```
 

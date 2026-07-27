@@ -47,7 +47,10 @@ roadtrip/
 │   │   └── storage.py              SQLite: caché y notas
 │   ├── templates/          HTML (Jinja2)
 │   └── static/             CSS, JS, manifest.json, iconos
-├── tools/hash_password.py  Genera SECRET_KEY y APP_PASSWORD_HASH
+├── tools/
+│   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
+│   ├── diagnostico.py      Estado de cada dependencia externa
+│   └── listar_modelos.py   Qué modelos de Gemini funcionan con tu key
 ├── tests/                  pytest
 └── data/                   BD e imágenes. NO va a git.
 ```
@@ -123,8 +126,8 @@ python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con
 | `SECRET_KEY` | ✅ | Firma la cookie de sesión. Genérala con `tools/hash_password.py`. Cambiarla cierra todas las sesiones. |
 | `APP_PASSWORD_HASH` | ✅ | Hash de tu contraseña. **Nunca la contraseña en claro.** |
 | `LLM_PROVIDER` | ❌ | `anthropic`\|`gemini`\|`ollama`. Por defecto `anthropic`. Cambiar esto es lo único necesario para cambiar de modelo. |
-| `GEMINI_API_KEY` | si usas gemini | Clave de Google AI Studio (capa gratuita, sin tarjeta). |
-| `GEMINI_MODEL` | ❌ | Por defecto `gemini-2.5-flash`. |
+| `GEMINI_API_KEY` | si usas gemini | Clave de Google AI Studio (capa gratuita, sin tarjeta). El prefijo varía (`AIza…`, `AQ.…`): no lo uses para validarla. |
+| `GEMINI_MODEL` | ❌ | Por defecto `gemini-3.6-flash`. Averigua cuáles sirven con tu key: `python tools/listar_modelos.py`. |
 | `ANTHROPIC_API_KEY` | si usas anthropic | Clave de la API de Claude (console.anthropic.com). |
 | `ANTHROPIC_MODEL` | ❌ | Por defecto `claude-opus-5`. |
 | `ANTHROPIC_EFFORT` | ❌ | `low`\|`medium`\|`high`\|`xhigh`\|`max`. Por defecto `low`. Mando de latencia contra calidad. |
