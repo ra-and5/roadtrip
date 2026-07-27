@@ -1,0 +1,189 @@
+/* Estilos mínimos, pensados para móvil primero. Sin frameworks: menos peso
+   que descargar con mala cobertura. */
+
+:root {
+  --bg: #f6f4ee;
+  --surface: #ffffff;
+  --ink: #1c1c1a;
+  --muted: #6b6b63;
+  --accent: #1b3a2f;
+  --error: #a1291f;
+  --border: #e2ded2;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14150f;
+    --surface: #1e201a;
+    --ink: #ece9df;
+    --muted: #9a9a8f;
+    --accent: #7fbfa3;
+    --error: #ef8a7d;
+    --border: #33362c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  /* Respeta el notch y la barra inferior del iPhone en modo PWA. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--accent);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .topbar { background: #23261d; }
+}
+
+.brand { font-weight: 600; letter-spacing: 0.01em; }
+.logout { color: inherit; opacity: 0.85; font-size: 0.9rem; }
+
+.content { max-width: 34rem; margin: 0 auto; padding: 1.1rem; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.3rem;
+}
+
+h1 { margin: 0 0 1rem; font-size: 1.4rem; }
+h2 { margin: 0 0 0.6rem; font-size: 1.15rem; }
+
+label { display: block; margin-bottom: 0.35rem; font-size: 0.9rem; color: var(--muted); }
+
+input[type="password"] {
+  width: 100%;
+  padding: 0.75rem;
+  /* 16px evita que Safari en iOS haga zoom automático al enfocar el campo. */
+  font-size: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  margin-bottom: 1rem;
+}
+
+button {
+  width: 100%;
+  /* Área táctil cómoda: 48px es el mínimo recomendado para el pulgar. */
+  min-height: 48px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) {
+  button { color: #14150f; }
+}
+button:disabled { opacity: 0.55; cursor: progress; }
+
+.status { margin: 1rem 0 0; min-height: 1.5em; color: var(--muted); font-size: 0.95rem; }
+.status.error, .error { color: var(--error); font-weight: 500; }
+
+.result { margin-top: 1.4rem; border-top: 1px solid var(--border); padding-top: 1.1rem; }
+
+.details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+}
+.details dt { color: var(--muted); }
+.details dd { margin: 0; }
+
+.muted { color: var(--muted); font-size: 0.9rem; word-break: break-word; }
+summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+a { color: var(--accent); }
+
+/* ---------- Fase 2: tiempo, recomendaciones y POIs ---------- */
+
+.card + .card { margin-top: 1rem; }
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  margin-top: 0.6rem;
+}
+
+.lead { font-size: 1.05rem; margin: 0 0 0.8rem; }
+
+.tag {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--border);
+  color: var(--ink);
+  margin: 0 0.3rem 0.3rem 0;
+}
+.tag-bueno     { background: #cfe8d8; color: #17402c; }
+.tag-regular   { background: #f6e5c0; color: #4a3812; }
+.tag-malo,
+.tag-peligroso { background: #f3d0cb; color: #5c1d15; }
+.tag-cat       { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 500; }
+
+.warnings { border-left: 3px solid #d19a2e; }
+.warnings ul { margin: 0; padding-left: 1.1rem; font-size: 0.92rem; color: var(--muted); }
+
+.aviso {
+  background: rgba(209, 154, 46, 0.14);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.94rem;
+  margin: 0 0 1rem;
+}
+
+.activity {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+  margin-top: 0.9rem;
+}
+.activity:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+
+.activity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.activity h3 { margin: 0; font-size: 1.05rem; }
+
+.activity-meta { margin: 0.15rem 0 0.5rem; font-size: 0.82rem; color: var(--muted); }
+.activity p { margin: 0 0 0.5rem; font-size: 0.95rem; }
+
+/* El "por qué ahora" es el valor añadido frente a una lista de sitios:
+   se distingue visualmente para que se lea. */
+.activity-why {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.7rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pois { margin: 0.6rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); }
+.pois li { margin-bottom: 0.25rem; }

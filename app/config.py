@@ -1,0 +1,113 @@
+"""Configuración central de la aplicación.
+
+Regla de oro: NADA de secretos en este archivo. Todo sale de variables de
+entorno. En local las cargamos de un `.env` (ver `_load_dotenv`), en
+PythonAnywhere se definen en el panel de la web app.
+
+Si vienes de C++: piensa en esto como un header de constantes de
+configuración, pero cuyos valores se resuelven en tiempo de ejecución en vez
+de en tiempo de compilación.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# Raíz del proyecto: config.py está en <raiz>/app/config.py, así que subimos dos.
+BASE_DIR: Path = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path: Path) -> None:
+    """Carga un archivo .env en os.environ, sin dependencias externas.
+
+    Usamos una implementación mínima en vez de python-dotenv porque solo
+    necesitamos `CLAVE=valor` y una dependencia menos es una dependencia menos
+    que instalar en PythonAnywhere.
+
+    Importante: NO sobrescribe variables que ya existan en el entorno. Así, en
+    producción, las variables reales del servidor siempre ganan sobre un .env
+    que se haya subido por accidente.
+    """
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv(BASE_DIR / ".env")
+
+
+def _env(name: str, default: str | None = None, *, required: bool = False) -> str:
+    """Lee una variable de entorno.
+
+    `required=True` hace que la app reviente al arrancar si falta, en vez de
+    fallar a mitad de una petición con un error incomprensible. Es preferible
+    fallar pronto y ruidosamente.
+    """
+    value = os.environ.get(name, default)
+    if required and not value:
+        raise RuntimeError(
+            f"Falta la variable de entorno obligatoria: {name}. "
+            f"Revisa tu .env (en local) o el panel de PythonAnywhere (en producción)."
+        )
+    return value or ""
+
+
+class Config:
+    """Configuración de la app. Se lee una vez al importar el módulo."""
+
+    # --- Flask ---
+    # Firma la cookie de sesión. Si cambia, todas las sesiones se invalidan.
+    SECRET_KEY: str = _env("SECRET_KEY", required=True)
+
+    # --- Autenticación (un solo usuario: yo) ---
+    # Guardamos el HASH de la contraseña, nunca la contraseña. Generarlo con:
+    #   python tools/hash_password.py
+    APP_PASSWORD_HASH: str = _env("APP_PASSWORD_HASH", required=True)
+
+    # --- Claude (se usa a partir de la Fase 2) ---
+    ANTHROPIC_API_KEY: str = _env("ANTHROPIC_API_KEY", default="")
+    ANTHROPIC_MODEL: str = _env("ANTHROPIC_MODEL", default="claude-opus-5")
+    # Cuánto razona el modelo antes de responder: low | medium | high | xhigh | max.
+    # Es el mando de latencia contra calidad. "low" responde en pocos segundos;
+    # "medium" hila mejor tiempo + hora + sitio. Pruébalo con tus datos reales.
+    ANTHROPIC_EFFORT: str = _env("ANTHROPIC_EFFORT", default="low")
+
+    # --- Almacenamiento ---
+    # data/ está en .gitignore: es estado de la app, no código.
+    DATA_DIR: Path = Path(_env("DATA_DIR", default=str(BASE_DIR / "data")))
+    DB_PATH: Path = DATA_DIR / "roadtrip.db"
+    UPLOAD_DIR: Path = DATA_DIR / "uploads"
+
+    # --- APIs externas ---
+    # La política de uso de Nominatim EXIGE un User-Agent identificable con
+    # forma de contacto. Sin esto pueden bloquear tu IP.
+    # https://operations.osmfoundation.org/policies/nominatim/
+    NOMINATIM_USER_AGENT: str = _env(
+        "NOMINATIM_USER_AGENT",
+        default="roadtrip-companion/0.1 (proyecto-estudiante; contacto@example.com)",
+    )
+    NOMINATIM_URL: str = "https://nominatim.openstreetmap.org/reverse"
+    OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
+    OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
+
+    # Timeout para CUALQUIER llamada HTTP saliente. Sin timeout, una API caída
+    # cuelga el worker de Flask indefinidamente y la app deja de responder.
+    HTTP_TIMEOUT: float = float(_env("HTTP_TIMEOUT", default="10"))
+
+    # Cuántos decimales conservamos al cachear por coordenada.
+    # 3 decimales ~= 110 m. Suficiente para "estoy en el mismo sitio".
+    CACHE_COORD_PRECISION: int = 3
+
+    @classmethod
+    def ensure_dirs(cls) -> None:
+        """Crea los directorios de datos si no existen. Idempotente."""
+        cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        cls.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

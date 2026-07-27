@@ -1,0 +1,6 @@
+Flask>=3.0
+requests>=2.31
+Werkzeug>=3.0
+anthropic>=0.60
+# Fase 3: redimensionado de fotos
+# Pillow>=10.0

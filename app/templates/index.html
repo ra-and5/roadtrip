@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}¿Qué hago aquí?{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>¿Qué hago aquí?</h1>
+
+  <button id="locate-btn" class="primary">Recomiéndame algo</button>
+  <button id="refresh-btn" class="secondary" hidden>Generar otra recomendación</button>
+
+  <p id="status" class="status" aria-live="polite"></p>
+</div>
+
+<!-- Cada sección se rellena y se muestra por separado. Es lo que permite que
+     la app siga siendo útil aunque una de las fuentes haya fallado. -->
+
+<section id="place-card" class="card" hidden>
+  <h2 id="place-label"></h2>
+  <p class="muted" id="place-coords"></p>
+</section>
+
+<section id="warnings-card" class="card warnings" hidden>
+  <h2>Aviso</h2>
+  <ul id="warnings-list"></ul>
+</section>
+
+<section id="weather-card" class="card" hidden>
+  <h2>El tiempo</h2>
+  <p id="weather-summary" class="lead"></p>
+  <p><span class="tag" id="weather-outdoor"></span> <span class="tag" id="weather-water"></span></p>
+  <p class="muted" id="weather-water-reason"></p>
+  <p class="muted" id="weather-sun"></p>
+</section>
+
+<section id="reco-card" class="card" hidden>
+  <h2>Recomendación</h2>
+  <p id="reco-summary" class="lead"></p>
+  <p id="reco-aviso" class="aviso" hidden></p>
+  <div id="reco-activities"></div>
+  <p class="muted" id="reco-meta"></p>
+</section>
+
+<section id="pois-card" class="card" hidden>
+  <details>
+    <summary>Puntos de interés cercanos (<span id="pois-count">0</span>)</summary>
+    <ul id="pois-list" class="pois"></ul>
+  </details>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}
