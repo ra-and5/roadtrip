@@ -72,13 +72,42 @@ class Config:
     #   python tools/hash_password.py
     APP_PASSWORD_HASH: str = _env("APP_PASSWORD_HASH", required=True)
 
-    # --- Claude (se usa a partir de la Fase 2) ---
+    # --- Proveedor de LLM ---
+    # Qué proveedor usa la app: anthropic | gemini | ollama (aún sin implementar).
+    # Cambiarlo aquí es lo único que hace falta para cambiar de modelo: el
+    # código de ai_orchestrator no distingue entre unos y otros.
+    LLM_PROVIDER: str = _env("LLM_PROVIDER", default="anthropic").strip().lower()
+
+    # Enseña en la INTERFAZ el mensaje de error crudo del proveedor. Cómodo
+    # mientras afinas el prompt, inadecuado en producción (expone detalles de
+    # infraestructura a cualquiera que abra la app). Desactivado por defecto.
+    # El detalle completo va SIEMPRE al log y al diagnóstico, active o no.
+    # Nota: la API key nunca aparece en un mensaje de error, con esto activado
+    # o desactivado. Eso lo garantiza llm_providers.redact(), no este flag.
+    SHOW_AI_ERROR_DETAIL: bool = _env("SHOW_AI_ERROR_DETAIL", default="").strip().lower() in (
+        "1", "true", "yes", "si", "sí", "on",
+    )
+
+    # --- Claude (Anthropic) ---
     ANTHROPIC_API_KEY: str = _env("ANTHROPIC_API_KEY", default="")
     ANTHROPIC_MODEL: str = _env("ANTHROPIC_MODEL", default="claude-opus-5")
     # Cuánto razona el modelo antes de responder: low | medium | high | xhigh | max.
     # Es el mando de latencia contra calidad. "low" responde en pocos segundos;
     # "medium" hila mejor tiempo + hora + sitio. Pruébalo con tus datos reales.
-    ANTHROPIC_EFFORT: str = _env("ANTHROPIC_EFFORT", default="low")
+    # Se normaliza aquí (espacios, mayúsculas) y se valida en ai_orchestrator
+    # antes de cada llamada: un valor inválido debe dar un error que nombre la
+    # variable, no un 400 críptico de la API.
+    ANTHROPIC_EFFORT: str = _env("ANTHROPIC_EFFORT", default="low").strip().lower()
+
+    # --- Gemini (Google AI Studio) ---
+    # Capa gratuita sin tarjeta. La key se saca en aistudio.google.com
+    # (Get API key > Create API key) y empieza por "AIza".
+    GEMINI_API_KEY: str = _env("GEMINI_API_KEY", default="")
+    # gemini-2.5-flash: buen equilibrio para esta tarea. "flash-lite" pierde
+    # justo en el razonamiento que conecta tiempo + hora + sitio, que es el
+    # valor de la app; "pro" tiene límites gratuitos mucho más estrechos y te
+    # quedarías sin cuota diaria afinando el prompt.
+    GEMINI_MODEL: str = _env("GEMINI_MODEL", default="gemini-2.5-flash").strip()
 
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.

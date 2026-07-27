@@ -3,10 +3,16 @@
 Uso:
     python tools/diagnostico.py                  # usa Cudillero por defecto
     python tools/diagnostico.py 43.36 -8.41      # unas coordenadas concretas
+    python tools/diagnostico.py --todos          # prueba TODOS los proveedores
+    python tools/diagnostico.py -v               # con traza completa
 
 Para cuando algo no funciona y estás a 800 km de casa: te dice QUÉ falla, no
 solo que "hay un error". Cada línea es independiente, así que sabes
 exactamente qué pieza está rota y cuál sigue en pie.
+
+El detalle de los errores de IA se muestra aquí SIEMPRE, tenga el valor que
+tenga SHOW_AI_ERROR_DETAIL: esa variable controla lo que ve el usuario en la
+interfaz, no lo que ves tú depurando.
 """
 
 from __future__ import annotations
@@ -40,8 +46,11 @@ def check(nombre: str, fn) -> bool:
 def main() -> None:
     # OJO: no se puede filtrar "lo que empieza por '-'" como si fueran flags.
     # Todo el norte de España tiene longitud NEGATIVA (-4.29, -6.14...), así
-    # que ese filtro se comía justo el argumento que nos interesa.
-    args = [a for a in sys.argv[1:] if a != "-v"]
+    # que ese filtro se comía justo el argumento que nos interesa. Por eso los
+    # flags se listan explícitamente en vez de detectarse por el guion.
+    _FLAGS = {"-v", "--todos"}
+    todos = "--todos" in sys.argv
+    args = [a for a in sys.argv[1:] if a not in _FLAGS]
     lat, lon = (float(args[0]), float(args[1])) if len(args) >= 2 else (43.5622, -6.1456)
 
     print(f"\nDiagnóstico para {lat}, {lon}\n" + "=" * 56)
@@ -50,18 +59,30 @@ def main() -> None:
     print("\nCONFIGURACIÓN")
     try:
         from app.config import Config
-        print(f"  {'variables de entorno':.<34} OK     "
-              f"modelo={Config.ANTHROPIC_MODEL} effort={Config.ANTHROPIC_EFFORT}")
+        print(f"  {'proveedor activo':.<34} OK     LLM_PROVIDER={Config.LLM_PROVIDER}")
         print(f"  {'ANTHROPIC_API_KEY':.<34} "
-              f"{'OK     definida' if Config.ANTHROPIC_API_KEY else 'AUSENTE (no habrá recomendaciones)'}")
+              f"{'definida' if Config.ANTHROPIC_API_KEY else 'ausente'}"
+              f"   (modelo={Config.ANTHROPIC_MODEL}, effort={Config.ANTHROPIC_EFFORT})")
+        print(f"  {'GEMINI_API_KEY':.<34} "
+              f"{'definida' if Config.GEMINI_API_KEY else 'ausente'}"
+              f"   (modelo={Config.GEMINI_MODEL})")
+        print(f"  {'SHOW_AI_ERROR_DETAIL':.<34} "
+              f"{'activado' if Config.SHOW_AI_ERROR_DETAIL else 'desactivado (por defecto)'}")
     except Exception as exc:  # noqa: BLE001
         print(f"  configuración: FALLO -> {exc}")
         sys.exit(1)
 
     from app.modules import storage
     from app.modules.ai_orchestrator import get_recommendations
+    from app.modules.llm_providers import PROVIDER_NAMES, build_provider
     from app.modules.location_context import find_nearby_pois, reverse_geocode
     from app.modules.weather_context import get_weather
+
+    # El diagnóstico SIEMPRE enseña el detalle completo del error: para eso
+    # existe. SHOW_AI_ERROR_DETAIL controla lo que ve el usuario en la
+    # interfaz, no lo que ves tú depurando. La redacción de la API key sigue
+    # aplicándose igualmente: eso no lo desactiva nada.
+    Config.SHOW_AI_ERROR_DETAIL = True
 
     print("\nSERVICIOS")
     ok = True
@@ -88,13 +109,26 @@ def main() -> None:
         return f"{len(pois)} puntos de interés"
     pois_ok = check("Overpass (puntos de interés)", _pois)
 
+    # Con --todos probamos cada proveedor registrado; sin él, solo el activo.
+    # Probar todos de una vez responde a "¿tengo alternativa si este falla?",
+    # que es la pregunta útil cuando te quedas sin saldo a mitad de viaje.
+    a_probar = list(PROVIDER_NAMES) if todos else [Config.LLM_PROVIDER]
+
+    ai_ok = False
     if place is not None:
-        def _ai():
-            reco = get_recommendations(place, weather, pois, use_cache=False)
-            return f"{len(reco.actividades)} actividades, modelo={reco.modelo}"
-        ai_ok = check("Anthropic (recomendaciones)", _ai)
-    else:
-        ai_ok = False
+        def _make_check(nombre: str):
+            def _ai():
+                # use_cache=False: una recomendación cacheada no prueba nada
+                # sobre si el proveedor responde ahora mismo.
+                provider = build_provider(nombre)
+                reco = get_recommendations(
+                    place, weather, pois, use_cache=False, provider=provider
+                )
+                return f"{len(reco.actividades)} actividades vía {provider.describe()}"
+            return _ai
+
+        resultados = [check(f"IA: {nombre}", _make_check(nombre)) for nombre in a_probar]
+        ai_ok = any(resultados)
 
     print("\n" + "=" * 56)
     if ok and weather_ok and pois_ok and ai_ok:

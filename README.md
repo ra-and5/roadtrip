@@ -41,8 +41,9 @@ roadtrip/
 │   ├── modules/
 │   │   ├── auth.py                 Login de un solo usuario
 │   │   ├── location_context.py     Nominatim (dónde estoy) + Overpass (qué hay cerca)
-│   │   ├── weather_context.py      Open-Meteo                         [fase 2]
-│   │   ├── ai_orchestrator.py      Construye el prompt y llama a Claude [fase 2]
+│   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
+│   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
+│   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Ollama
 │   │   └── storage.py              SQLite: caché y notas
 │   ├── templates/          HTML (Jinja2)
 │   └── static/             CSS, JS, manifest.json, iconos
@@ -88,15 +89,40 @@ python -m pytest -q
 
 ---
 
+## Cambiar de proveedor de LLM
+
+El proveedor está detrás de una única interfaz (`app/modules/llm_providers.py`).
+Cambiarlo es una variable de entorno:
+
+```bash
+LLM_PROVIDER=gemini      # Google AI Studio: capa gratuita, sin tarjeta
+LLM_PROVIDER=anthropic   # Claude: requiere saldo
+LLM_PROVIDER=ollama      # local: estructura preparada, sin implementar
+```
+
+`ai_orchestrator.py` no importa ningún SDK: el prompt de sistema y el esquema de
+salida se definen ahí una sola vez y se pasan al proveedor activo. Para
+comprobar cuáles tienes operativos:
+
+```bash
+python tools/diagnostico.py --todos
+```
+
+---
+
 ## Variables de entorno
 
 | Variable | Obligatoria | Descripción |
 |----------|:-----------:|-------------|
 | `SECRET_KEY` | ✅ | Firma la cookie de sesión. Genérala con `tools/hash_password.py`. Cambiarla cierra todas las sesiones. |
 | `APP_PASSWORD_HASH` | ✅ | Hash de tu contraseña. **Nunca la contraseña en claro.** |
-| `ANTHROPIC_API_KEY` | fase 2 | Clave de la API de Claude (console.anthropic.com). |
+| `LLM_PROVIDER` | ❌ | `anthropic`\|`gemini`\|`ollama`. Por defecto `anthropic`. Cambiar esto es lo único necesario para cambiar de modelo. |
+| `GEMINI_API_KEY` | si usas gemini | Clave de Google AI Studio (capa gratuita, sin tarjeta). |
+| `GEMINI_MODEL` | ❌ | Por defecto `gemini-2.5-flash`. |
+| `ANTHROPIC_API_KEY` | si usas anthropic | Clave de la API de Claude (console.anthropic.com). |
 | `ANTHROPIC_MODEL` | ❌ | Por defecto `claude-opus-5`. |
-| `ANTHROPIC_EFFORT` | ❌ | `low`\|`medium`\|`high`\|`xhigh`\|`max`. Por defecto `low`. El mando de latencia contra calidad: `low` responde en segundos, `medium` hila mejor tiempo + hora + sitio. Pruébalo con tus datos. |
+| `ANTHROPIC_EFFORT` | ❌ | `low`\|`medium`\|`high`\|`xhigh`\|`max`. Por defecto `low`. Mando de latencia contra calidad. |
+| `SHOW_AI_ERROR_DETAIL` | ❌ | Muestra el error crudo del proveedor en la interfaz. Desactivado por defecto; el detalle va siempre al log y al diagnóstico. La API key nunca aparece, esté activado o no. |
 | `NOMINATIM_USER_AGENT` | ❌ (pero ponla) | La política de uso de Nominatim exige identificarse con un contacto real. Sin ello pueden bloquear la IP del servidor. |
 | `DATA_DIR` | ❌ | Dónde viven la BD y las fotos. Por defecto `./data`. |
 | `HTTP_TIMEOUT` | ❌ | Segundos de timeout para APIs externas. Por defecto 10. |

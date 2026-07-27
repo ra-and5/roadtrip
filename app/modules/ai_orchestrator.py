@@ -1,15 +1,19 @@
-"""Orquestador de IA: construye el prompt con todo el contexto y llama a Claude.
+"""Orquestador de IA: construye el prompt y delega en un proveedor de LLM.
 
 Función de entrada: `get_recommendations(place, weather, pois) -> Recommendation`.
 
-Dos reglas de diseño que hacen este módulo testeable y barato de iterar:
+Tres reglas de diseño que hacen este módulo testeable y barato de iterar:
 
 1. **No llama a ninguna API de contexto.** Recibe el `Place`, el `Weather` y
    los `Poi` ya resueltos por los otros módulos. Así puedes probar el prompt
-   con datos inventados, sin red y sin gastar llamadas a la API.
+   con datos inventados, sin red y sin gastar llamadas.
 2. **`build_context()` es una función pura.** Puedes ver exactamente qué texto
-   recibe Claude sin hacer una sola petición. Iterar sobre un prompt a ciegas
-   es la forma más cara de perder una tarde.
+   recibe el modelo sin hacer una sola petición. Iterar sobre un prompt a
+   ciegas es la forma más cara de perder una tarde.
+3. **No sabe qué proveedor hay detrás.** El prompt de sistema y el esquema de
+   salida se definen aquí UNA vez y se pasan al proveedor activo. Cambiar de
+   Claude a Gemini es cambiar `LLM_PROVIDER` en el entorno; este archivo no se
+   toca.
 
 La API key nunca sale del backend.
 """
@@ -22,10 +26,15 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.config import Config
 from app.modules import storage
+from app.modules.llm_providers import AIError, LLMProvider, build_provider
 from app.modules.location_context import Place, Poi
 from app.modules.weather_context import Weather
+
+# Reexportamos AIError para que el resto de la app la siga importando de aquí.
+# Vive en llm_providers porque los proveedores tienen que lanzarla y este
+# módulo tiene que importarlos: al revés sería un import circular.
+__all__ = ["AIError", "Activity", "Recommendation", "build_context", "get_recommendations"]
 
 # Las recomendaciones caducan porque dependen de la hora y del tiempo, no solo
 # del sitio. 3 horas: lo bastante para no repetir llamada si pulsas el botón
@@ -33,28 +42,17 @@ from app.modules.weather_context import Weather
 # "por la noche".
 _RECOMMENDATION_CACHE_TTL = 3 * 3600
 
-# Un LLM tarda segundos, no milisegundos. El timeout global de 10 s que usamos
-# para el resto de APIs mataría la petición a mitad.
-_AI_TIMEOUT_SECONDS = 120.0
-
-# Thinking está activado por defecto en Claude Opus 5, y `max_tokens` limita
-# el razonamiento MÁS la respuesta. Damos margen para que no se corte a mitad
-# del JSON.
-_MAX_TOKENS = 8000
-
-
-class AIError(Exception):
-    """Error recuperable al generar recomendaciones."""
-
 
 # ---------------------------------------------------------------------------
-# Esquema de salida
+# Esquema de salida (compartido por todos los proveedores)
 # ---------------------------------------------------------------------------
 
-# Structured outputs: la API garantiza que la respuesta cumple este esquema.
-# Es la diferencia entre un frontend que se rompe cuando el modelo decide
-# escribir markdown, y uno que no se rompe nunca. `additionalProperties: false`
-# y `required` completo son obligatorios para que el esquema sea válido.
+# Salida estructurada: el proveedor garantiza que la respuesta cumple este
+# esquema. Es la diferencia entre un frontend que se rompe cuando el modelo
+# decide escribir markdown, y uno que no se rompe nunca.
+#
+# Se define UNA vez aquí, no por proveedor: si cada uno tuviera su copia,
+# divergirían y no sabrías cuál estás afinando.
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -136,6 +134,7 @@ class Recommendation:
     resumen: str
     actividades: list[Activity] = field(default_factory=list)
     aviso: str = ""
+    proveedor: str = ""
     modelo: str = ""
     desde_cache: bool = False
 
@@ -144,7 +143,7 @@ class Recommendation:
 
 
 # ---------------------------------------------------------------------------
-# Construcción del prompt (funciones puras: testeables sin red ni API key)
+# Prompt de sistema (compartido por todos los proveedores)
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
@@ -178,9 +177,16 @@ Cómo trabajas:
   son cinco planes.
 
 Tono: español de España, tuteo, directo y concreto. Nada de "sumérgete en la \
-magia" ni relleno de folleto turístico. Si un sitio es del montón, dilo.\
+magia" ni relleno de folleto turístico. Si un sitio es del montón, dilo.
+
+Responde ÚNICAMENTE con el JSON pedido, sin texto adicional ni marcadores de \
+bloque de código.\
 """
 
+
+# ---------------------------------------------------------------------------
+# Construcción del prompt (funciones puras: testeables sin red ni API key)
+# ---------------------------------------------------------------------------
 
 def _local_now(weather: Weather | None) -> datetime:
     """Hora local del punto consultado.
@@ -258,10 +264,10 @@ def build_context(
     pois: list[Poi],
     now: datetime | None = None,
 ) -> str:
-    """Construye el bloque de contexto que se envía a Claude.
+    """Construye el bloque de contexto que se envía al modelo.
 
     Función pura: mismos argumentos, mismo texto. Imprímela para depurar el
-    prompt sin gastar una sola llamada a la API.
+    prompt sin gastar una sola llamada a la API. No depende del proveedor.
     """
     now = now or _local_now(weather)
     dias = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
@@ -286,57 +292,41 @@ Recomiéndame qué hacer desde aquí, ahora."""
 
 
 # ---------------------------------------------------------------------------
-# Llamada a Claude
+# Interpretación de la respuesta
 # ---------------------------------------------------------------------------
 
-def _client() -> Any:
-    """Crea el cliente de Anthropic. Importa perezosamente el SDK.
+def _strip_code_fence(text: str) -> str:
+    """Quita los ```json ... ``` con los que algunos modelos envuelven el JSON.
 
-    Importar dentro de la función y no arriba permite que toda la app (login,
-    ubicación, tiempo) siga funcionando aunque el SDK no esté instalado o la
-    key no esté configurada. Solo falla lo que depende de la IA.
+    Los proveedores con salida estructurada nativa no lo hacen, pero no todos
+    la respetan igual de estrictamente y un modelo local (Ollama) casi seguro
+    la usará. Tolerarlo aquí, una vez, evita duplicar la limpieza en cada
+    proveedor.
     """
-    if not Config.ANTHROPIC_API_KEY:
-        raise AIError(
-            "Falta ANTHROPIC_API_KEY. Configúrala en el .env (local) o en las "
-            "variables de entorno de PythonAnywhere (producción)."
-        )
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise AIError("El paquete 'anthropic' no está instalado (pip install anthropic).") from exc
-
-    return anthropic.Anthropic(
-        api_key=Config.ANTHROPIC_API_KEY,
-        timeout=_AI_TIMEOUT_SECONDS,
-        # El SDK reintenta solo ante 429 y errores 5xx, con espera exponencial.
-        max_retries=2,
-    )
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    # Quitamos la primera línea (```json) y la última (```).
+    lines = stripped.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
-def _extract_text(response: Any) -> str:
-    """Saca el texto de la respuesta, comprobando antes si hubo rechazo.
+def _parse_response(raw_text: str, proveedor: str, modelo: str) -> Recommendation:
+    """Convierte el JSON de la respuesta en un `Recommendation`.
 
-    `content` puede traer bloques de tipos distintos (thinking, text,
-    fallback...). Indexar `content[0].text` a ciegas se rompe en cuanto
-    aparece un bloque que no es texto.
+    Agnóstico del proveedor a propósito: recibe texto, devuelve el dataclass.
     """
-    if getattr(response, "stop_reason", None) == "refusal":
-        raise AIError("El modelo declinó responder a esta petición.")
-
-    for block in getattr(response, "content", []):
-        if getattr(block, "type", None) == "text":
-            return block.text
-
-    raise AIError("El modelo no devolvió ningún texto.")
-
-
-def _parse_response(raw_text: str, model: str) -> Recommendation:
-    """Convierte el JSON de la respuesta en un `Recommendation`."""
     try:
-        data = json.loads(raw_text)
+        data = json.loads(_strip_code_fence(raw_text))
     except json.JSONDecodeError as exc:
         raise AIError("La respuesta del modelo no era JSON válido.") from exc
+
+    if not isinstance(data, dict):
+        raise AIError("La respuesta del modelo no era un objeto JSON.")
 
     actividades = [
         Activity(
@@ -356,65 +346,34 @@ def _parse_response(raw_text: str, model: str) -> Recommendation:
         resumen=str(data.get("resumen", "")),
         actividades=actividades,
         aviso=str(data.get("aviso", "")),
-        modelo=model,
+        proveedor=proveedor,
+        modelo=modelo,
     )
 
 
-def _call_claude(context: str) -> Recommendation:
-    """Llama a Claude y devuelve la recomendación estructurada.
+# ---------------------------------------------------------------------------
+# Entrada pública
+# ---------------------------------------------------------------------------
 
-    Estrategia en dos intentos:
+def _cache_key(place: Place, weather: Weather | None, now: datetime, provider: LLMProvider) -> str:
+    """Clave de caché de una recomendación.
 
-    1. Endpoint beta con `fallbacks="default"`: si los clasificadores de
-       seguridad declinasen la petición, la API la reintenta automáticamente en
-       otro modelo dentro de la misma llamada, en vez de devolvernos un fallo.
-    2. Si ese intento falla por un 400 (una beta retirada, un parámetro que
-       cambió), reintentamos por el endpoint estable sin betas. Es el seguro
-       que evita que una app en producción a 800 km de casa se quede muerta
-       por un cambio en una API en fase beta.
+    Incluye PROVEEDOR y MODELO además de sitio, día y franja horaria. Sin eso,
+    tras desarrollar el prompt con Gemini y cambiar a Claude seguirías viendo
+    las respuestas cacheadas de Gemini, y creerías estar evaluando Claude
+    cuando no lo estás. Es un fallo silencioso: no da error, solo conclusiones
+    equivocadas.
+
+    La franja horaria va en bloques de 3 h porque la recomendación depende de
+    la hora (el mismo sitio a las 10:00 y a las 21:00 merece planes distintos),
+    pero dos pulsaciones seguidas deben acertar en la caché.
     """
-    import anthropic
-
-    client = _client()
-    model = Config.ANTHROPIC_MODEL
-
-    common: dict[str, Any] = {
-        "model": model,
-        "max_tokens": _MAX_TOKENS,
-        "system": _SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": context}],
-        "output_config": {
-            # `effort` regula cuánto razona el modelo. "low" responde en pocos
-            # segundos; "medium" razona mejor la conexión entre tiempo, hora y
-            # sitio. Ajustable por variable de entorno: pruébalo con tus datos.
-            "effort": Config.ANTHROPIC_EFFORT,
-            "format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA},
-        },
-    }
-
-    try:
-        try:
-            response = client.beta.messages.create(
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-                **common,
-            )
-        except anthropic.BadRequestError:
-            # El endpoint beta rechazó la petición: seguimos por el estable.
-            response = client.messages.create(**common)
-
-    except anthropic.AuthenticationError as exc:
-        raise AIError("La API key de Anthropic no es válida.") from exc
-    except anthropic.RateLimitError as exc:
-        raise AIError("Se ha superado el límite de peticiones. Prueba en un minuto.") from exc
-    except anthropic.APITimeoutError as exc:
-        raise AIError("El modelo tardó demasiado en responder.") from exc
-    except anthropic.APIConnectionError as exc:
-        raise AIError("Sin conexión con la API de Claude.") from exc
-    except anthropic.APIStatusError as exc:
-        raise AIError(f"La API de Claude devolvió un error ({exc.status_code}).") from exc
-
-    return _parse_response(_extract_text(response), model)
+    return (
+        f"{storage.cache_key_for_coords('reco', place.lat, place.lon)}"
+        f":{provider.name}:{provider.model}"
+        f":{now.strftime('%Y%m%d')}:h{now.hour // 3}"
+        f":{weather.outdoor_rating() if weather else 'sin-tiempo'}"
+    )
 
 
 def get_recommendations(
@@ -423,6 +382,7 @@ def get_recommendations(
     pois: list[Poi],
     *,
     use_cache: bool = True,
+    provider: LLMProvider | None = None,
 ) -> Recommendation:
     """Genera recomendaciones razonadas para la ubicación actual.
 
@@ -432,30 +392,29 @@ def get_recommendations(
             No es un error: el prompt se adapta y lo dice explícitamente.
         pois: puntos de interés cercanos. Puede estar vacía.
         use_cache: False para forzar una consulta nueva.
+        provider: proveedor concreto. Por defecto, el de `LLM_PROVIDER`.
+            Se inyecta en los tests y en el diagnóstico multi-proveedor.
 
     Raises:
-        AIError: falta la key, o la API falló de forma no recuperable.
+        AIError: falta configuración, o el proveedor falló. Es la única
+            excepción que sale de aquí, venga del proveedor que venga.
     """
+    provider = provider or build_provider()
     now = _local_now(weather)
-
-    # La clave incluye la franja horaria porque la recomendación depende de la
-    # hora: el mismo sitio a las 10:00 y a las 21:00 merece planes distintos.
-    # Redondeamos a bloques de 3 h para que dos pulsaciones seguidas acierten.
-    cache_key = (
-        f"{storage.cache_key_for_coords('reco', place.lat, place.lon)}"
-        f":{now.strftime('%Y%m%d')}:h{now.hour // 3}"
-        f":{weather.outdoor_rating() if weather else 'sin-tiempo'}"
-    )
+    cache_key = _cache_key(place, weather, now, provider)
 
     if use_cache:
         cached = storage.cache_get(cache_key, _RECOMMENDATION_CACHE_TTL)
         if cached is not None:
-            recommendation = _parse_response(cached["json"], cached.get("modelo", ""))
+            recommendation = _parse_response(
+                cached["json"], cached.get("proveedor", ""), cached.get("modelo", "")
+            )
             recommendation.desde_cache = True
             return recommendation
 
     context = build_context(place, weather, pois, now)
-    recommendation = _call_claude(context)
+    raw_text = provider.generate(system=_SYSTEM_PROMPT, context=context, schema=_OUTPUT_SCHEMA)
+    recommendation = _parse_response(raw_text, provider.name, provider.model)
 
     # Guardamos el JSON ya serializado: si algún día cambian los dataclasses,
     # una entrada vieja de caché no revienta al deserializarse.
@@ -470,7 +429,8 @@ def get_recommendations(
                 },
                 ensure_ascii=False,
             ),
-            "modelo": recommendation.modelo,
+            "proveedor": provider.name,
+            "modelo": provider.model,
         },
     )
     return recommendation

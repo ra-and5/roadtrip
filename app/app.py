@@ -187,6 +187,11 @@ def api_recommendations() -> Any:
         )
         body["recommendation"] = recommendation.to_dict()
     except AIError as exc:
+        # El detalle completo va SIEMPRE al log, esté o no activado
+        # SHOW_AI_ERROR_DETAIL: el interruptor decide qué ve el usuario en la
+        # interfaz, no qué se registra para depurar. El mensaje ya viene sin
+        # secretos desde llm_providers.
+        app.logger.warning("Fallo de IA (%s): %s", Config.LLM_PROVIDER, exc)
         warnings.append(f"Sin recomendación de IA: {exc}")
     except Exception:  # noqa: BLE001
         app.logger.exception("Fallo inesperado generando recomendaciones")
