@@ -55,6 +55,8 @@ Cada módulo tiene una función de entrada tipada y lanza su propia excepción
 ## 4. Comandos
 
 ```bash
+pip install -r requirements.txt            # producción (lo que va al servidor)
+pip install -r requirements-dev.txt        # + pytest, para desarrollar
 python run.py                              # servidor local (127.0.0.1:5000)
 python -m pytest -q                        # tests (sin red, sin API keys)
 python tools/diagnostico.py                # estado de cada dependencia
@@ -71,12 +73,26 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
 | 2b | Proveedor de LLM intercambiable (Anthropic / Gemini) | ✅ Hecho |
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
+| 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
+| — | **Desplegado en PythonAnywhere y validado en iPhone** | ⬜ Pendiente |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
-**Pendiente de validar:** despliegue en PythonAnywhere y prueba desde el iPhone
-real (ver [`docs/prompt-despliegue.md`](docs/prompt-despliegue.md)). El GPS solo
-funciona en HTTPS, así que hasta desplegar no se puede probar de verdad.
+**Dónde está el despliegue.** El código está listo y verificado en un virtualenv
+limpio, pero **no se ha desplegado todavía**. El GPS solo funciona en HTTPS, así
+que la funcionalidad central del proyecto sigue sin probarse de verdad: es el
+trabajo inmediato, por delante de la Fase 3.
+
+- Checklist de despliegue: sección *Despliegue* del `README.md`.
+- Las seis comprobaciones en el móvil: [`docs/validacion-movil.md`](docs/validacion-movil.md).
+- Cuando algo falle: [`docs/troubleshooting.md`](docs/troubleshooting.md).
+- El encargo original: [`docs/prompt-despliegue.md`](docs/prompt-despliegue.md).
+
+**Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
+factura: el plan gratuito saca todo el tráfico por un proxy con lista blanca de
+dominios, y un host no permitido devuelve un **403 del proxy** que la app ve
+como "fuente caída" y degrada en silencio. Por eso el checklist obliga a correr
+`tools/diagnostico.py` **en el servidor** antes de tocar el móvil.
 
 **Saldo de Anthropic agotado** (confirmado: la API devuelve 400 con *"Your credit
 balance is too low"*). Por eso se usa Gemini, ya verificado generando
@@ -185,6 +201,32 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Corolario: **el prefijo de la key no sirve para validarla** — las hay que
     empiezan por `AIza` y por `AQ.`, y ambas son buenas.
 
+15. **La cookie de sesión sale `Secure` por defecto, no por configuración.**
+    Es la cookie que da acceso a *toda* la app, y basta una petición por
+    `http://` para que viaje en claro por el wifi de un camping. Se dejó como
+    variable (`SESSION_COOKIE_SECURE`) pero **activada por defecto**: lo seguro
+    tiene que ser lo que pasa si no haces nada. El precio es una trampa que hay
+    que conocer: si *Force HTTPS* está desactivado en PythonAnywhere, el
+    navegador descarta la cookie y la app entra en **bucle de login sin ningún
+    mensaje de error**. Está en el checklist y en la tabla de síntomas, porque
+    un fallo mudo que no está documentado cuesta una tarde.
+
+16. **`/healthz` pregunta por el proveedor ACTIVO, no por una API key concreta.**
+    Miraba solo `ANTHROPIC_API_KEY`, así que un despliegue sano con Gemini
+    informaba `ia_configurada: false`. Es la decisión 11 otra vez —un fallo que
+    no da error, solo una respuesta equivocada— pero en el peor sitio posible:
+    la herramienta con la que compruebas si el despliegue ha ido bien. Usa
+    `build_provider()`, que valida nombre y key **sin llamar a la API**: un
+    health check no debe gastar cuota ni tardar 10 s. No revela cuál es el
+    proveedor porque el endpoint es público; el detalle está en el diagnóstico.
+
+17. **Dependencias con versión fijada (`==`).** Con `>=` instalas en el servidor
+    lo que publicaran esa mañana, no lo que probaste. Y cuando algo se rompa
+    dentro de un mes no podrás volver a lo que funcionaba, porque nunca quedó
+    escrito qué era. `requirements-dev.txt` está aparte para que `pytest` no
+    acabe en el servidor: la cuota gratuita son 512 MB y el virtualenv ya ocupa
+    ~100 MB.
+
 ## 7. Roadmap
 
 - **Fase 3.** Notas geolocalizadas con cola offline (IndexedDB en el móvil,
@@ -220,6 +262,28 @@ Ideas que conviene entender para mantener y extender esto.
   encontrar: cuando la caché sirve una respuesta del proveedor anterior, todo
   "funciona". Merece la pena gastar una línea en la clave de caché para
   convertir un fallo silencioso en algo imposible.
+
+- **Equivocarse hacia el lado seguro.** `_env_bool()` no parsea un booleano sin
+  más: decide qué hacer con un valor que no reconoce, y la respuesta depende de
+  hacia dónde duele el error. Un flag activado por defecto (la cookie `Secure`)
+  solo se apaga con un "no" reconocible; uno apagado por defecto
+  (`SHOW_AI_ERROR_DETAIL`) solo se enciende con un "sí" reconocible. Escribir
+  `flase` en el `.env` no puede desproteger nada. Es la misma idea que el
+  *fail-safe* de un freno: cuando el sistema no sabe, cae del lado que no hace
+  daño.
+
+- **La configuración se lee al importar, y eso condiciona los tests.** `Config`
+  resuelve el entorno una vez, al importarse. La tentación al testear es
+  `importlib.reload(app.config)` para probar otro valor, y es una trampa:
+  recargar sustituye la clase `Config` por una nueva, pero los módulos que
+  hicieron `from app.config import Config` se quedan con la vieja. A partir de
+  ahí el test parchea un objeto y el código de producción lee de otro. Pasó de
+  verdad: `storage` acabó escribiendo en la base de datos **real** a mitad de la
+  suite, y solo fallaba según el orden en que corrieran los archivos. La salida
+  no fue un `reload` más listo, sino **extraer el parseo a una función**
+  (`_env_bool`) que se puede llamar directamente. Regla general: si para testear
+  algo necesitas reimportar un módulo, lo que quieres probar merece ser una
+  función.
 
 - **Defensa en profundidad para los secretos.** No basta con "no meter la key en
   el mensaje": también se redacta al salir, se redacta por patrón aunque la

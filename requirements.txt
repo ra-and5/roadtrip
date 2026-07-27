@@ -1,12 +1,26 @@
-Flask>=3.0
-requests>=2.31
-Werkzeug>=3.0
+# Versiones FIJADAS (==), no mínimos (>=).
+#
+# Con ">=" instalas en el servidor una versión distinta de la que probaste en
+# local, y el despliegue pasa a depender de qué publicaron los mantenedores esa
+# mañana. Peor: deja de ser reproducible, porque si algo se rompe dentro de un
+# mes no puedes volver a lo que funcionaba (nunca quedó escrito qué era).
+#
+# Estas son las versiones con las que la suite pasa en verde y el diagnóstico
+# da OK de extremo a extremo. Ninguna requiere Python > 3.11.
+#
+# Para actualizar: sube la versión, corre `python -m pytest -q` y
+# `python tools/diagnostico.py <lat> <lon>`, y si pasa, fíjala aquí.
+
+Flask==3.1.3
+requests==2.34.2
+Werkzeug==3.1.8
 
 # --- Proveedores de LLM ---
 # Solo hace falta el del proveedor que uses (LLM_PROVIDER), pero instalar
 # ambos permite cambiar con una variable sin volver a tocar dependencias.
-anthropic>=0.60
-google-genai>=1.0
+# Si en PythonAnywhere te quedas sin cuota de disco, instala solo el que uses.
+anthropic==0.120.0
+google-genai==2.14.0
 
 # Fase 3: redimensionado de fotos
-# Pillow>=10.0
+# Pillow==11.3.0

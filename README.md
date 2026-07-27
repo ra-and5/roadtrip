@@ -23,7 +23,12 @@ está rota, no solo que hay un error:
 ```bash
 python tools/diagnostico.py            # Cudillero por defecto
 python tools/diagnostico.py 43.38 -4.29
+python tools/diagnostico.py --todos    # prueba todos los proveedores de LLM
 ```
+
+Si ya sabes el síntoma pero no la causa,
+[`docs/troubleshooting.md`](docs/troubleshooting.md) va por síntomas: la app no
+carga, bucle de login, el GPS no pide permiso, la IA no responde, todo lento…
 
 ---
 
@@ -132,6 +137,7 @@ python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con
 | `ANTHROPIC_MODEL` | ❌ | Por defecto `claude-opus-5`. |
 | `ANTHROPIC_EFFORT` | ❌ | `low`\|`medium`\|`high`\|`xhigh`\|`max`. Por defecto `low`. Mando de latencia contra calidad. |
 | `SHOW_AI_ERROR_DETAIL` | ❌ | Muestra el error crudo del proveedor en la interfaz. Desactivado por defecto; el detalle va siempre al log y al diagnóstico. La API key nunca aparece, esté activado o no. |
+| `SESSION_COOKIE_SECURE` | ❌ | La cookie de sesión solo viaja por HTTPS. **Activado por defecto: déjalo así en el servidor.** Ponlo a `0` únicamente para probar por `http://` desde otro aparato de tu red local. En `localhost` no hace falta tocarlo. |
 | `NOMINATIM_USER_AGENT` | ❌ (pero ponla) | La política de uso de Nominatim exige identificarse con un contacto real. Sin ello pueden bloquear la IP del servidor. |
 | `DATA_DIR` | ❌ | Dónde viven la BD y las fotos. Por defecto `./data`. |
 | `HTTP_TIMEOUT` | ❌ | Segundos de timeout para APIs externas. Por defecto 10. |
@@ -139,54 +145,141 @@ python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con
 La app **falla al arrancar** si falta una obligatoria. Es intencionado: mejor un
 error claro al desplegar que un fallo raro a mitad de una petición.
 
+Los interruptores (`SHOW_AI_ERROR_DETAIL`, `SESSION_COOKIE_SECURE`) entienden
+`1/true/yes/si/on` y `0/false/no/off`. Vacío o mal escrito los deja en su valor
+por defecto, que siempre es el seguro: una errata no enciende la depuración ni
+desprotege la cookie.
+
 ---
 
 ## Despliegue en PythonAnywhere
 
-1. **Subir el código.** En una consola Bash de PythonAnywhere:
-   ```bash
-   git clone <tu-repo> ~/roadtrip
-   ```
+Checklist para seguir de arriba abajo marcando casillas. Sustituye `TU_USUARIO`
+por tu usuario de PythonAnywhere en todas partes.
 
-2. **Crear el virtualenv:**
-   ```bash
-   mkvirtualenv --python=/usr/bin/python3.11 roadtrip
-   pip install -r ~/roadtrip/requirements.txt
-   ```
+Si algo falla, la tabla de [`docs/troubleshooting.md`](docs/troubleshooting.md)
+va por síntomas.
 
-3. **Crear la web app:** pestaña *Web* → *Add a new web app* → *Manual
-   configuration* → Python 3.11.
+### Antes de empezar
 
-4. **Configurar el archivo WSGI.** En *Web* → *WSGI configuration file*,
-   borra todo el contenido y pon:
-   ```python
-   import sys
-   path = '/home/TU_USUARIO/roadtrip'
-   if path not in sys.path:
-       sys.path.insert(0, path)
-   from wsgi import application
-   ```
+- [ ] La suite pasa en local: `python -m pytest -q`
+- [ ] El diagnóstico da OK en local: `python tools/diagnostico.py 43.5622 -6.1456`
+- [ ] Tienes a mano la `GEMINI_API_KEY` y una contraseña para la app
 
-5. **Virtualenv:** en la sección *Virtualenv*, escribe
-   `/home/TU_USUARIO/.virtualenvs/roadtrip`.
+### 1. Código y entorno
 
-6. **Archivos estáticos:** en *Static files*, añade
-   URL `/static/` → Directory `/home/TU_USUARIO/roadtrip/app/static/`.
-   Esto hace que el CSS y el JS los sirva el servidor web directamente en vez
-   de Flask: más rápido y menos carga.
+- [ ] **Clonar** en una consola Bash de PythonAnywhere:
+      ```bash
+      git clone <tu-repo> ~/roadtrip
+      ```
+- [ ] **Crear el virtualenv** (Python 3.11; el código no usa nada posterior):
+      ```bash
+      mkvirtualenv --python=/usr/bin/python3.11 roadtrip
+      pip install -r ~/roadtrip/requirements.txt
+      ```
+      No instales `requirements-dev.txt`: el servidor no corre los tests.
 
-7. **Variables de entorno.** PythonAnywhere no lee `.env` automáticamente.
-   Dos opciones:
-   - **Recomendada:** crear el `.env` directamente en el servidor
-     (`nano ~/roadtrip/.env`). `config.py` lo carga solo.
-   - O declararlas en el archivo WSGI con `os.environ[...]` antes del import.
+> **Cuota de disco (plan gratuito: 512 MB).** El virtualenv completo ocupa unos
+> 100 MB. Entra de sobra, pero si andas justo, `anthropic` son 13 MB que puedes
+> omitir mientras uses `LLM_PROVIDER=gemini`: instala solo `google-genai`.
+> Comprueba con `du -sh ~/.virtualenvs/roadtrip`.
 
-   En cualquier caso, **el `.env` nunca se sube a git.**
+### 2. Secretos y configuración
 
-8. **Reload** en la pestaña *Web*. Comprueba
-   `https://TU_USUARIO.pythonanywhere.com/healthz` → `{"status": "ok"}`.
+- [ ] **Generar credenciales nuevas** (no reutilices las del portátil: si el
+      `.env` local se filtra alguna vez, no quieres que abra también el
+      servidor):
+      ```bash
+      cd ~/roadtrip && python tools/hash_password.py
+      ```
+- [ ] **Crear el `.env` en el servidor** con `nano ~/roadtrip/.env`.
+      PythonAnywhere no lee `.env` solo; lo carga `config.py`:
+      ```bash
+      SECRET_KEY=<la que acaba de generar hash_password.py>
+      APP_PASSWORD_HASH=<el hash que acaba de generar>
+      LLM_PROVIDER=gemini
+      GEMINI_API_KEY=<tu clave de aistudio.google.com>
+      GEMINI_MODEL=gemini-3.6-flash
+      NOMINATIM_USER_AGENT=roadtrip-companion/0.1 (tu-nombre; tu@email.com)
+      DATA_DIR=/home/TU_USUARIO/roadtrip/data
+      ```
+      El `NOMINATIM_USER_AGENT` con contacto **real** no es cortesía: su
+      política lo exige y pueden bloquear la IP del servidor, que compartes con
+      otros usuarios de PythonAnywhere.
 
-Los errores del servidor aparecen en la pestaña *Web* → *Error log*.
+      `DATA_DIR` absoluto porque el proceso web no arranca necesariamente desde
+      la raíz del proyecto, y una ruta relativa crearía la base de datos en un
+      sitio distinto según quién la abra.
+
+      **El `.env` nunca se sube a git**, ni aquí ni en local.
+
+### 3. La web app
+
+- [ ] *Web* → *Add a new web app* → **Manual configuration** → **Python 3.11**
+      (manual, no "Flask": la configuración automática monta su propio esqueleto)
+- [ ] **WSGI configuration file**: borra todo el contenido y deja exactamente
+      ```python
+      import sys
+      path = '/home/TU_USUARIO/roadtrip'
+      if path not in sys.path:
+          sys.path.insert(0, path)
+      from wsgi import application
+      ```
+- [ ] **Virtualenv**: `/home/TU_USUARIO/.virtualenvs/roadtrip`
+- [ ] **Static files**: URL `/static/` → Directory
+      `/home/TU_USUARIO/roadtrip/app/static/`
+      (que el CSS y el JS los sirva el servidor web, no Flask)
+- [ ] **Force HTTPS: activado.** No es opcional. La cookie de sesión sale
+      marcada `Secure`, así que si entras por `http://` el navegador la
+      descarta y la app **entra en un bucle de login sin mensaje de error**.
+- [ ] **Reload**
+
+### 4. Comprobar que arrancó
+
+- [ ] ```bash
+      curl https://TU_USUARIO.pythonanywhere.com/healthz
+      ```
+      Esperado: `{"ia_configurada":true,"status":"ok"}`
+
+      `ia_configurada:false` = la app está viva pero `LLM_PROVIDER` o
+      `GEMINI_API_KEY` están mal en el `.env`. Sin respuesta = mira *Web* →
+      **Error log**.
+
+- [ ] **El diagnóstico, desde el servidor** (consola Bash de PythonAnywhere, no
+      desde tu portátil):
+      ```bash
+      cd ~/roadtrip && python tools/diagnostico.py 43.5622 -6.1456
+      ```
+
+> **Este paso es la puerta de entrada al móvil, y en el plan gratuito es el que
+> más probablemente falle.** PythonAnywhere gratuito saca *todo* el tráfico por
+> un proxy con **lista blanca de dominios**. Un host no permitido no da error de
+> conexión: devuelve un **403 con cuerpo HTML** que viene del proxy, no de la
+> API. La app lo tratará como "esa fuente ha fallado" y degradará en silencio,
+> así que descúbrelo aquí y no con el teléfono en la mano en Asturias.
+>
+> Hosts que necesita la app:
+>
+> | Host | Para qué |
+> |---|---|
+> | `nominatim.openstreetmap.org` | Dónde estoy |
+> | `api.open-meteo.com` · `marine-api.open-meteo.com` | Tiempo y oleaje |
+> | `overpass-api.de` · `overpass.kumi.systems` · `overpass.private.coffee` | Qué hay cerca |
+> | `generativelanguage.googleapis.com` | Gemini |
+>
+> Si alguno no está permitido, se pide en el foro de PythonAnywhere. Mientras
+> tanto la app **sigue siendo utilizable**: solo la ubicación es imprescindible
+> (ver *Degradación en cascada*).
+
+Recuerda: **cada cambio en el `.env` o en el código exige pulsar *Reload***. Es
+el fallo más tonto y el más frecuente.
+
+### 5. Validar en el móvil
+
+El paso que de verdad importa: el GPS solo funciona bajo HTTPS, así que hasta
+ahora no se ha podido probar nunca de verdad. Sigue
+[`docs/validacion-movil.md`](docs/validacion-movil.md), que son seis
+comprobaciones en orden con lo que deberías ver en cada una.
 
 ---
 

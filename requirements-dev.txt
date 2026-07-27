@@ -1,0 +1,9 @@
+# Dependencias SOLO de desarrollo. No se instalan en PythonAnywhere: el
+# servidor no corre la suite, y cada paquete de más es cuota de disco y
+# superficie que mantener.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.1

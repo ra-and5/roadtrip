@@ -60,6 +60,32 @@ def _env(name: str, default: str | None = None, *, required: bool = False) -> st
     return value or ""
 
 
+_VALORES_FALSOS = ("0", "false", "no", "off")
+_VALORES_VERDADEROS = ("1", "true", "yes", "si", "sí", "on")
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    """Lee un interruptor del entorno.
+
+    Vacío o sin definir se queda con `default`. Lo interesante es qué se hace
+    con un valor que no se reconoce ("flase", "activado", "1 "), y la respuesta
+    depende de hacia dónde es seguro equivocarse: un flag que por defecto está
+    ACTIVADO solo se apaga con un "no" reconocible, y uno que por defecto está
+    APAGADO solo se enciende con un "sí" reconocible. Así una errata nunca
+    desprotege nada; como mucho no surte efecto, que se nota enseguida.
+
+    Está como función y no repetido en cada atributo porque este parseo se
+    puede probar sin arrancar la app: los tests lo llaman directamente en vez
+    de reimportar el módulo, que es frágil (recargar `app.config` sustituye la
+    clase `Config` y los módulos que ya la habían importado siguen con la
+    antigua).
+    """
+    bruto = _env(name, default="").strip().lower()
+    if not bruto:
+        return default
+    return bruto not in _VALORES_FALSOS if default else bruto in _VALORES_VERDADEROS
+
+
 class Config:
     """Configuración de la app. Se lee una vez al importar el módulo."""
 
@@ -71,6 +97,17 @@ class Config:
     # Guardamos el HASH de la contraseña, nunca la contraseña. Generarlo con:
     #   python tools/hash_password.py
     APP_PASSWORD_HASH: str = _env("APP_PASSWORD_HASH", required=True)
+
+    # La cookie de sesión solo viaja por HTTPS. Activado por defecto: es la
+    # cookie que da acceso a toda la app, y basta UNA petición por http:// para
+    # que viaje en claro y quede capturable en cualquier wifi de camping. En
+    # local tampoco estorba, porque los navegadores tratan `localhost` como
+    # contexto seguro y envían cookies `Secure` igualmente.
+    # Se desactiva solo para probar por http desde otro dispositivo de la red
+    # local; nunca en el servidor. Un valor no reconocido deja el flag activado
+    # a propósito: si te equivocas escribiéndolo, el fallo debe ser hacia el
+    # lado seguro.
+    SESSION_COOKIE_SECURE: bool = _env_bool("SESSION_COOKIE_SECURE", default=True)
 
     # --- Proveedor de LLM ---
     # Qué proveedor usa la app: anthropic | gemini | ollama (aún sin implementar).
@@ -84,9 +121,7 @@ class Config:
     # El detalle completo va SIEMPRE al log y al diagnóstico, active o no.
     # Nota: la API key nunca aparece en un mensaje de error, con esto activado
     # o desactivado. Eso lo garantiza llm_providers.redact(), no este flag.
-    SHOW_AI_ERROR_DETAIL: bool = _env("SHOW_AI_ERROR_DETAIL", default="").strip().lower() in (
-        "1", "true", "yes", "si", "sí", "on",
-    )
+    SHOW_AI_ERROR_DETAIL: bool = _env_bool("SHOW_AI_ERROR_DETAIL", default=False)
 
     # --- Claude (Anthropic) ---
     ANTHROPIC_API_KEY: str = _env("ANTHROPIC_API_KEY", default="")

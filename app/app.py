@@ -20,6 +20,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from app.config import Config
 from app.modules import auth, storage
 from app.modules.ai_orchestrator import AIError, get_recommendations
+from app.modules.llm_providers import build_provider
 from app.modules.location_context import (
     InvalidCoordinates,
     LocationError,
@@ -37,6 +38,9 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=90)
 # La cookie de sesión no debe viajar en peticiones cross-site.
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+# Y no viaja por http. Ver Config.SESSION_COOKIE_SECURE para el porqué del
+# valor por defecto.
+app.config["SESSION_COOKIE_SECURE"] = Config.SESSION_COOKIE_SECURE
 
 # Crear el esquema al arrancar. Es idempotente, así que da igual cuántos
 # workers levante PythonAnywhere.
@@ -203,8 +207,25 @@ def api_recommendations() -> Any:
 
 @app.route("/healthz")
 def healthz() -> Any:
-    """Comprobación de vida. Sin autenticación, a propósito."""
-    return jsonify({"status": "ok", "ia_configurada": bool(Config.ANTHROPIC_API_KEY)})
+    """Comprobación de vida. Sin autenticación, a propósito.
+
+    `ia_configurada` pregunta por el proveedor ACTIVO, no por una key concreta.
+    Antes miraba solo `ANTHROPIC_API_KEY`, así que un despliegue sano con
+    Gemini informaba `false`: justo el tipo de fallo silencioso de la
+    decisión 11, pero en la herramienta con la que compruebas el despliegue.
+
+    `build_provider()` valida el nombre del proveedor y su key sin llamar a la
+    API: un health check no debe gastar cuota ni tardar 10 s. No se revela cuál
+    es el proveedor ni por qué falla, porque este endpoint es público; para eso
+    está `tools/diagnostico.py`.
+    """
+    try:
+        build_provider()
+        ia_configurada = True
+    except AIError:
+        ia_configurada = False
+
+    return jsonify({"status": "ok", "ia_configurada": ia_configurada})
 
 
 # ---------------------------------------------------------------------------
