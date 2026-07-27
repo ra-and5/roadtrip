@@ -19,7 +19,9 @@ from app.modules.llm_providers import (
     AIError,
     AnthropicProvider,
     GeminiProvider,
+    KimiProvider,
     LLMProvider,
+    MAX_OUTPUT_TOKENS,
     PROVIDER_NAMES,
     build_provider,
     redact,
@@ -46,8 +48,8 @@ class FakeProvider(LLMProvider):
 
 # --- Selección de proveedor -------------------------------------------------
 
-def test_registro_expone_los_tres_proveedores():
-    assert set(PROVIDER_NAMES) == {"anthropic", "gemini", "ollama"}
+def test_registro_expone_todos_los_proveedores():
+    assert set(PROVIDER_NAMES) == {"anthropic", "gemini", "kimi", "ollama"}
 
 
 def test_build_provider_usa_la_variable_de_entorno(monkeypatch):
@@ -247,3 +249,276 @@ def test_extract_text_salta_bloques_que_no_son_texto():
         content = [Block("thinking"), Block("text", '{"ok": true}')]
 
     assert AnthropicProvider._extract_text(FakeResponse()) == '{"ok": true}'
+
+
+# --- Kimi (Moonshot) --------------------------------------------------------
+#
+# Kimi se habla por HTTP con requests, no con un SDK, así que aquí se simula la
+# capa de transporte: una sesión falsa que devuelve la respuesta que le digas.
+# Ninguno de estos tests toca la red.
+
+class FakeHttpResponse:
+    """Algo con la forma de requests.Response, lo justo para estos tests."""
+
+    def __init__(self, status_code: int, payload: Any = None, text: str = "") -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self) -> Any:
+        if self._payload is None:
+            raise ValueError("no es JSON")
+        return self._payload
+
+
+class FakeSession:
+    """Sesión falsa: registra lo que se envía y devuelve lo que se le diga."""
+
+    def __init__(self, response: Any = None, error: Exception | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.enviado: dict[str, Any] = {}
+
+    def post(self, url: str, *, json: dict[str, Any], timeout: float) -> Any:
+        self.enviado = {"url": url, "json": json, "timeout": timeout}
+        if self._error:
+            raise self._error
+        return self._response
+
+
+_SCHEMA_DE_PRUEBA = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+
+def _kimi(monkeypatch, session: Any = None, **config: Any) -> KimiProvider:
+    """Construye un KimiProvider con la config pedida y el transporte simulado."""
+    monkeypatch.setattr(Config, "KIMI_API_KEY", config.pop("key", "sk-de-mentira-para-el-test"))
+    monkeypatch.setattr(Config, "KIMI_MODEL", config.pop("modelo", "kimi-k3"))
+    monkeypatch.setattr(Config, "KIMI_REASONING_EFFORT", config.pop("effort", "low"))
+    provider = KimiProvider()
+    if session is not None:
+        # Saltamos _client(): no queremos abrir una sesión HTTP de verdad.
+        provider._cached_client = session
+    return provider
+
+
+def _respuesta_ok(content: str = '{"ok": true}', **extra: Any) -> dict[str, Any]:
+    choice = {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+    choice.update(extra)
+    return {"choices": [choice], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+
+
+def _error_kimi(status: int, tipo: str, mensaje: str = "x") -> FakeHttpResponse:
+    return FakeHttpResponse(status, {"error": {"type": tipo, "message": mensaje}})
+
+
+# --- Kimi: configuración ---
+
+def test_kimi_falta_de_key_sugiere_la_alternativa_gratuita(monkeypatch):
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "")
+    with pytest.raises(AIError) as exc_info:
+        build_provider("kimi")
+    mensaje = str(exc_info.value)
+    assert "KIMI_API_KEY" in mensaje
+    assert "gemini" in mensaje.lower()
+
+
+def test_kimi_rechaza_los_valores_de_effort_de_anthropic(monkeypatch):
+    """Las dos escalas se parecen lo bastante para confundirlas.
+
+    'medium' y 'xhigh' son válidos en Anthropic y NO existen en Kimi. Copiar la
+    línea del .env de un proveedor a otro daría un 400 a mitad de petición; se
+    detecta al construir, con un error que nombra la variable.
+    """
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "sk-de-mentira-para-el-test")
+    monkeypatch.setattr(Config, "KIMI_REASONING_EFFORT", "medium")
+    with pytest.raises(AIError) as exc_info:
+        KimiProvider()
+
+    mensaje = str(exc_info.value)
+    assert "KIMI_REASONING_EFFORT" in mensaje
+    assert "low, high, max" in mensaje
+    assert "ANTHROPIC_EFFORT" in mensaje  # dice con qué se está confundiendo
+
+
+@pytest.mark.parametrize("modelo,esperado", [
+    # k3 razona siempre y se regula con reasoning_effort.
+    ("kimi-k3", {"reasoning_effort": "low"}),
+    # k2.6 permite apagar el razonamiento, y lo apagamos: se factura como
+    # tokens de salida, que son los caros.
+    ("kimi-k2.6", {"thinking": {"type": "disabled"}}),
+    # k2.7-code lo tiene fijo en "enabled": mandarle el campo da error, así
+    # que no se manda nada.
+    ("kimi-k2.7-code", {}),
+])
+def test_kimi_usa_el_mando_de_razonamiento_de_cada_familia(monkeypatch, modelo, esperado):
+    assert _kimi(monkeypatch, modelo=modelo)._thinking_params() == esperado
+
+
+# --- Kimi: forma de la petición ---
+
+def test_kimi_pide_salida_estructurada_estricta(monkeypatch):
+    """Sin strict=true la API solo promete 'un JSON válido'.
+
+    Esa es justo la promesa que no sirve: el frontend necesita ESTOS campos,
+    no cualquier JSON (decisión 8).
+    """
+    session = FakeSession(FakeHttpResponse(200, _respuesta_ok()))
+    provider = _kimi(monkeypatch, session)
+    provider.generate(system="sistema", context="contexto", schema=_SCHEMA_DE_PRUEBA)
+
+    enviado = session.enviado["json"]
+    formato = enviado["response_format"]
+    assert formato["type"] == "json_schema"
+    assert formato["json_schema"]["strict"] is True
+    assert formato["json_schema"]["schema"] == _SCHEMA_DE_PRUEBA
+    # El esquema se pasa TAL CUAL: si este proveedor lo adaptase, tendría una
+    # copia propia y divergiría del que se afina en ai_orchestrator.
+
+    assert enviado["messages"] == [
+        {"role": "system", "content": "sistema"},
+        {"role": "user", "content": "contexto"},
+    ]
+    # `max_tokens` está deprecado en esta API; mandarlo sería silenciosamente
+    # ignorado y el techo de salida no se aplicaría.
+    assert enviado["max_completion_tokens"] == MAX_OUTPUT_TOKENS
+    assert "max_tokens" not in enviado
+    assert session.enviado["timeout"] > 60  # un LLM tarda segundos, no milisegundos
+
+
+def test_kimi_devuelve_el_content_y_guarda_los_tokens(monkeypatch):
+    session = FakeSession(FakeHttpResponse(200, _respuesta_ok('{"resumen": "hola"}')))
+    provider = _kimi(monkeypatch, session)
+
+    assert provider.generate(system="s", context="c", schema=_SCHEMA_DE_PRUEBA) == '{"resumen": "hola"}'
+    assert provider.last_usage == {"prompt_tokens": 10, "completion_tokens": 5}
+
+
+def test_kimi_ignora_reasoning_content(monkeypatch):
+    """El razonamiento viene en otro campo y NO es la respuesta.
+
+    Concatenarlo o devolverlo por error rompería el json.loads de arriba.
+    """
+    payload = _respuesta_ok('{"ok": true}')
+    payload["choices"][0]["message"]["reasoning_content"] = "primero pienso esto..."
+    provider = _kimi(monkeypatch, FakeSession(FakeHttpResponse(200, payload)))
+
+    assert provider.generate(system="s", context="c", schema=_SCHEMA_DE_PRUEBA) == '{"ok": true}'
+
+
+# --- Kimi: respuestas 200 que no sirven ---
+
+def test_kimi_detecta_el_json_truncado(monkeypatch):
+    """finish_reason='length' llega con HTTP 200 y el JSON a medias.
+
+    Sin comprobarlo, el fallo aparecería tres capas más arriba como 'no era
+    JSON válido', que no dice nada sobre cómo arreglarlo.
+    """
+    payload = _respuesta_ok('{"resumen": "empeza', finish_reason="length")
+    provider = _kimi(monkeypatch, FakeSession(FakeHttpResponse(200, payload)))
+
+    with pytest.raises(AIError) as exc_info:
+        provider.generate(system="s", context="c", schema=_SCHEMA_DE_PRUEBA)
+    mensaje = str(exc_info.value)
+    assert "incompleto" in mensaje
+    assert "KIMI_REASONING_EFFORT" in mensaje  # dice qué mover
+
+
+@pytest.mark.parametrize("payload", [
+    {"choices": []},
+    {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]},
+    {"choices": [{"message": {"content": "   "}, "finish_reason": "stop"}]},
+])
+def test_kimi_respuesta_vacia_es_un_error_explicito(monkeypatch, payload):
+    provider = _kimi(monkeypatch, FakeSession(FakeHttpResponse(200, payload)))
+    with pytest.raises(AIError):
+        provider.generate(system="s", context="c", schema=_SCHEMA_DE_PRUEBA)
+
+
+# --- Kimi: traducción de errores ---
+
+def test_kimi_distingue_quedarse_sin_saldo_de_ir_demasiado_rapido(monkeypatch):
+    """Los dos son 429 y se arreglan de forma OPUESTA.
+
+    Sin saldo, esperar no sirve de nada: hay que recargar. Presentarlo como
+    'prueba en un minuto' manda al usuario a reintentar contra un muro.
+    """
+    monkeypatch.setattr(Config, "SHOW_AI_ERROR_DETAIL", False)
+
+    sin_saldo = str(KimiProvider._translate(_error_kimi(429, "exceeded_current_quota_error")))
+    assert "saldo" in sin_saldo.lower()
+    assert "recarga" in sin_saldo.lower()
+    # Lo que NO debe decir: que esperar arregla algo. Aquí no arregla nada.
+    assert "espera un minuto" not in sin_saldo.lower()
+
+    demasiado_rapido = str(KimiProvider._translate(_error_kimi(429, "rate_limit_reached_error")))
+    assert "espera un minuto" in demasiado_rapido.lower()
+    assert "recarga" not in demasiado_rapido.lower()  # ni manda a gastar dinero
+
+    saturado = str(KimiProvider._translate(_error_kimi(429, "engine_overloaded_error")))
+    assert "saturad" in saturado.lower()
+    assert "saldo" in saturado.lower()  # aclara que NO es un problema de dinero
+
+
+def test_kimi_401_menciona_la_plataforma_no_solo_la_key(monkeypatch):
+    """Una key buena contra el endpoint equivocado da el MISMO 401.
+
+    Verificado en la documentación: las keys de las plataformas regionales de
+    Moonshot no son intercambiables. Sin este aviso, el usuario tira una key
+    que funciona perfectamente.
+    """
+    mensaje = str(KimiProvider._translate(_error_kimi(401, "incorrect_api_key_error")))
+    assert "KIMI_BASE_URL" in mensaje
+
+
+def test_kimi_404_lista_modelos_validos(monkeypatch):
+    monkeypatch.setattr(Config, "KIMI_MODEL", "kimi-k9-inventado")
+    mensaje = str(KimiProvider._translate(_error_kimi(404, "resource_not_found_error")))
+    assert "kimi-k9-inventado" in mensaje
+    assert "kimi-k3" in mensaje  # dice cuál poner, no solo que el tuyo no vale
+
+
+def test_kimi_error_sin_cuerpo_json_no_revienta():
+    """Un 502 de un proxy devuelve HTML, no el JSON de error de la API."""
+    respuesta = FakeHttpResponse(502, None, text="<html>Bad Gateway</html>")
+    assert isinstance(KimiProvider._translate(respuesta), AIError)
+
+
+def test_kimi_ningun_fallo_de_requests_escapa_del_modulo(monkeypatch):
+    """La frontera del módulo: arriba solo puede llegar AIError.
+
+    Si app.py tuviera que capturar requests.ConnectionError, la abstracción
+    habría fracasado.
+    """
+    import requests
+
+    for excepcion in (requests.Timeout(), requests.ConnectionError(), requests.TooManyRedirects()):
+        provider = _kimi(monkeypatch, FakeSession(error=excepcion))
+        with pytest.raises(AIError):
+            provider.generate(system="s", context="c", schema=_SCHEMA_DE_PRUEBA)
+
+
+# --- Kimi: secretos ---
+
+def test_la_key_de_kimi_tambien_se_redacta(monkeypatch):
+    """Las keys se descubren por convención (`*_API_KEY`), no por una lista.
+
+    Este test existe porque el fallo contrario es invisible: añadir un
+    proveedor y olvidarse de meter su key en la función de redacción no rompe
+    nada, solo hace que la clave salga en claro en el primer error.
+    """
+    monkeypatch.setattr(Config, "SHOW_AI_ERROR_DETAIL", True)
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "sk-CLAVEDEKIMISUPERSECRETA123456")
+
+    mensaje = str(KimiProvider._translate(_error_kimi(
+        401, "invalid_authentication_error",
+        "key sk-CLAVEDEKIMISUPERSECRETA123456 rechazada",
+    )))
+    assert "CLAVEDEKIMI" not in mensaje
+
+
+def test_redact_tapa_una_key_estilo_moonshot_no_configurada(monkeypatch):
+    """Aunque no sea la nuestra: si parece una key, se tapa."""
+    monkeypatch.setattr(Config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(Config, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "")
+    assert "sk-" not in redact("error con sk-abcdefghijklmnopqrstuvwxyz123456")

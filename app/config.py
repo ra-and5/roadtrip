@@ -110,7 +110,7 @@ class Config:
     SESSION_COOKIE_SECURE: bool = _env_bool("SESSION_COOKIE_SECURE", default=True)
 
     # --- Proveedor de LLM ---
-    # Qué proveedor usa la app: anthropic | gemini | ollama (aún sin implementar).
+    # Qué proveedor usa la app: anthropic | gemini | kimi | ollama (sin implementar).
     # Cambiarlo aquí es lo único que hace falta para cambiar de modelo: el
     # código de ai_orchestrator no distingue entre unos y otros.
     LLM_PROVIDER: str = _env("LLM_PROVIDER", default="anthropic").strip().lower()
@@ -147,6 +147,30 @@ class Config:
     # nuevas ("no longer available to new users"). Lista los disponibles para
     # tu key con: python tools/listar_modelos.py
     GEMINI_MODEL: str = _env("GEMINI_MODEL", default="gemini-3.6-flash").strip()
+
+    # --- Kimi (Moonshot AI) ---
+    # No hay capa gratuita: la key se activa con una recarga mínima de 1 $ (y al
+    # llegar a 5 $ acumulados te abonan un vale de 5 $). Se saca en
+    # platform.kimi.ai > Console > API Keys.
+    KIMI_API_KEY: str = _env("KIMI_API_KEY", default="")
+    # Modelo fijado, igual que en Gemini y por el mismo motivo (decisión 14):
+    # afinar un prompt exige reproducibilidad. Se elige kimi-k3 porque es el
+    # único modelo NO especializado en código que la documentación garantiza
+    # como estable con salida estructurada; kimi-k2.6 es 4 veces más barato
+    # pero avisan de que "se comporta de forma inestable con esquemas
+    # complejos", y el nuestro tiene un array de objetos anidados con enums.
+    KIMI_MODEL: str = _env("KIMI_MODEL", default="kimi-k3").strip()
+    # Configurable porque Moonshot tiene plataformas regionales con endpoints
+    # distintos y las keys NO son intercambiables entre ellas (una key de una
+    # plataforma contra el endpoint de otra da un 401 que parece "key mala").
+    # Sirve además para apuntar a una pasarela compatible con OpenAI.
+    KIMI_BASE_URL: str = _env("KIMI_BASE_URL", default="https://api.moonshot.ai/v1").strip().rstrip("/")
+    # Cuánto razona kimi-k3 antes de responder: low | high | max.
+    # OJO: NO son los mismos valores que ANTHROPIC_EFFORT (que además acepta
+    # medium, xhigh). Por defecto la API usa "max", que aquí sería tirar dinero:
+    # el razonamiento se factura como tokens de salida, los más caros, y esto
+    # es una recomendación turística, no una demostración de un teorema.
+    KIMI_REASONING_EFFORT: str = _env("KIMI_REASONING_EFFORT", default="low").strip().lower()
 
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.

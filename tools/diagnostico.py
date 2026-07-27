@@ -66,6 +66,9 @@ def main() -> None:
         print(f"  {'GEMINI_API_KEY':.<34} "
               f"{'definida' if Config.GEMINI_API_KEY else 'ausente'}"
               f"   (modelo={Config.GEMINI_MODEL})")
+        print(f"  {'KIMI_API_KEY':.<34} "
+              f"{'definida' if Config.KIMI_API_KEY else 'ausente'}"
+              f"   (modelo={Config.KIMI_MODEL}, effort={Config.KIMI_REASONING_EFFORT})")
         print(f"  {'SHOW_AI_ERROR_DETAIL':.<34} "
               f"{'activado' if Config.SHOW_AI_ERROR_DETAIL else 'desactivado (por defecto)'}")
     except Exception as exc:  # noqa: BLE001
@@ -124,11 +127,29 @@ def main() -> None:
                 reco = get_recommendations(
                     place, weather, pois, use_cache=False, provider=provider
                 )
-                return f"{len(reco.actividades)} actividades vía {provider.describe()}"
+                detalle = f"{len(reco.actividades)} actividades vía {provider.describe()}"
+                # Con un proveedor de prepago, "cuántos tokens ha costado esto"
+                # deja de ser curiosidad. `last_usage` es opcional: los
+                # proveedores que no lo reportan lo dejan a None.
+                uso = provider.last_usage
+                if uso:
+                    detalle += (
+                        f" [{uso.get('prompt_tokens', '?')} tokens dentro, "
+                        f"{uso.get('completion_tokens', '?')} fuera]"
+                    )
+                return detalle
             return _ai
 
         resultados = [check(f"IA: {nombre}", _make_check(nombre)) for nombre in a_probar]
         ai_ok = any(resultados)
+
+    # El saldo solo se consulta si Kimi entra en juego: es el único proveedor
+    # de prepago, y con la recarga mínima de 1 $ la pregunta "¿cuánto me queda?"
+    # se hace de verdad. Va después de la llamada para que el saldo que salga
+    # ya refleje lo que acaba de gastarse.
+    if "kimi" in a_probar and Config.KIMI_API_KEY:
+        from app.modules.llm_providers import KimiProvider
+        check("saldo de Kimi", lambda: KimiProvider().balance())
 
     print("\n" + "=" * 56)
     if ok and weather_ok and pois_ok and ai_ok:

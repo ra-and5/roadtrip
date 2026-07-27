@@ -105,6 +105,7 @@ Cambiarlo es una variable de entorno:
 ```bash
 LLM_PROVIDER=gemini      # Google AI Studio: capa gratuita, sin tarjeta
 LLM_PROVIDER=anthropic   # Claude: requiere saldo
+LLM_PROVIDER=kimi        # Moonshot AI: sin capa gratuita, se activa con 1 $
 LLM_PROVIDER=ollama      # local: estructura preparada, sin implementar
 ```
 
@@ -130,12 +131,16 @@ python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con
 |----------|:-----------:|-------------|
 | `SECRET_KEY` | ✅ | Firma la cookie de sesión. Genérala con `tools/hash_password.py`. Cambiarla cierra todas las sesiones. |
 | `APP_PASSWORD_HASH` | ✅ | Hash de tu contraseña. **Nunca la contraseña en claro.** |
-| `LLM_PROVIDER` | ❌ | `anthropic`\|`gemini`\|`ollama`. Por defecto `anthropic`. Cambiar esto es lo único necesario para cambiar de modelo. |
+| `LLM_PROVIDER` | ❌ | `anthropic`\|`gemini`\|`kimi`\|`ollama`. Por defecto `anthropic`. Cambiar esto es lo único necesario para cambiar de modelo. |
 | `GEMINI_API_KEY` | si usas gemini | Clave de Google AI Studio (capa gratuita, sin tarjeta). El prefijo varía (`AIza…`, `AQ.…`): no lo uses para validarla. |
 | `GEMINI_MODEL` | ❌ | Por defecto `gemini-3.6-flash`. Averigua cuáles sirven con tu key: `python tools/listar_modelos.py`. |
 | `ANTHROPIC_API_KEY` | si usas anthropic | Clave de la API de Claude (console.anthropic.com). |
 | `ANTHROPIC_MODEL` | ❌ | Por defecto `claude-opus-5`. |
 | `ANTHROPIC_EFFORT` | ❌ | `low`\|`medium`\|`high`\|`xhigh`\|`max`. Por defecto `low`. Mando de latencia contra calidad. |
+| `KIMI_API_KEY` | si usas kimi | Clave de Moonshot AI (platform.kimi.ai → Console → API Keys). No hay capa gratuita: se activa con una recarga mínima de 1 $. |
+| `KIMI_MODEL` | ❌ | Por defecto `kimi-k3`. |
+| `KIMI_REASONING_EFFORT` | ❌ | `low`\|`high`\|`max`. Por defecto `low`. **Ojo: no son los mismos valores que `ANTHROPIC_EFFORT`**, y solo aplica a `kimi-k3`. |
+| `KIMI_BASE_URL` | ❌ | Por defecto `https://api.moonshot.ai/v1`. Cámbialo solo si usas el endpoint de China (`api.moonshot.cn`). |
 | `SHOW_AI_ERROR_DETAIL` | ❌ | Muestra el error crudo del proveedor en la interfaz. Desactivado por defecto; el detalle va siempre al log y al diagnóstico. La API key nunca aparece, esté activado o no. |
 | `SESSION_COOKIE_SECURE` | ❌ | La cookie de sesión solo viaja por HTTPS. **Activado por defecto: déjalo así en el servidor.** Ponlo a `0` únicamente para probar por `http://` desde otro aparato de tu red local. En `localhost` no hace falta tocarlo. |
 | `NOMINATIM_USER_AGENT` | ❌ (pero ponla) | La política de uso de Nominatim exige identificarse con un contacto real. Sin ello pueden bloquear la IP del servidor. |

@@ -43,7 +43,7 @@ app/
     location_context.py      Nominatim (dónde estoy) + Overpass (qué hay cerca)
     weather_context.py       Open-Meteo (tiempo + oleaje) e interpretación
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
-    llm_providers.py         Único módulo que conoce Anthropic / Gemini / Ollama
+    llm_providers.py         Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
     storage.py               SQLite: caché y notas
     auth.py                  Login de un solo usuario
 ```
@@ -71,7 +71,7 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 |------|-----------|--------|
 | 1 | Esqueleto Flask, login, GPS → nombre del lugar | ✅ Hecho |
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
-| 2b | Proveedor de LLM intercambiable (Anthropic / Gemini) | ✅ Hecho |
+| 2b | Proveedor de LLM intercambiable (Anthropic / Gemini / Kimi) | ✅ Hecho |
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ⬜ Pendiente |
@@ -226,6 +226,29 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     escrito qué era. `requirements-dev.txt` está aparte para que `pytest` no
     acabe en el servidor: la cuota gratuita son 512 MB y el virtualenv ya ocupa
     ~100 MB.
+
+18. **Kimi se habla por HTTP con `requests`, sin el SDK de OpenAI.** Su API es
+    compatible con la de OpenAI, así que el SDK habría funcionado; pero es una
+    sola llamada (`POST /chat/completions`), y ahí el SDK no ahorra código, solo
+    lo esconde, a cambio de un paquete más que mantener y que ocupa cuota en un
+    PythonAnywhere gratuito de 512 MB. `requests` ya era dependencia. La
+    contrapartida —ver los códigos HTTP a pelo— resulta ser una ventaja cuando
+    algo falla: se ve exactamente qué se envió.
+
+19. **`redact()` descubre las API keys por convención, no por una lista.**
+    Recorre `Config` buscando atributos `*_API_KEY` en vez de enumerarlos a
+    mano. El motivo es concreto y ya casi pasa: al añadir Kimi, una lista
+    escrita a mano se habría quedado corta, y ese olvido **no da error** — solo
+    hace que la key nueva salga sin tapar en el primer mensaje de error del
+    proveedor. Decisión 11 otra vez (fallo silencioso), pero pagando con un
+    secreto en vez de con una respuesta equivocada.
+
+    Corolario del mismo trabajo: **cada proveedor tiene su propio mando de
+    razonamiento y no son intercambiables**. `ANTHROPIC_EFFORT` acepta cinco
+    valores; `KIMI_REASONING_EFFORT` acepta tres, y solo lo entiende `kimi-k3`
+    (los demás modelos usan `thinking`, y los `-code` ninguno). Por eso son
+    variables distintas y cada una se valida por su cuenta antes de llamar: un
+    typo debe dar un error que nombre la variable, no un 400 críptico de la API.
 
 ## 7. Roadmap
 

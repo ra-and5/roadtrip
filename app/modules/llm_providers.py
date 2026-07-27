@@ -1,7 +1,8 @@
 """Proveedores de LLM intercambiables detrás de una única interfaz.
 
-Este es el ÚNICO módulo que sabe que existen Anthropic o Google. Hacia fuera
-solo se exponen tres cosas: `LLMProvider`, `build_provider()` y `AIError`.
+Este es el ÚNICO módulo que sabe que existen Anthropic, Google o Moonshot.
+Hacia fuera solo se exponen tres cosas: `LLMProvider`, `build_provider()` y
+`AIError`.
 Ni tipos, ni excepciones, ni formatos de respuesta de ningún proveedor cruzan
 esta frontera.
 
@@ -52,7 +53,7 @@ class AIError(Exception):
 # key en un mensaje de error acaba en un log, en una captura de pantalla o en
 # un issue de GitHub, y a partir de ahí está comprometida.
 _KEY_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]+"),        # Anthropic
+    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),        # Anthropic (sk-ant-...), Moonshot/Kimi (sk-...)
     re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),       # Google
     re.compile(r"(?i)(api[-_]?key|key|token)=[^\s&\"']+"),  # ...&key=XXX en URLs
 )
@@ -61,6 +62,23 @@ _KEY_PATTERNS: tuple[re.Pattern[str], ...] = (
 # requisito de que no aparezca "ni completa ni parcial": si un mensaje trae
 # solo un trozo de la key configurada, también se tapa.
 _MIN_PARTIAL_KEY_LEN = 12
+
+
+def _configured_keys() -> tuple[str, ...]:
+    """Todas las API keys definidas en `Config`, descubiertas por convención.
+
+    Se buscan por nombre (`*_API_KEY`) en vez de enumerarlas a mano. El motivo
+    es concreto: una lista escrita a mano se queda corta en cuanto alguien
+    añade un proveedor, y ese olvido NO da error — simplemente hace que la key
+    nueva salga sin tapar en el primer mensaje de error del proveedor. Es
+    exactamente la clase de fallo silencioso de la decisión 11, pero pagando
+    con un secreto en vez de con una respuesta equivocada.
+    """
+    return tuple(
+        value
+        for name, value in vars(Config).items()
+        if name.endswith("_API_KEY") and isinstance(value, str) and value
+    )
 
 
 def redact(text: str) -> str:
@@ -74,8 +92,8 @@ def redact(text: str) -> str:
     if not text:
         return text
 
-    for key in (Config.ANTHROPIC_API_KEY, Config.GEMINI_API_KEY):
-        if not key or len(key) < _MIN_PARTIAL_KEY_LEN:
+    for key in _configured_keys():
+        if len(key) < _MIN_PARTIAL_KEY_LEN:
             continue
         text = text.replace(key, "[API_KEY_OCULTA]")
         # Fragmentos: recorremos ventanas de la clave de mayor a menor. Es
@@ -129,6 +147,12 @@ class LLMProvider(ABC):
         # puede morir a mitad de la petición ("Cannot send a request, as the
         # client has been closed"). Además evita reconstruirlo en cada llamada.
         self._cached_client: Any = None
+        # Tokens de la última llamada, si el proveedor los reporta. NO forma
+        # parte del contrato: es información para `tools/diagnostico.py`, que
+        # con un proveedor de pago es la diferencia entre saber lo que cuesta
+        # cada recomendación y descubrirlo cuando se acaba el saldo. Quien lo
+        # lea debe tolerar `None`.
+        self.last_usage: dict[str, Any] | None = None
 
     @abstractmethod
     def generate(self, *, system: str, context: str, schema: dict[str, Any]) -> str:
@@ -392,6 +416,264 @@ class GeminiProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
+# Kimi (Moonshot AI)
+# ---------------------------------------------------------------------------
+
+# Valores que acepta `reasoning_effort` en kimi-k3. NO coinciden con los de
+# Anthropic (que además tiene "medium" y "xhigh"): son dos escalas distintas de
+# dos proveedores distintos, y mezclarlas da un 400.
+_KIMI_EFFORTS = ("low", "high", "max")
+
+# Familias de modelo y cómo se les pide que piensen. Es el detalle más
+# resbaladizo de esta API: el mando NO es el mismo en todos los modelos, y
+# mandarle a uno el del otro devuelve un 400.
+#   - kimi-k3          -> razona SIEMPRE; se regula con `reasoning_effort`.
+#   - kimi-k2.6        -> `thinking` opcional; lo apagamos, porque el
+#                         razonamiento se factura como salida (lo más caro) y
+#                         aquí no aporta.
+#   - kimi-k2.7-code   -> `thinking` está fijo en "enabled" y no se puede
+#                         desactivar: mandar el campo devuelve error. Por eso
+#                         para esta familia no se manda nada.
+_KIMI_THINKING_OFF = {"type": "disabled"}
+
+
+class KimiProvider(LLMProvider):
+    """Kimi (Moonshot AI), vía su API compatible con OpenAI.
+
+    Se habla con la API por HTTP con `requests`, que ya es una dependencia del
+    proyecto, en vez de instalar el SDK de OpenAI. Con una sola llamada
+    (`POST /chat/completions`) el SDK no ahorraría código —solo lo escondería—
+    y sí añadiría un paquete que mantener y que ocupa cuota de disco en
+    PythonAnywhere. La contrapartida es que aquí se ven los códigos HTTP a
+    pelo; a cambio, cuando algo falla se ve exactamente qué se envió.
+
+    No hay capa gratuita: la key se activa recargando 1 $. Ese es el motivo de
+    que este proveedor informe de tokens (`last_usage`) y de que distinga un
+    429 por saldo agotado de un 429 por ritmo de peticiones, que se arreglan de
+    formas opuestas.
+    """
+
+    name = "kimi"
+
+    def __init__(self, model: str | None = None) -> None:
+        super().__init__(model or Config.KIMI_MODEL)
+        if not Config.KIMI_API_KEY:
+            raise AIError(
+                "Falta KIMI_API_KEY. Sácala en platform.kimi.ai > Console > "
+                "API Keys (requiere una recarga mínima de 1 $) y ponla en el "
+                ".env. Alternativa gratuita: LLM_PROVIDER=gemini."
+            )
+        self._effort = self._validated_effort()
+
+    @staticmethod
+    def _validated_effort() -> str:
+        """Valida KIMI_REASONING_EFFORT antes de llamar.
+
+        Mismo criterio que en Anthropic: un typo debe dar un error que nombre
+        la variable, no un 400 críptico de la API a mitad de una petición.
+        """
+        effort = (Config.KIMI_REASONING_EFFORT or "").strip().lower()
+        if effort not in _KIMI_EFFORTS:
+            raise AIError(
+                f"KIMI_REASONING_EFFORT='{Config.KIMI_REASONING_EFFORT}' no es válido. "
+                f"Acepta: {', '.join(_KIMI_EFFORTS)}. Ojo: NO son los mismos "
+                f"valores que ANTHROPIC_EFFORT."
+            )
+        return effort
+
+    def _thinking_params(self) -> dict[str, Any]:
+        """El mando de razonamiento que entiende ESTE modelo (ver _KIMI_*)."""
+        if self.model.startswith("kimi-k3"):
+            return {"reasoning_effort": self._effort}
+        if self.model.startswith("kimi-k2.7-code"):
+            return {}
+        return {"thinking": _KIMI_THINKING_OFF}
+
+    def _client(self) -> Any:
+        if self._cached_client is not None:
+            return self._cached_client
+        import requests
+
+        # Una Session reutiliza la conexión TCP y el handshake TLS entre
+        # llamadas. Con un solo usuario el ahorro es modesto, pero es gratis.
+        session = requests.Session()
+        session.headers.update({
+            "Authorization": f"Bearer {Config.KIMI_API_KEY}",
+            "Content-Type": "application/json",
+        })
+        self._cached_client = session
+        return self._cached_client
+
+    def generate(self, *, system: str, context: str, schema: dict[str, Any]) -> str:
+        import requests
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": context},
+            ],
+            # `strict: true` activa decodificación restringida: el modelo no
+            # puede emitir un token que rompa el esquema. Sin él la API solo
+            # promete "un JSON válido", que es justo la promesa que no sirve
+            # (decisión 8). `name` es únicamente una etiqueta para sus logs.
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "recomendacion_viaje",
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+            # `max_tokens` está deprecado en esta API en favor de este campo.
+            "max_completion_tokens": MAX_OUTPUT_TOKENS,
+            **self._thinking_params(),
+        }
+
+        try:
+            response = self._client().post(
+                f"{Config.KIMI_BASE_URL}/chat/completions",
+                json=payload,
+                timeout=AI_TIMEOUT_SECONDS,
+            )
+        except requests.Timeout as exc:
+            raise AIError(f"Kimi tardó más de {AI_TIMEOUT_SECONDS:.0f} s.") from exc
+        except requests.RequestException as exc:
+            raise AIError(f"Sin conexión con la API de Kimi: {_safe_detail(str(exc))}") from exc
+
+        if response.status_code != 200:
+            raise self._translate(response)
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise AIError("Kimi devolvió algo que no era JSON.") from exc
+
+        return self._extract_text(data)
+
+    def _extract_text(self, data: dict[str, Any]) -> str:
+        """Saca el texto de la respuesta y guarda el consumo de tokens."""
+        self.last_usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise AIError("Kimi devolvió una respuesta sin contenido.")
+        choice = choices[0]
+
+        # Truncado por límite de tokens: la API responde 200 y el JSON llega a
+        # medias, así que el fallo aparecería tres capas más arriba como "no
+        # era JSON válido". Igual que la API marina de Open-Meteo (decisión 5),
+        # un 200 no significa que la respuesta sirva.
+        if choice.get("finish_reason") == "length":
+            raise AIError(
+                f"Kimi cortó la respuesta al llegar al límite de "
+                f"{MAX_OUTPUT_TOKENS} tokens y el JSON quedó incompleto. "
+                f"Con un modelo que razona, el razonamiento también consume ese "
+                f"límite: baja KIMI_REASONING_EFFORT o sube MAX_OUTPUT_TOKENS."
+            )
+
+        message = choice.get("message") or {}
+        # `reasoning_content` viene aparte y NO es la respuesta: el JSON útil
+        # está siempre en `content`. Mezclarlos rompería el parseo.
+        content = message.get("content")
+        if not content or not content.strip():
+            raise AIError(
+                "Kimi devolvió una respuesta vacía "
+                f"(finish_reason={choice.get('finish_reason', 'desconocido')})."
+            )
+        return content
+
+    @staticmethod
+    def _translate(response: Any) -> AIError:
+        """Traduce una respuesta HTTP de error a AIError, sin filtrar secretos.
+
+        La API devuelve `{"error": {"type": ..., "message": ...}}`. El `type`
+        importa tanto como el código: un 429 puede ser "vas demasiado rápido",
+        "el servidor está saturado" o "te has quedado sin saldo", y las tres se
+        arreglan de forma distinta. Verificado contra la API real: el cuerpo de
+        error NO siempre trae el campo `code`, así que nos guiamos por el
+        estado HTTP y por `type`.
+        """
+        status = getattr(response, "status_code", 0)
+        try:
+            error = (response.json() or {}).get("error") or {}
+        except ValueError:
+            error = {}
+        tipo = str(error.get("type", ""))
+        mensaje = str(error.get("message", "") or getattr(response, "text", "") or "")
+        detalle = _safe_detail(mensaje)
+
+        if status == 401:
+            return AIError(
+                "La API key de Kimi no es válida. Comprueba también que "
+                "KIMI_BASE_URL corresponde a la plataforma donde creaste la "
+                "key: las keys no son intercambiables entre las plataformas "
+                "regionales de Moonshot, y usar la que no toca da este mismo 401."
+            )
+        if status == 403:
+            return AIError(f"Tu cuenta de Kimi no tiene permiso para esto. {detalle}")
+        if status == 404:
+            return AIError(
+                f"El modelo '{Config.KIMI_MODEL}' no existe o tu cuenta no tiene "
+                f"acceso. Modelos habituales: kimi-k3, kimi-k2.6, kimi-k2.7-code. "
+                f"{detalle}"
+            )
+        if status == 429:
+            if tipo == "exceeded_current_quota_error":
+                # Esto NO es un límite de ritmo: es dinero. Esperar no lo
+                # arregla, y presentarlo como "prueba en un minuto" mandaría al
+                # usuario a reintentar en bucle contra un muro.
+                return AIError(
+                    "Te has quedado sin saldo en Kimi (o la cuenta está "
+                    "desactivada). Esperar no lo arregla: recarga en "
+                    f"platform.kimi.ai, o cambia a LLM_PROVIDER=gemini. {detalle}"
+                )
+            if tipo == "engine_overloaded_error":
+                return AIError(
+                    "Los servidores de Kimi están saturados ahora mismo. "
+                    f"No es culpa de tu cuenta ni del saldo. {detalle}"
+                )
+            # Ritmo de peticiones. Con el nivel de recarga mínimo (1 $) el
+            # límite es de 3 peticiones por minuto, que se alcanza pulsando el
+            # botón varias veces seguidas.
+            return AIError(
+                "Límite de peticiones por minuto de Kimi alcanzado (429). "
+                f"Espera un minuto y vuelve a pulsar. {detalle}"
+            )
+        if status == 400 and tipo == "content_filter":
+            return AIError(f"Kimi rechazó la petición por su filtro de contenido. {detalle}")
+        if status == 400:
+            return AIError(f"Kimi rechazó la petición (400): {detalle}")
+        return AIError(f"La API de Kimi devolvió un error ({status}): {detalle}")
+
+    def balance(self) -> str:
+        """Saldo disponible, en texto listo para imprimir.
+
+        Fuera del contrato de `LLMProvider` a propósito: solo tiene sentido en
+        un proveedor de prepago, y lo usa `tools/diagnostico.py`. Con 1 $ de
+        saldo, "cuánto me queda" es una pregunta que se hace de verdad.
+        """
+        import requests
+
+        try:
+            response = self._client().get(
+                f"{Config.KIMI_BASE_URL}/users/me/balance",
+                timeout=Config.HTTP_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise AIError(f"No se pudo consultar el saldo: {_safe_detail(str(exc))}") from exc
+
+        if response.status_code != 200:
+            raise self._translate(response)
+        datos = (response.json() or {}).get("data") or {}
+        return (
+            f"{datos.get('available_balance', '?')} disponible "
+            f"({datos.get('cash_balance', '?')} recargado + "
+            f"{datos.get('voucher_balance', '?')} en vales)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Ollama (local) -- estructura preparada, sin implementar
 # ---------------------------------------------------------------------------
 
@@ -430,6 +712,7 @@ class OllamaProvider(LLMProvider):
 _REGISTRY: dict[str, type[LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
+    "kimi": KimiProvider,
     "ollama": OllamaProvider,
 }
 
