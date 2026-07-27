@@ -34,7 +34,8 @@ Los errores del servidor están en *Web* → **Error log** (los de arranque) y
 | **"El GPS tardó demasiado"** | Timeout de 15 s sin fix de satélite | Sal a cielo abierto. Dentro del coche con el móvil en la guantera es el caso típico. Si urge, abre Mapas de Apple para forzar un fix y vuelve |
 | **El CSS no se aplica.** Todo texto plano | Los *Static files* no están configurados, o apuntan mal | *Web* → *Static files*: URL `/static/` → Directory `/home/TU_USUARIO/roadtrip/app/static/` (con la barra final). Prueba `curl -I https://.../static/css/style.css`: un 404 lo confirma. *Reload* |
 | **La IA no responde pero el resto sí.** Sale ubicación, tiempo y POIs, con el aviso *"Sin recomendación de IA"* | El proveedor falla: sin key, key mala, cuota agotada, o el proxy bloquea el host | `/healthz`: si `ia_configurada` es `false` es el `.env` (`LLM_PROVIDER` o `GEMINI_API_KEY`). Si es `true`, corre el diagnóstico en el servidor: ahí sale el **error crudo** del proveedor |
-| **"Cuota agotada" / error 429** | Límite **por minuto** de la capa gratuita de Gemini | Espera un minuto y vuelve a pulsar. No hay reintento automático a propósito: reintentar dentro de la misma petición choca contra el mismo muro y bloquea la app 20-60 s. Si es persistente, prueba otro modelo con `python tools/listar_modelos.py` |
+| **"Cuota agotada" / error 429 con Gemini** | Límite **por minuto** de la capa gratuita | Espera un minuto y vuelve a pulsar. No hay reintento automático a propósito: reintentar dentro de la misma petición choca contra el mismo muro y bloquea la app 20-60 s. Si es persistente, prueba otro modelo con `python tools/listar_modelos.py` |
+| **Error 429 con Kimi** | **Tres causas distintas que se arreglan al revés.** El mensaje de la app dice cuál | *Vas demasiado rápido* (con 1 $ son 3 peticiones/min) → espera un minuto. *Servidores saturados* → espera, no es cosa tuya. ***Sin saldo*** → **esperar no arregla nada**: recarga en platform.kimi.ai, o pasa a `LLM_PROVIDER=gemini` (gratis) mientras tanto. Consulta el saldo con `python tools/diagnostico.py`; con `kimi-k3` cada recomendación cuesta ~0,03 $, y `KIMI_MODEL=kimi-k2.6` sale 5 veces más barato |
 | **Falta el tiempo, o los POIs, o ambos**, con su aviso | La API está caída, o el proxy del plan gratuito la bloquea | Diagnóstico **en el servidor**. Un **403 con HTML** es el proxy, no la API (ver abajo) |
 | **Todo va lentísimo** (más de 40 s) | Overpass lento (es un servicio comunitario gratuito) más el modelo | Es en parte normal: peor caso medido de Overpass 13,7 s, más 10-14 s de Gemini. A los 150 s corta solo. Si es sistemático, mira los *CPU seconds* de la pestaña *Web*: agotada la cuota diaria, la cuenta gratuita te ralentiza a propósito |
 | **La segunda consulta en el mismo sitio también tarda** | La caché no está escribiendo: `DATA_DIR` mal o sin permisos | `ls -la ~/roadtrip/data/`. Debe existir `roadtrip.db` y crecer. Comprueba que `DATA_DIR` del `.env` es una ruta **absoluta** |
@@ -62,6 +63,11 @@ Hosts que necesita la app:
 | `overpass-api.de` · `overpass.kumi.systems` · `overpass.private.coffee` | Sin puntos de interés verificados; el modelo tira de conocimiento general |
 | `generativelanguage.googleapis.com` | Sin recomendaciones (Gemini) |
 | `api.anthropic.com` | Solo si cambias a `LLM_PROVIDER=anthropic` |
+| `api.moonshot.ai` | Solo si cambias a `LLM_PROVIDER=kimi` |
+
+`api.anthropic.com`, `api.moonshot.ai` y `api.moonshot.cn` están **confirmados**
+en la lista blanca (verificado sobre la página de la lista, no preguntando). Los
+demás hay que comprobarlos con el diagnóstico en el servidor.
 
 **Cómo confirmarlo** desde una consola Bash del servidor:
 

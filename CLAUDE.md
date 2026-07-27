@@ -250,6 +250,38 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     variables distintas y cada una se valida por su cuenta antes de llamar: un
     typo debe dar un error que nombre la variable, no un 400 críptico de la API.
 
+20. **En Kimi, un 429 no significa una sola cosa.** En Gemini el 429 es siempre
+    cuota gratuita agotada (decisión 12). En Kimi, que es de prepago, el mismo
+    código cubre tres situaciones que se arreglan de formas **opuestas**, y hay
+    que mirar el campo `type` del cuerpo para distinguirlas:
+
+    | `type` | Qué pasa | Qué hacer |
+    |--------|----------|-----------|
+    | `rate_limit_reached_error` | Vas demasiado rápido (con 1 $ de recarga son 3 peticiones/minuto) | Esperar un minuto |
+    | `engine_overloaded_error` | Sus servidores saturados | Esperar; no es cosa tuya |
+    | `exceeded_current_quota_error` | **Sin saldo** | Recargar; esperar no arregla nada |
+
+    Tratarlos igual sería activamente dañino: decirle "prueba en un minuto" a
+    quien se ha quedado sin saldo lo manda a reintentar contra un muro, en el
+    peor momento posible (a mitad de viaje). Sigue sin haber reintento
+    automático, por lo mismo que la decisión 12.
+
+    Del mismo verificar-en-vez-de-suponer salieron otras tres cosas: el cuerpo
+    de error **no siempre trae el campo `code`** (comprobado contra la API real,
+    un 401 devuelve solo `type` y `message`), `max_tokens` está **deprecado** en
+    favor de `max_completion_tokens`, y un JSON truncado llega con **HTTP 200** y
+    `finish_reason="length"` — como la API marina de Open-Meteo (decisión 5), un
+    200 no significa que la respuesta sirva. Sin comprobarlo, el fallo aparecería
+    tres capas más arriba como "no era JSON válido", que no dice cómo arreglarlo.
+
+21. **`api.moonshot.ai` está en la lista blanca de PythonAnywhere.** Verificado
+    sobre el HTML de la página de la lista, no preguntando: el plan gratuito saca
+    todo el tráfico por un proxy que solo deja pasar dominios permitidos, y un
+    host no permitido devuelve un 403 del proxy que la app degrada en silencio
+    (ver *Estado actual*). Kimi habría sido inservible en producción de no
+    estarlo, y eso hay que saberlo **antes** de pagar la recarga, no después.
+    También están `api.anthropic.com`, `api.moonshot.cn` y `openrouter.ai`.
+
 ## 7. Roadmap
 
 - **Fase 3.** Notas geolocalizadas con cola offline (IndexedDB en el móvil,

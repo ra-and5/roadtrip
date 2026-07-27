@@ -48,7 +48,7 @@ roadtrip/
 │   │   ├── location_context.py     Nominatim (dónde estoy) + Overpass (qué hay cerca)
 │   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
-│   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Ollama
+│   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
 │   │   └── storage.py              SQLite: caché y notas
 │   ├── templates/          HTML (Jinja2)
 │   └── static/             CSS, JS, manifest.json, iconos
@@ -271,6 +271,7 @@ va por síntomas.
 > | `api.open-meteo.com` · `marine-api.open-meteo.com` | Tiempo y oleaje |
 > | `overpass-api.de` · `overpass.kumi.systems` · `overpass.private.coffee` | Qué hay cerca |
 > | `generativelanguage.googleapis.com` | Gemini |
+> | `api.moonshot.ai` | Kimi (comprobado: **sí** está permitido) |
 >
 > Si alguno no está permitido, se pide en el foro de PythonAnywhere. Mientras
 > tanto la app **sigue siendo utilizable**: solo la ubicación es imprescindible
