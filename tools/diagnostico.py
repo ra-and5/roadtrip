@@ -71,6 +71,11 @@ def main() -> None:
               f"   (modelo={Config.KIMI_MODEL}, effort={Config.KIMI_REASONING_EFFORT})")
         print(f"  {'SHOW_AI_ERROR_DETAIL':.<34} "
               f"{'activado' if Config.SHOW_AI_ERROR_DETAIL else 'desactivado (por defecto)'}")
+        # Se informa de si el HASH está puesto, nunca de su contenido, y el
+        # token en claro no existe aquí: el servidor solo guarda el hash.
+        print(f"  {'INGEST_TOKEN_HASH':.<34} "
+              f"{'configurado' if Config.INGEST_TOKEN_HASH else 'AUSENTE (ingesta cerrada)'}"
+              f"   (máx. {Config.INGEST_MAX_SAMPLES} muestras/envío)")
     except Exception as exc:  # noqa: BLE001
         print(f"  configuración: FALLO -> {exc}")
         sys.exit(1)
@@ -90,6 +95,17 @@ def main() -> None:
     print("\nSERVICIOS")
     ok = True
     ok &= check("base de datos (SQLite)", lambda: (storage.init_db(), "esquema listo")[1])
+
+    # Telemetría del móvil (Fase 2d). No es una dependencia externa, así que no
+    # cuenta para el veredicto final: la app funciona igual sin ella. Se mira
+    # aquí porque es la pregunta que cierra esa fase —¿siguen llegando datos?—
+    # y esta es la herramienta que se abre en el servidor cuando no llegan.
+    def _telemetria() -> str:
+        s = storage.telemetry_stats()
+        if not s["total"]:
+            return "0 muestras (aún no ha llegado ninguna)"
+        return f"{s['total']} muestras, última medida {s['ultima_medida']}"
+    check("telemetría del móvil", _telemetria)
 
     place = None
     def _geo():

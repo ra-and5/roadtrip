@@ -14,6 +14,7 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
 | 2b | Proveedor intercambiable: Anthropic / Gemini / Kimi | ✅ Hecho |
 | — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Código hecho, sin validar con el móvil |
 | 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
@@ -56,12 +57,15 @@ roadtrip/
 │   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
 │   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
-│   │   └── storage.py              SQLite: caché y notas
+│   │   ├── ingest.py               Telemetría del móvil: token, validación, idempotencia
+│   │   └── storage.py              SQLite: caché, notas y telemetría
 │   ├── templates/          HTML (Jinja2)
 │   └── static/             CSS, JS, manifest.json, iconos
 ├── tools/
 │   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
+│   ├── token_ingesta.py    Genera el token del iPhone y su hash
 │   ├── diagnostico.py      Estado de cada dependencia externa
+│   ├── ver_telemetria.py   Últimas muestras recibidas del móvil (consola)
 │   └── listar_modelos.py   Qué modelos de Gemini funcionan con tu key
 ├── tests/                  pytest
 └── data/                   BD e imágenes. NO va a git.
@@ -149,6 +153,9 @@ python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con
 | `KIMI_REASONING_EFFORT` | ❌ | `low`\|`high`\|`max`. Por defecto `low`. **Ojo: no son los mismos valores que `ANTHROPIC_EFFORT`**, y solo aplica a `kimi-k3`. |
 | `KIMI_BASE_URL` | ❌ | Por defecto `https://api.moonshot.ai/v1`. Cámbialo solo si usas el endpoint de China (`api.moonshot.cn`). |
 | `SHOW_AI_ERROR_DETAIL` | ❌ | Muestra el error crudo del proveedor en la interfaz. Desactivado por defecto; el detalle va siempre al log y al diagnóstico. La API key nunca aparece, esté activado o no. |
+| `INGEST_TOKEN_HASH` | para la ingesta | Hash del token con el que el atajo del iPhone envía telemetría. Se genera con `python tools/token_ingesta.py`. **Nunca el token en claro, y nunca el mismo secreto que `APP_PASSWORD_HASH`**: el token vive en claro dentro del iPhone. Vacío = el endpoint responde 401 a todo. |
+| `INGEST_MAX_SAMPLES` | ❌ | Máximo de muestras por envío. Por defecto 500. |
+| `MAX_CONTENT_LENGTH` | ❌ | Bytes máximos del cuerpo de una petición. Por defecto 131072 (128 KiB). Lo corta Flask **antes** de parsear el JSON. |
 | `SESSION_COOKIE_SECURE` | ❌ | La cookie de sesión solo viaja por HTTPS. **Activado por defecto: déjalo así en el servidor.** Ponlo a `0` únicamente para probar por `http://` desde otro aparato de tu red local. En `localhost` no hace falta tocarlo. |
 | `NOMINATIM_USER_AGENT` | ❌ (pero ponla) | La política de uso de Nominatim exige identificarse con un contacto real. Sin ello pueden bloquear la IP del servidor. |
 | `DATA_DIR` | ❌ | Dónde viven la BD y las fotos. Por defecto `./data`. |
@@ -323,10 +330,50 @@ comprobaciones en orden con lo que deberías ver en cada una.
 | GET | `/` | ✅ | Pantalla principal |
 | POST | `/api/location` | ✅ | `{lat, lon}` → datos del lugar |
 | POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → lugar + tiempo + POIs + recomendación |
+| POST | `/api/telemetria` | 🔑 | Muestras del iPhone (pasos, ubicación, batería) |
 | GET | `/healthz` | — | Comprobación de vida |
 
-Códigos de error: `400` coordenadas ausentes o inválidas · `401` sin sesión ·
-`502` el servicio de mapas falló (solo en `/api/location`).
+✅ = cookie de sesión · 🔑 = token propio en `Authorization: Bearer`, y **solo**
+eso: la sesión no da acceso a `/api/telemetria`, a propósito (decisión 24 de
+`CLAUDE.md`).
+
+Códigos de error: `400` entrada ausente o inválida · `401` sin sesión o sin
+token · `405` método incorrecto · `413` cuerpo por encima de
+`MAX_CONTENT_LENGTH` · `502` el servicio de mapas falló (solo en
+`/api/location`).
+
+### `/api/telemetria`
+
+Lo llama una automatización de Atajos del iPhone cada hora. La receta paso a
+paso para montarla está en [`docs/atajo-iphone.md`](docs/atajo-iphone.md).
+
+```jsonc
+// POST /api/telemetria
+// Authorization: Bearer <token de tools/token_ingesta.py>
+{
+  "fuente": "atajos-iphone",          // opcional; solo se admite este valor
+  "muestras": [                       // máx. INGEST_MAX_SAMPLES
+    { "medido_en": "2026-07-27T12:00:00+02:00",   // ISO 8601 CON zona horaria
+      "pasos": 4213,                              // entero >= 0, opcional
+      "bateria": 78,                              // entero 0-100, opcional
+      "lat": 43.5622, "lon": -6.1456 }            // opcionales, pero las dos o ninguna
+  ]
+}
+```
+
+```jsonc
+// 200
+{ "guardadas": 1, "duplicadas": 5, "descartadas": 0, "errores": [] }
+```
+
+**Que la mayoría salgan como `duplicadas` es lo normal y lo bueno.** Cada envío
+repite a propósito las últimas horas de muestras para sobrevivir a la mala
+cobertura sin ninguna cola en el móvil; el endpoint es idempotente y se queda
+solo con lo nuevo. Es la decisión 23 de `CLAUDE.md`, y explica por qué el
+cuerpo lleva un array.
+
+Una muestra inválida se descarta con su motivo en `errores` y **no** tumba las
+buenas del mismo lote.
 
 **`/api/recommendations` devuelve 200 aunque fallen fuentes opcionales.** Ver
 "Degradación en cascada" más abajo. La respuesta tiene esta forma:

@@ -18,8 +18,9 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, storage
+from app.modules import auth, ingest, storage
 from app.modules.ai_orchestrator import AIError, get_recommendations
+from app.modules.ingest import IngestError
 from app.modules.llm_providers import build_provider
 from app.modules.location_context import (
     InvalidCoordinates,
@@ -41,6 +42,11 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 # Y no viaja por http. Ver Config.SESSION_COOKIE_SECURE para el porqué del
 # valor por defecto.
 app.config["SESSION_COOKIE_SECURE"] = Config.SESSION_COOKIE_SECURE
+# Techo del cuerpo de cualquier petición. Werkzeug corta aquí ANTES de que
+# nadie parsee el JSON, que es donde se gastaría la CPU: en PythonAnywhere
+# gratuito la CPU es cuota diaria y agotarla ralentiza la app entera. Ver
+# Config.MAX_CONTENT_LENGTH para el porqué del valor.
+app.config["MAX_CONTENT_LENGTH"] = Config.MAX_CONTENT_LENGTH
 
 # Crear el esquema al arrancar. Es idempotente, así que da igual cuántos
 # workers levante PythonAnywhere.
@@ -205,6 +211,41 @@ def api_recommendations() -> Any:
     return jsonify(body)
 
 
+@app.route("/api/telemetria", methods=["POST"])
+def api_telemetria() -> Any:
+    """Recibe las muestras que el iPhone envía desde un atajo de Atajos.
+
+    Sin `@auth.login_required`, y eso es la decisión, no un olvido: este
+    endpoint es público en internet y el cliente es una automatización que no
+    inicia sesión ni guarda cookies. La autenticación es un token propio en la
+    cabecera `Authorization`, y **solo** eso: la cookie de sesión no da acceso
+    aquí. Dos caminos hacia el mismo sitio es como se cuelan los fallos de
+    "confused deputy", y lo fija un test.
+
+    El 401 es idéntico para las tres formas de fallar (sin cabecera, mal
+    formada, token incorrecto). Un mensaje que distinga "token caducado" de
+    "token inexistente" le está confirmando a quien prueba a ciegas que va por
+    buen camino. Para depurar está `tools/diagnostico.py`, que sí dice si el
+    hash está configurado.
+    """
+    if not ingest.token_valido(request.headers.get("Authorization")):
+        # No se registra la cabecera ni ningún fragmento de ella: un token en
+        # un log de PythonAnywhere es un token comprometido, y el atacante que
+        # lo provoca elegiría qué queda escrito.
+        app.logger.warning("Ingesta rechazada: credencial ausente o inválida")
+        return jsonify({"error": "no_autorizado"}), 401
+
+    try:
+        resultado = ingest.ingest(request.get_json(silent=True))
+    except IngestError as exc:
+        # Culpa del cliente y con el campo culpable en el mensaje: al otro lado
+        # hay un atajo que alguien está escribiendo a mano, y "400" a secas no
+        # se puede depurar desde un iPhone.
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(resultado.to_dict())
+
+
 @app.route("/healthz")
 def healthz() -> Any:
     """Comprobación de vida. Sin autenticación, a propósito.
@@ -237,6 +278,27 @@ def not_found(_: Any) -> Any:
     if request.path.startswith("/api/"):
         return jsonify({"error": "Ruta no encontrada."}), 404
     return render_template("error.html", code=404, message="Página no encontrada."), 404
+
+
+@app.errorhandler(405)
+def method_not_allowed(_: Any) -> Any:
+    """Un GET a /api/telemetria, por ejemplo. Devuelve JSON, no HTML.
+
+    Sin este manejador Flask contesta una página de error, y lo que hay al
+    otro lado es un atajo del iPhone que espera JSON: recibir HTML se traduce
+    en un error de parseo que no explica nada.
+    """
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Método no permitido."}), 405
+    return render_template("error.html", code=405, message="Método no permitido."), 405
+
+
+@app.errorhandler(413)
+def payload_too_large(_: Any) -> Any:
+    """Cuerpo por encima de MAX_CONTENT_LENGTH. Lo corta Werkzeug antes de leerlo."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Cuerpo demasiado grande."}), 413
+    return render_template("error.html", code=413, message="Envío demasiado grande."), 413
 
 
 @app.errorhandler(500)

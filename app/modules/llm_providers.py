@@ -56,6 +56,13 @@ _KEY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),        # Anthropic (sk-ant-...), Moonshot/Kimi (sk-...)
     re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),       # Google
     re.compile(r"(?i)(api[-_]?key|key|token)=[^\s&\"']+"),  # ...&key=XXX en URLs
+    # Cabecera Authorization: cubre el token de ingesta del iPhone (Fase 2d).
+    # Ese token NO se puede descubrir por convención como las API keys, porque
+    # en el servidor solo vive su HASH (INGEST_TOKEN_HASH): el secreto en claro
+    # no está en `Config` y `_configured_keys()` no puede verlo. El patrón es la
+    # única capa que queda, y por eso está aquí y no en el módulo de ingesta:
+    # esta función es por donde pasa todo lo que se va a enseñar o registrar.
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-~+/]{8,}=*"),
 )
 
 # Longitud mínima de fragmento de clave que buscamos al redactar. Cubre el

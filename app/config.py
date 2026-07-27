@@ -109,6 +109,42 @@ class Config:
     # lado seguro.
     SESSION_COOKIE_SECURE: bool = _env_bool("SESSION_COOKIE_SECURE", default=True)
 
+    # --- Ingesta de telemetría (Fase 2d) ---
+    # HASH del token que autentica al iPhone, NUNCA el token. Se genera con:
+    #   python tools/token_ingesta.py
+    # No es obligatoria: sin ella la app arranca igual y el endpoint devuelve
+    # 401 a todo. Es una función opcional, no un requisito de arranque; el
+    # diagnóstico avisa de que está sin configurar.
+    #
+    # Este token NO es la contraseña de la app, ni su hash. Son dos secretos
+    # distintos a propósito: el del atajo vive en claro dentro del iPhone y se
+    # rota solo (perder el móvil no obliga a cambiar la contraseña de la web).
+    #
+    # El hash lo genera la herramienta con PBKDF2 y no con el scrypt que
+    # Werkzeug usa por defecto. El motivo está explicado en `token_ingesta.py`:
+    # scrypt reserva ~32 MB por verificación, y este endpoint es público, así
+    # que cualquiera puede provocar esa reserva a voluntad contra un worker de
+    # PythonAnywhere gratuito. Se verifica con `check_password_hash`, que lee
+    # el algoritmo del propio hash: un hash antiguo con scrypt sigue valiendo.
+    INGEST_TOKEN_HASH: str = _env("INGEST_TOKEN_HASH", default="")
+
+    # Cuántas muestras se aceptan por petición. Con envíos cada hora y ventana
+    # solapada de 6 h llegan ~6; 500 deja margen de sobra para recuperar un día
+    # entero de fallos y sigue siendo un bucle de inserción trivial.
+    INGEST_MAX_SAMPLES: int = int(_env("INGEST_MAX_SAMPLES", default="500"))
+
+    # Techo del cuerpo de CUALQUIER petición, aplicado por Flask ANTES de
+    # parsear el JSON. Ese "antes" es todo el motivo: el límite de muestras se
+    # comprueba sobre una lista ya deserializada, y deserializar es justo donde
+    # se gasta la CPU. En PythonAnywhere gratuito la CPU es cuota diaria, así
+    # que un cuerpo de 50 MB no es una hipótesis académica: agotarla ralentiza
+    # la app entera durante el resto del día.
+    # 500 muestras ocupan ~50 KB; 128 KiB deja 2,5x de margen.
+    # OJO Fase 3: subir fotos necesitará más. No se sube este número (dejaría
+    # sin protección a la ingesta): se eleva por petición en esa ruta concreta
+    # con `request.max_content_length`, que Flask 3.1 permite.
+    MAX_CONTENT_LENGTH: int = int(_env("MAX_CONTENT_LENGTH", default=str(128 * 1024)))
+
     # --- Proveedor de LLM ---
     # Qué proveedor usa la app: anthropic | gemini | kimi | ollama (sin implementar).
     # Cambiarlo aquí es lo único que hace falta para cambiar de modelo: el

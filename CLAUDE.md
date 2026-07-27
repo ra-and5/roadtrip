@@ -44,13 +44,19 @@ app/
     weather_context.py       Open-Meteo (tiempo + oleaje) e interpretación
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
     llm_providers.py         Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
-    storage.py               SQLite: caché y notas
-    auth.py                  Login de un solo usuario
+    ingest.py                Telemetría del móvil: token, validación e idempotencia
+    storage.py               SQLite: caché, notas y telemetría
+    auth.py                  Login de un solo usuario (sesión; NO cubre la ingesta)
 ```
 
 Regla: `app.py` valida la entrada, llama a un módulo y formatea la respuesta.
 Cada módulo tiene una función de entrada tipada y lanza su propia excepción
-(`LocationError`, `WeatherError`, `AIError`). Solo `storage.py` abre la BD.
+(`LocationError`, `WeatherError`, `AIError`, `IngestError`). Solo `storage.py`
+abre la BD.
+
+Hay **dos** formas de autenticarse, y no se cruzan: la sesión (`auth.py`) para
+todo lo que usa una persona con un navegador, y el token de `ingest.py` para lo
+que usa una máquina. Ver decisión 24.
 
 ## 4. Comandos
 
@@ -63,6 +69,9 @@ python tools/diagnostico.py                # estado de cada dependencia
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
 python tools/listar_modelos.py             # qué modelos de Gemini sirven con tu key
 python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HASH
+python tools/token_ingesta.py              # genera el token del iPhone y su hash
+python tools/ver_telemetria.py             # últimas muestras recibidas del móvil
+python tools/ver_telemetria.py 50          # las 50 últimas
 ```
 
 ## 5. Estado actual
@@ -75,8 +84,19 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Código hecho, **sin validar con el móvil** |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
+
+**La Fase 2d no está cerrada, y su criterio de cierre es uno solo: ¿llegan los
+datos de forma fiable durante varios días?** El endpoint, la validación y la
+idempotencia están probados con la suite, pero *nada* del lado del iPhone se ha
+ejecutado nunca: el atajo de [`docs/atajo-iphone.md`](docs/atajo-iphone.md) está
+escrito, no probado. Hasta que haya varios días de muestras reales no se
+construye análisis encima: hacerlo sobre una fuente que aún no se ha demostrado
+fiable es trabajo que hay que tirar. Por eso esta fase **no** tiene pantalla,
+gráfica ni resumen; lo que hay para mirar los datos es
+`python tools/ver_telemetria.py`, desde una consola.
 
 **Desplegado y validado.** `https://d10sdrebrasov.pythonanywhere.com` (plan
 gratuito). Las seis comprobaciones del móvil en verde desde un iPhone con datos
@@ -308,8 +328,103 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     española conocida**. Y si algún día se añaden espejos regionales, el código
     tendría que distinguir "sin resultados" de "no consultado".
 
+23. **Ventana solapada en cada envío, en vez de una cola en el móvil.** Es la
+    decisión no obvia de la Fase 2d, y la razón de que el endpoint reciba un
+    array en vez de una muestra.
+
+    El problema: el iPhone envía telemetría cada hora desde un atajo, y el
+    viaje es en camper por el norte de España, donde la cobertura va y viene.
+    Si un POST falla por falta de señal, esa muestra no se puede perder.
+
+    La solución obvia sería una cola en el móvil: guardar lo que no se pudo
+    enviar y reintentarlo. Y es la mala. Una cola es **estado que hay que
+    mantener sincronizado** entre dos sistemas: hay que persistirla, purgarla,
+    decidir qué pasa si el reintento también falla, y depurarla desde un iPhone
+    en una gasolinera. Además Atajos es un entorno pésimo para eso: no hay
+    almacenamiento fiable entre ejecuciones y una automatización que no se lanza
+    no reintenta nada.
+
+    Lo que se hace en su lugar aprovecha una propiedad del origen de los datos:
+    **Salud se puede consultar hacia atrás**. Así que cada envío incluye las
+    últimas N horas de muestras, no solo la actual. Con envíos cada hora y una
+    ventana de 6 h hacen falta **seis fallos seguidos** para perder algo, y el
+    sistema se cura solo al recuperar cobertura: no hay nada que sincronizar,
+    porque no hay estado. El móvil es *stateless* y el servidor es la única
+    fuente de verdad.
+
+    El precio —y es lo que hay que entender para no romperlo— es que **el
+    endpoint tiene que ser idempotente**: recibirá la misma muestra muchas
+    veces, por diseño, no por avería. En régimen normal, cinco de cada seis
+    muestras de un envío son duplicadas. Eso se sostiene con dos cosas:
+
+    - `UNIQUE(fuente, medido_en)` en la tabla e `INSERT OR IGNORE`. La
+      idempotencia vive en el **esquema**, no en un `SELECT` previo en el
+      código: con dos peticiones a la vez, comprobar-y-luego-insertar tiene una
+      carrera; una restricción de unicidad no.
+    - `medido_en` se canoniza a UTC con precisión de segundos antes de
+      guardarlo. Sin eso, `10:00:00+02:00` y `08:00:00Z` son el mismo instante
+      y dos filas distintas, y la deduplicación sería mentira sin dar ningún
+      error: solo pasos duplicados (decisión 11 otra vez).
+
+    Y la respuesta dice `guardadas` / `duplicadas` / `descartadas` en vez de un
+    OK a secas. Que la mayoría salgan como duplicadas no es ruido: es la señal
+    de que la ventana solapada está funcionando, y es lo que se mira desde el
+    móvil para saberlo.
+
+    Corolario de la misma idea: **una muestra inválida no tumba el lote**. Se
+    descarta, se cuenta y se informa. Lo contrario haría que un dato raro
+    tirase seis horas de datos buenos, justo en el envío más largo —el que
+    llega tras horas sin cobertura—, que es el que más probabilidades tiene de
+    traer algo torcido.
+
+24. **La ingesta se autentica con su propio token, y la sesión NO sirve.**
+    `auth.login_required` no vale aquí: el endpoint es público en internet y
+    Atajos no inicia sesión ni guarda cookies. Hasta ahí es una necesidad, no
+    una decisión. La decisión es la otra mitad: **no se acepta también la
+    cookie de sesión como alternativa.**
+
+    Aceptar las dos parece cómodo (podrías probar el endpoint desde el
+    navegador ya logueado) y es como se cuelan los fallos de *confused deputy*:
+    a partir de ahí, cualquier cosa capaz de hacer que un navegador ya
+    autenticado emita la petición —una pestaña abierta, un enlace, un formulario
+    de otro sitio— estaría escribiendo en la tabla de telemetría con tus
+    permisos. Un solo camino de autenticación es un camino que se puede razonar
+    entero. Lo fija un test, igual que
+    `test_cualquier_fallo_del_proveedor_sale_como_aierror` fija la frontera del
+    proveedor.
+
+    Detalles que no son adorno:
+
+    - Se guarda **hasheado** (`INGEST_TOKEN_HASH`), como la contraseña, y se
+      verifica con `check_password_hash` (tiempo constante). Un `.env` filtrado
+      no entrega el token.
+    - Es un secreto **distinto** de la contraseña de la app. Este vive en claro
+      dentro del iPhone, así que perder el móvil obliga a rotar este y solo
+      este.
+    - El 401 es **idéntico** para los tres modos de fallar: sin cabecera, mal
+      formada, o token incorrecto. Distinguirlos le confirma a quien prueba a
+      ciegas que ya acertó el formato y solo le queda adivinar el secreto. Para
+      depurar está el diagnóstico, que dice si el hash está configurado.
+    - El hash se genera con **PBKDF2 y no con el scrypt** que Werkzeug pone por
+      defecto. No es preferencia criptográfica: scrypt es *memory-hard* y
+      reserva ~32 MB por verificación, y aquí cada intento fallido de cualquiera
+      en internet paga esa verificación. En un worker de PythonAnywhere gratuito
+      quedarse sin memoria no degrada, mata el proceso. PBKDF2 es igual de
+      constante en tiempo y el coste se queda en CPU.
+    - El token no puede aparecer en un log ni en un mensaje de error. Y no basta
+      con no escribirlo: `redact()` descubre las API keys recorriendo `Config`
+      (decisión 19), y ese truco **no alcanza a este token**, porque en el
+      servidor solo vive su hash. Por eso se le añadió un patrón explícito de
+      cabecera `Bearer`.
+
 ## 7. Roadmap
 
+- **Cerrar la Fase 2d.** Montar el atajo del iPhone siguiendo
+  [`docs/atajo-iphone.md`](docs/atajo-iphone.md) y dejarlo corriendo varios
+  días. Comprobar con `python tools/ver_telemetria.py` que el total crece, que
+  no hay huecos, y sobre todo que la columna *retraso* enseña recuperaciones
+  reales tras pasar por una zona sin cobertura. Hasta entonces, nada de
+  análisis encima de estos datos.
 - **Espejos de Overpass** (ver decisión 22). Hoy solo hay uno vivo y saturado,
   así que los POIs son intermitentes en producción. Hay que buscar espejos y
   validarlos con datos españoles reales, no con que devuelvan `200`.
