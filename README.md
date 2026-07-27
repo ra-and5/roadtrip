@@ -105,8 +105,14 @@ salida se definen ahí una sola vez y se pasan al proveedor activo. Para
 comprobar cuáles tienes operativos:
 
 ```bash
-python tools/diagnostico.py --todos
+python tools/diagnostico.py --todos     # ¿qué proveedores tengo operativos?
+python tools/listar_modelos.py          # ¿qué modelos de Gemini funcionan con mi key?
 ```
+
+> **La lista de modelos de la API no es la lista de modelos usables.** Varios
+> aparecen listados y devuelven 404 (*"no longer available to new users"*) o
+> 429 por cuota agotada. `listar_modelos.py` prueba cada uno de verdad y te
+> dice qué poner en `GEMINI_MODEL`.
 
 ---
 

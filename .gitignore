@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 .env
+# Cualquier variante (.env.bak, .env.local, .env.produccion...): una copia de
+# seguridad del .env contiene los mismos secretos que el original.
+.env.*
+!.env.example
 data/
 *.db
 *.db-wal

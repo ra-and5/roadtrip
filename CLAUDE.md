@@ -69,6 +69,7 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 | 1 | Esqueleto Flask, login, GPS → nombre del lugar | ✅ Hecho |
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
 | 2b | Proveedor de LLM intercambiable (Anthropic / Gemini) | ✅ Hecho |
+| — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
@@ -77,7 +78,8 @@ real (ver [`docs/prompt-despliegue.md`](docs/prompt-despliegue.md)). El GPS solo
 funciona en HTTPS, así que hasta desplegar no se puede probar de verdad.
 
 **Saldo de Anthropic agotado** (confirmado: la API devuelve 400 con *"Your credit
-balance is too low"*). Por eso el proveedor por defecto es Gemini.
+balance is too low"*). Por eso se usa Gemini, ya verificado generando
+recomendaciones reales en ~11 s con `gemini-3.6-flash`.
 
 ## 6. Registro de decisiones
 
@@ -167,6 +169,20 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     siempre, en todos los modos, y borra también fragmentos parciales. Una key
     en un mensaje de error acaba en un log, en una captura o en un issue, y a
     partir de ahí está comprometida.
+
+14. **El modelo de Gemini se fija, y se elige probando, no leyendo la lista.**
+    La lista que devuelve `models.list()` **no** es la lista de modelos
+    usables: comprobado contra la API real, `gemini-2.5-flash` aparece listado
+    y responde 404 (*"no longer available to new users"*), y varios modelos
+    listados devuelven 429 porque su cuota gratuita está agotada. De 20
+    candidatos de texto, solo 8 funcionaban. Por eso existe
+    `tools/listar_modelos.py`: prueba cada uno con la misma configuración de
+    salida estructurada que usa la app, que es la única comprobación que
+    significa algo. Se fija un modelo concreto en vez de un alias
+    (`gemini-flash-latest`) porque al afinar un prompt necesitas
+    reproducibilidad: un alias cambia de modelo bajo tus pies sin avisar.
+    Corolario: **el prefijo de la key no sirve para validarla** — las hay que
+    empiezan por `AIza` y por `AQ.`, y ambas son buenas.
 
 ## 7. Roadmap
 

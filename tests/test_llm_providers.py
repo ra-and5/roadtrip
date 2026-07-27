@@ -185,11 +185,28 @@ def test_429_se_traduce_a_condicion_esperada(monkeypatch):
 @pytest.mark.parametrize("code,esperado", [
     (401, "no es válida"),
     (403, "no es válida"),
-    (404, "GEMINI_MODEL"),
+    # El 404 debe apuntar a la herramienta que resuelve el problema, no solo
+    # nombrar la variable: un modelo puede aparecer listado por la API y aun
+    # así devolver 404 ("no longer available to new users"), así que "revisa
+    # GEMINI_MODEL" no basta para saber cuál poner.
+    (404, "listar_modelos.py"),
 ])
 def test_codigos_de_gemini_dan_mensajes_accionables(monkeypatch, code, esperado):
     monkeypatch.setattr(Config, "GEMINI_API_KEY", "")
     assert esperado in str(GeminiProvider._translate(_gemini_error(code, "x")))
+
+
+def test_el_404_incluye_el_motivo_de_la_api(monkeypatch):
+    """Un 404 puede ser 'no existe' o 'ya no se sirve a cuentas nuevas'.
+
+    Se arreglan distinto, así que el motivo tiene que verse.
+    """
+    monkeypatch.setattr(Config, "SHOW_AI_ERROR_DETAIL", True)
+    monkeypatch.setattr(Config, "GEMINI_API_KEY", "")
+    mensaje = str(GeminiProvider._translate(
+        _gemini_error(404, "This model is no longer available to new users.")
+    ))
+    assert "no longer available to new users" in mensaje
 
 
 def test_effort_invalido_falla_antes_de_llamar(monkeypatch):

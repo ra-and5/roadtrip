@@ -101,13 +101,17 @@ class Config:
 
     # --- Gemini (Google AI Studio) ---
     # Capa gratuita sin tarjeta. La key se saca en aistudio.google.com
-    # (Get API key > Create API key) y empieza por "AIza".
+    # (Get API key > Create API key). El formato del prefijo VARÍA según cómo
+    # se genere ("AIza...", "AQ...."): no lo uses para validar la clave, se
+    # descarta una key buena. La única comprobación fiable es llamar a la API.
     GEMINI_API_KEY: str = _env("GEMINI_API_KEY", default="")
-    # gemini-2.5-flash: buen equilibrio para esta tarea. "flash-lite" pierde
-    # justo en el razonamiento que conecta tiempo + hora + sitio, que es el
-    # valor de la app; "pro" tiene límites gratuitos mucho más estrechos y te
-    # quedarías sin cuota diaria afinando el prompt.
-    GEMINI_MODEL: str = _env("GEMINI_MODEL", default="gemini-2.5-flash").strip()
+    # Modelo fijado a propósito, no un alias tipo "gemini-flash-latest": al
+    # afinar un prompt necesitas reproducibilidad, y un alias cambia de modelo
+    # bajo tus pies sin avisar. Comprobado contra la API: los "pro" agotan la
+    # cuota gratuita enseguida, y gemini-2.5-flash ya no se sirve a cuentas
+    # nuevas ("no longer available to new users"). Lista los disponibles para
+    # tu key con: python tools/listar_modelos.py
+    GEMINI_MODEL: str = _env("GEMINI_MODEL", default="gemini-3.6-flash").strip()
 
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.

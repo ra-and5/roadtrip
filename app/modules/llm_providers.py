@@ -123,6 +123,12 @@ class LLMProvider(ABC):
 
     def __init__(self, model: str) -> None:
         self.model = model
+        # Cliente cacheado. Es obligatorio guardar una referencia fuerte, no
+        # crearlo como temporal dentro de la llamada: los SDKs cierran su
+        # conexión HTTP cuando el objeto cliente se recolecta, y un temporal
+        # puede morir a mitad de la petición ("Cannot send a request, as the
+        # client has been closed"). Además evita reconstruirlo en cada llamada.
+        self._cached_client: Any = None
 
     @abstractmethod
     def generate(self, *, system: str, context: str, schema: dict[str, Any]) -> str:
@@ -199,15 +205,18 @@ class AnthropicProvider(LLMProvider):
         return getattr(exc, "message", None) or str(exc)
 
     def _client(self) -> Any:
+        if self._cached_client is not None:
+            return self._cached_client
         try:
             import anthropic
         except ImportError as exc:
             raise AIError("Falta el paquete 'anthropic' (pip install anthropic).") from exc
-        return anthropic.Anthropic(
+        self._cached_client = anthropic.Anthropic(
             api_key=Config.ANTHROPIC_API_KEY,
             timeout=AI_TIMEOUT_SECONDS,
             max_retries=2,  # el SDK reintenta solo 5xx y errores de red
         )
+        return self._cached_client
 
     @staticmethod
     def _extract_text(response: Any) -> str:
@@ -243,7 +252,8 @@ class AnthropicProvider(LLMProvider):
                 # Endpoint beta con fallbacks: si los clasificadores de
                 # seguridad declinasen, la API reintenta en otro modelo dentro
                 # de la misma llamada en vez de devolvernos un fallo.
-                response = self._client().beta.messages.create(
+                client = self._client()
+                response = client.beta.messages.create(
                     betas=["server-side-fallback-2026-07-01"],
                     fallbacks="default",
                     **params,
@@ -256,7 +266,7 @@ class AnthropicProvider(LLMProvider):
                 # depuración hecha.
                 beta_reason = self._error_message(beta_exc)
                 try:
-                    response = self._client().messages.create(**params)
+                    response = client.messages.create(**params)
                 except anthropic.BadRequestError as exc:
                     reason = self._error_message(exc)
                     detail = (
@@ -303,17 +313,20 @@ class GeminiProvider(LLMProvider):
             )
 
     def _client(self) -> Any:
+        if self._cached_client is not None:
+            return self._cached_client
         try:
             from google import genai
             from google.genai import types
         except ImportError as exc:
             raise AIError("Falta el paquete 'google-genai' (pip install google-genai).") from exc
-        return genai.Client(
+        self._cached_client = genai.Client(
             api_key=Config.GEMINI_API_KEY,
             # OJO: HttpOptions.timeout va en MILISEGUNDOS, no en segundos.
             # Pasar 120 aquí serían 120 ms y todas las llamadas fallarían.
             http_options=types.HttpOptions(timeout=int(AI_TIMEOUT_SECONDS * 1000)),
         )
+        return self._cached_client
 
     def generate(self, *, system: str, context: str, schema: dict[str, Any]) -> str:
         from google.genai import errors, types
@@ -368,9 +381,12 @@ class GeminiProvider(LLMProvider):
         if code in (401, 403):
             return AIError("La API key de Gemini no es válida o no tiene permisos.")
         if code == 404:
+            # Incluimos el detalle: un 404 aquí puede ser "el modelo no existe"
+            # o "ya no se sirve a cuentas nuevas", que se arreglan distinto.
+            # Culpar al modelo sin enseñar el motivo obliga a adivinar.
             return AIError(
-                f"El modelo '{Config.GEMINI_MODEL}' no existe o no está disponible "
-                f"para tu key. Revisa GEMINI_MODEL."
+                f"El modelo '{Config.GEMINI_MODEL}' no está disponible para tu key. "
+                f"Lista los válidos con: python tools/listar_modelos.py. {detail}"
             )
         return AIError(f"La API de Gemini devolvió un error ({code}): {detail}")
 
