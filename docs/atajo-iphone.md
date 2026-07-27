@@ -5,12 +5,22 @@ ubicación y batería a `/api/telemetria`.
 
 > ## ⚠️ Dos avisos antes de empezar
 >
-> **1. Esto no se ha probado en un iPhone.** El endpoint sí está probado (suite
-> completa, incluida la idempotencia y cada regla de validación); el atajo está
-> *escrito*, no *ejecutado*. Los nombres de las acciones cambian entre versiones
-> de iOS y entre idiomas, así que espera tener que buscar alguna por un nombre
-> parecido. Lo que no cambia es el JSON que hay que acabar enviando, que está
-> más abajo y es el contrato de verdad.
+> **1. Qué está probado en un iPhone de verdad y qué no.** Conviene saberlo
+> antes de dar por buena una instrucción:
+>
+> - ✅ **Probado el 27-07-2026 en un iPhone real**: el envío completo (URL,
+>   método POST, las dos cabeceras, cuerpo como *Archivo* desde una acción
+>   *Texto*) contra el servidor desplegado, y la **idempotencia** — el segundo
+>   envío devolvió `{"guardadas":0,"duplicadas":1}`, que es justo lo que tiene
+>   que pasar.
+> - ❌ **Sin probar**: todo el bloque de datos reales (buscar muestras de Salud,
+>   nivel de batería, ubicación) y las automatizaciones por hora. Esos pasos
+>   están escritos a partir de cómo funciona Atajos, no de haberlos ejecutado.
+>
+> Los nombres de las acciones cambian entre versiones de iOS y entre idiomas,
+> así que espera tener que buscar alguna por un nombre parecido. Lo que no
+> cambia es el JSON que hay que acabar enviando, que está más abajo y es el
+> contrato de verdad.
 >
 > **2. El token queda guardado EN CLARO dentro del atajo.** Cualquiera que abra
 > el atajo lo ve. Consecuencias prácticas:
@@ -308,6 +318,7 @@ del atajo. En resumen:
 
 | Respuesta | Qué pasa |
 |---|---|
+| **400 con `openresty` en el texto** | **No ha llegado a la app.** Una cabecera pasa de 8 KB y la corta el servidor web de PythonAnywhere. Comprobado el 27-07-2026: es la cabecera `Authorization` con texto de sobra pegado dentro. Tiene que ser una línea corta, `Bearer` + ~43 caracteres |
 | **401** | Token. Y el mensaje no dice más **a propósito**: no distingue "falta la cabecera" de "el token es otro". Empieza por `python tools/diagnostico.py` en el servidor |
 | **400** | El cuerpo no tiene la forma esperada. El mensaje dice qué campo |
 | **405** | Se está usando GET en vez de POST |
