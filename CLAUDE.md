@@ -100,7 +100,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | 🟨 Hecho; **falta probarlo con fotos reales** |
-| 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
+| 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -197,9 +197,10 @@ sistema no fingió haber verificado nada.
 **Los encargos de cada fase viven en `docs/prompt-*.md`.** No son tareas
 pendientes: son el registro de **qué se pidió**, que es lo que permite luego
 contrastarlo con lo que se hizo. Los de fases terminadas se quedan como están.
-Hoy hay dos: [`prompt-despliegue.md`](docs/prompt-despliegue.md) (hecho) y
-[`prompt-fase3.md`](docs/prompt-fase3.md) (por hacer, y el único que describe
-trabajo futuro).
+Hoy hay tres: [`prompt-despliegue.md`](docs/prompt-despliegue.md) y
+[`prompt-fase3.md`](docs/prompt-fase3.md) (hechos), y
+[`prompt-fase4.md`](docs/prompt-fase4.md), que es el único que describe trabajo
+futuro. **Empieza por ahí si vienes con el contexto en blanco.**
 
 **Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
 factura: el plan gratuito saca todo el tráfico por un proxy con lista blanca de
@@ -857,6 +858,16 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
 - **Cerrar la 3b.** Pasarle `tools/importar_fotos.py` a la carpeta de fotos
   del viaje de verdad y ver qué conservan. Es lo único que falta, y decide
   cuánto de esto sirve.
+
+- **Las fotos se eligen, no se vuelcan.** El atajo mira un álbum concreto
+  (`Viaje`), no el carrete entero. Es privacidad y menos permisos, pero sobre
+  todo es que **la curación es el dato**: el carrete de un mes son cientos de
+  fotos y la mitad son capturas de pantalla y tickets. Un álbum es una versión
+  del viaje contada por ti. Y el álbum se manda **entero** en cada envío, no
+  solo lo reciente, porque la deduplicación va por nombre de archivo: así una
+  foto que metas tres semanas después entra igual. Receta en
+  [`docs/atajo-fotos.md`](docs/atajo-fotos.md), con una variante por hoja de
+  compartir que no pide ningún permiso de Fotos.
 
 - **Enseñar la foto, no solo el punto.** Hoy el mapa dice "📷 IMG_4213.JPG" y
   no puede enseñarla, porque la foto vive en tu disco y no se sube (decisión
