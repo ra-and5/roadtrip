@@ -70,6 +70,7 @@ app/
   config.py                  Configuración desde variables de entorno
   modules/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
+    luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     location_context.py      Nominatim (dónde estoy) + Overpass (qué hay cerca)
     weather_context.py       Open-Meteo (tiempo + oleaje) e interpretación
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
@@ -137,7 +138,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
-| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **En curso.** §2 (partir el endpoint) hecho; quedan §3 Overpass, §4 luna y §5 pantalla |
+| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **En curso.** §2 (contexto), §3 (Overpass) y §4 (luna) hechos; queda §5 (pantalla) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -948,6 +949,64 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     mirado. Los cuatro estados de `contexto.Fuente` (decisión 32) sirven tal
     cual para expresarlo, sin inventar vocabulario nuevo: `ok`, `sin_datos`,
     `no_consultada`, `fallo`.
+
+34. **La luna es híbrida: la fase se calcula, la salida se consulta.** Y no es
+    indecisión, es que las dos mitades tienen costes distintos.
+
+    Fase e iluminación son aritmética determinista (Meeus, cap. 48), así que se
+    calculan en `luna.py` **sin red**: en un camper sin cobertura, seguir
+    sabiendo qué luna hay esta noche es justo cuando más sirve, y depender de
+    una API para eso sería regalar el dato más barato del proyecto. La salida,
+    la puesta y el azimut son bastante más código —dependen de la latitud, del
+    paralaje y de la refracción— y `api.met.no` los da hechos, así que se piden
+    y degradan como cualquier otra fuente (decisión 9).
+
+    **La precisión está medida, no supuesta.** Contrastado contra `api.met.no`
+    en 20 fechas de julio y agosto de 2026: peor error **0,46° de ángulo de
+    fase y 0,31 puntos de iluminación**. Y contra tutiempo.net para el
+    28-07-2026, 97,58 % calculado contra 97,56 % de la referencia.
+
+    La consecuencia de partirlo así, que es lo que compra la decisión: **`luna`
+    nunca es `None`**. Sin cobertura sigue habiendo fase, iluminación y
+    veredicto; lo único que falta es la hora de salida, y `fuentes.luna` lo
+    dice. Una fuente que degrada a la mitad en vez de desaparecer.
+
+    **El veredicto se calcula en Python, no se le pregunta al modelo**
+    (decisión 5, la misma que `water_sports()`). "Luna llena y despejado: se
+    puede caminar sin frontal" es una regla explícita con sus umbrales
+    razonados: el 70 % de iluminación, porque la luz de la luna no es lineal
+    con la fracción visible —al 50 % da del orden de un 8 % de la luz de la
+    llena, porque el terminador proyecta sombras largas sobre el propio disco—,
+    así que "media luna" no es "media luz". Y **sin datos del cielo NO se
+    afirma que se pueda caminar**: se dice que no se sabe si estará tapada.
+    Equivocarse hacia el lado seguro importa más aquí que en ningún otro
+    veredicto, porque al otro lado hay alguien de noche en un monte.
+
+    Dos cosas que salieron de comprobar la API real antes de escribir el módulo,
+    y que no se habrían visto de otra forma:
+
+    - **met.no rechaza el User-Agent por defecto del proyecto.** El que trae
+      `.env.example` lleva `example.com`, y met.no devuelve un **403 de nginx
+      sin ningún mensaje**; los genéricos tipo `Mozilla/5.0` también. Con un
+      contacto real devuelve 200. Reutilizar `NOMINATIM_USER_AGENT` era lo
+      obvio —es el mismo contacto— y habría dejado la luna apagada para siempre
+      en cualquier despliegue que no hubiera tocado esa variable, con un motivo
+      indescifrable. Por eso el módulo **se niega a llamar** si detecta un
+      dominio reservado por la RFC 2606 y nombra la variable que hay que
+      arreglar. La lista es corta a propósito: una heurística más lista
+      ("¿lleva arroba?") rechazaría contactos buenos, y un falso positivo aquí
+      apaga la luna sin motivo.
+    - **Sin el parámetro `offset`, met.no responde en UTC.** Comprobado: la
+      misma consulta da `18:54+00:00` en vez de `20:54+02:00`. "La luna sale a
+      las 18:54" habría sido falso por dos horas en España, y de las que no dan
+      ningún error.
+
+    Y un bug propio que merece quedar escrito porque es del tipo caro: la
+    primera versión eligió el nombre de la fase con un bucle de umbrales
+    crecientes, y **no cerraba el círculo**. Una luna nueva a 350° salía llamada
+    "menguante cóncava". No daba error: solo escribía una tontería en la
+    pantalla y en el prompt del modelo. Lo caza un test con la luna del
+    12-08-2026, que met.no sitúa a 350,28°.
 
 ## 7. Roadmap
 

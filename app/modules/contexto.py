@@ -54,6 +54,7 @@ from app.modules.location_context import (
     reverse_geocode,
     validate_coords,
 )
+from app.modules.luna import Efemerides, Luna, LunaError, efemerides, fase, veredicto_nocturno
 from app.modules.weather_context import Weather, WeatherError, get_weather
 
 __all__ = [
@@ -98,7 +99,7 @@ _ETIQUETAS: dict[str, str] = {
     "ubicacion": "Sin ubicación",
     "tiempo": "Sin datos meteorológicos",
     "oleaje": "Sin datos de oleaje",
-    "luna": "Sin datos de la luna",
+    "luna": "Sin salida y puesta de la luna",
     "pois": "Sin puntos de interés cercanos",
     "metricas": "Sin métricas del día",
     "zona_horaria": "Zona horaria sin confirmar",
@@ -218,7 +219,8 @@ class Contexto:
                    propaga la excepción y la vista contesta 502.
         momento    Siempre existe. No se consulta a nadie, se deriva.
         tiempo     Opcional. `None` si Open-Meteo no contestó.
-        luna       Hueco reservado (§4 de la Fase 5). Hoy siempre `None`.
+        luna       Siempre está: la fase se CALCULA y no depende de la red.
+                   Lo que puede faltar dentro es `efemerides` (met.no).
         metricas   Hueco reservado (pasos y batería). Hoy siempre `None`,
                    porque la Fase 2d no está cerrada y no se construye análisis
                    sobre una fuente que todavía no ha demostrado que llega sin
@@ -235,12 +237,12 @@ class Contexto:
     ubicacion: Place
     momento: Momento
     tiempo: Weather | None = None
-    # Los dos huecos. Tipados como Any porque hoy no tienen forma: se la dará
-    # quien los llene (`Luna` en el §4, `Metricas` al cerrar la 2d). Dejar la
-    # clave existiendo desde hoy es la decisión 4 otra vez —una columna vacía
-    # es gratis ahora y cara con datos dentro—: los consumidores ya pueden
-    # programar contra ella y la pantalla ya puede reservar el hueco.
-    luna: Any = None
+    luna: Luna | None = None
+    # El hueco que sigue vacío. Tipado como Any porque hoy no tiene forma: se
+    # la dará quien lo llene al cerrar la 2d. Dejar la clave existiendo desde
+    # hoy es la decisión 4 otra vez —una columna vacía es gratis ahora y cara
+    # con datos dentro—: los consumidores ya pueden programar contra ella y la
+    # pantalla ya puede reservar el hueco.
     metricas: Any = None
     fuentes: dict[str, Fuente] = field(default_factory=dict)
 
@@ -267,7 +269,7 @@ class Contexto:
             "ubicacion": self.ubicacion.to_dict(),
             "momento": self.momento.to_dict(),
             "tiempo": self.tiempo.to_dict() if self.tiempo else None,
-            "luna": self.luna,
+            "luna": self.luna.to_dict() if self.luna else None,
             "metricas": self.metricas,
             "fuentes": {n: f.to_dict() for n, f in self.fuentes.items()},
             "warnings": self.avisos(),
@@ -278,11 +280,37 @@ class Contexto:
 # Ensamblado (función PURA: sin red, sin reloj del sistema si se le pasa `ahora`)
 # ---------------------------------------------------------------------------
 
+def _armar_luna(
+    momento: Momento,
+    tiempo: Weather | None,
+    efem: Efemerides | None,
+) -> Luna:
+    """La luna del momento: lo calculado siempre, lo consultado si se pudo.
+
+    La fase y la iluminación son aritmética y no fallan nunca, así que `luna`
+    no es None ni con met.no caído: lo que falta entonces es solo la hora de
+    salida. Partirlo así es lo que hace que en un camper sin cobertura sigas
+    sabiendo qué luna hay esta noche, que es cuando más sirve.
+    """
+    fase_actual = fase(momento.dt)
+    return Luna(
+        fase=fase_actual,
+        veredicto=veredicto_nocturno(
+            fase_actual,
+            tiempo.weather_code if tiempo else None,
+            hay_efemerides=efem is not None,
+        ),
+        efemerides=efem,
+    )
+
+
 def ensamblar(
     ubicacion: Place,
     tiempo: Weather | None = None,
     *,
     fallo_tiempo: str = "",
+    efem: Efemerides | None = None,
+    fallo_luna: str = "",
     ahora: datetime | None = None,
 ) -> Contexto:
     """Arma el `Contexto` a partir de las piezas ya resueltas.
@@ -336,17 +364,40 @@ def ensamblar(
             f"se ha supuesto {momento.zona}; la hora local puede no ser exacta.",
         )
 
-    # Los dos huecos declarados. Aparecen SIEMPRE, con su motivo, para que
-    # ningún consumidor tenga que deducir de un `null` si el dato no existe o
-    # es que nadie lo ha pedido.
-    fuentes["luna"] = Fuente(NO_CONSULTADA, "Todavía no implementada.")
+    # La luna nunca es None: la fase se calcula. Lo que puede faltar es la hora
+    # de salida y puesta, y `fuentes` habla de eso y no de la luna entera — por
+    # eso su etiqueta dice "salida y puesta" y no "la luna".
+    #
+    # Y los tres casos son tres, no dos: que no haya efemérides puede ser
+    # porque met.no falló o porque nadie se las ha pedido (el diagnóstico, un
+    # test, el chatbot razonando sobre un contexto de ayer). Colapsarlos en
+    # `fallo` sacaría un aviso de una avería que no ha ocurrido — el mismo
+    # error que se evita al revés con `sin_datos`.
+    luna = _armar_luna(momento, tiempo, efem)
+    if efem is not None:
+        fuentes["luna"] = Fuente(OK)
+    elif fallo_luna:
+        fuentes["luna"] = Fuente(
+            FALLO, f"{fallo_luna} La fase y la iluminación sí están calculadas."
+        )
+    else:
+        fuentes["luna"] = Fuente(
+            NO_CONSULTADA,
+            "No se han pedido. La fase y la iluminación sí están calculadas.",
+        )
+
+    # El hueco que sigue declarado y vacío. Aparece SIEMPRE, con su motivo, para
+    # que ningún consumidor tenga que deducir de un `null` si el dato no existe
+    # o es que nadie lo ha pedido.
     fuentes["metricas"] = Fuente(
         NO_CONSULTADA,
         "La telemetría del móvil aún no ha demostrado que llega sin huecos, "
         "así que no se construye nada encima de ella.",
     )
 
-    return Contexto(ubicacion=ubicacion, momento=momento, tiempo=tiempo, fuentes=fuentes)
+    return Contexto(
+        ubicacion=ubicacion, momento=momento, tiempo=tiempo, luna=luna, fuentes=fuentes
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -375,15 +426,27 @@ def construir(lat: float, lon: float, *, ahora: datetime | None = None) -> Conte
     """
     lat, lon = validate_coords(lat, lon)
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    # La fecha y el desfase que met.no necesita salen de la hora local, y la
+    # hora local sale de la zona que da Open-Meteo... que aún no ha contestado.
+    # Se rompe el nudo con la hora del sistema: para elegir de QUÉ DÍA se piden
+    # las efemérides, un desfase de dos horas solo importa a medianoche, y el
+    # `Momento` definitivo (el que se enseña y con el que razona el modelo) se
+    # calcula después con la zona buena. Encadenarlo al tiempo habría costado
+    # poner las dos consultas en serie: el doble de espera para afinar un caso
+    # que ocurre unos minutos al día.
+    referencia = ahora or datetime.now(ZoneInfo(_ZONA_POR_DEFECTO))
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futuro_lugar = pool.submit(reverse_geocode, lat, lon)
         futuro_tiempo = pool.submit(get_weather, lat, lon)
+        futuro_luna = pool.submit(efemerides, lat, lon, referencia)
 
-        # El tiempo se recoge PRIMERO aunque la ubicación sea la importante.
-        # Al revés, un fallo de Nominatim propagaría la excepción con el otro
-        # hilo aún en vuelo, y salir del `with` esperaría a que terminase: un
-        # 502 que tarda diez segundos en llegar. Recogiendo antes lo que nunca
-        # lanza, cuando la excepción sale ya no queda nadie corriendo.
+        # Las opcionales se recogen PRIMERO aunque la ubicación sea la
+        # importante. Al revés, un fallo de Nominatim propagaría la excepción
+        # con los otros hilos aún en vuelo, y salir del `with` esperaría a que
+        # terminasen: un 502 que tarda diez segundos en llegar. Recogiendo antes
+        # lo que nunca lanza, cuando la excepción sale ya no queda nadie
+        # corriendo.
         tiempo: Weather | None = None
         fallo_tiempo = ""
         try:
@@ -393,6 +456,22 @@ def construir(lat: float, lon: float, *, ahora: datetime | None = None) -> Conte
         except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba el contexto
             fallo_tiempo = "Error inesperado al consultar la previsión."
 
+        efem: Efemerides | None = None
+        fallo_luna = ""
+        try:
+            efem = futuro_luna.result()
+        except LunaError as exc:
+            fallo_luna = str(exc)
+        except Exception:  # noqa: BLE001
+            fallo_luna = "Error inesperado al consultar las efemérides."
+
         ubicacion = futuro_lugar.result()
 
-    return ensamblar(ubicacion, tiempo, fallo_tiempo=fallo_tiempo, ahora=ahora)
+    return ensamblar(
+        ubicacion,
+        tiempo,
+        fallo_tiempo=fallo_tiempo,
+        efem=efem,
+        fallo_luna=fallo_luna,
+        ahora=ahora,
+    )

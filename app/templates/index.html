@@ -32,6 +32,17 @@
   <p class="muted" id="weather-sun"></p>
 </section>
 
+<!-- La luna. La fase y la iluminación se calculan en el servidor sin red, así
+     que esta tarjeta sale aunque no haya cobertura para met.no; lo único que
+     falta entonces es la hora de salida y puesta. -->
+<section id="luna-card" class="card" hidden>
+  <h2>La luna de esta noche</h2>
+  <p id="luna-fase" class="lead"></p>
+  <p class="muted" id="luna-horas"></p>
+  <p><span class="tag" id="luna-veredicto"></span></p>
+  <p class="muted" id="luna-motivo"></p>
+</section>
+
 <section id="reco-card" class="card" hidden>
   <h2>Recomendación</h2>
   <p id="reco-summary" class="lead"></p>

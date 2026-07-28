@@ -55,6 +55,7 @@ roadtrip/
 │   ├── modules/
 │   │   ├── auth.py                 Login de un solo usuario
 │   │   ├── contexto.py             El estado del viaje: una definición, tres consumidores
+│   │   ├── luna.py                 Fase e iluminación sin red; salida y puesta de met.no
 │   │   ├── location_context.py     Nominatim (dónde estoy) + Overpass (qué hay cerca)
 │   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
@@ -504,13 +505,16 @@ cayó.
                  "dia_semana": "martes", "zona": "Europe/Madrid",
                  "zona_es_supuesta": false },
   "tiempo":    { "summary": "...", "outdoor_rating": "bueno", ... },  // o null
-  "luna":      null,        // hueco reservado (Fase 5 §4)
+  "luna":      { "fase": { "nombre": "luna llena", "iluminacion_pct": 99.1,
+                           "angulo": 169.13, "creciendo": true },
+                 "efemerides": { "salida": "2026-07-28T21:35+02:00", ... },  // o null
+                 "veredicto": { "hay_luz": true, "motivo": "..." } },
   "metricas":  null,        // hueco reservado (pasos y batería, tras cerrar la 2d)
   "fuentes": {
     "ubicacion": { "estado": "ok",            "motivo": "" },
     "tiempo":    { "estado": "ok",            "motivo": "" },
     "oleaje":    { "estado": "sin_datos",     "motivo": "Esta ubicación no está junto al mar." },
-    "luna":      { "estado": "no_consultada", "motivo": "Todavía no implementada." },
+    "luna":      { "estado": "ok",            "motivo": "" },
     "metricas":  { "estado": "no_consultada", "motivo": "..." }
   },
   "warnings": []            // solo los `fallo`, en frases para el usuario
@@ -561,6 +565,7 @@ imprescindible; el resto pueden caerse de forma independiente:
 |-------|----------|
 | Ubicación (Nominatim) | `502`. Es lo único sin lo que no hay app. |
 | Tiempo (Open-Meteo) | Se recomienda sin él, y el prompt le prohíbe al modelo inventárselo. |
+| Efemérides (met.no) | La fase y la iluminación se calculan aquí, así que la luna sigue estando: solo falta la hora de salida. |
 | POIs (Overpass) | Ya no está en el camino normal: ver abajo. El modelo tira de conocimiento general y lo marca como tal. |
 | El LLM | Se devuelven igualmente ubicación, tiempo y puntos de interés. |
 

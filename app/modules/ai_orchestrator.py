@@ -185,6 +185,10 @@ Cómo trabajas:
 - Sobre deportes de agua: te doy una evaluación ya calculada a partir de \
   oleaje y viento. Respétala. Si dice "desaconsejado", no lo propongas; \
   explica el motivo concreto (la ola, la racha).
+- Con la luna, igual: el veredicto sobre caminar de noche viene calculado. \
+  Respétalo. Si dice que no hay luz, no propongas una ruta nocturna sin \
+  frontal; si dice que sí, una luna llena con el cielo despejado es una buena \
+  razón para proponer algo de noche, y merece que lo menciones.
 - Propón entre 3 y 5 actividades, variadas entre ellas. Cinco miradores no \
   son cinco planes.
 
@@ -278,6 +282,37 @@ def _format_momento(contexto: Contexto) -> str:
     return linea
 
 
+def _format_luna(contexto: Contexto) -> str:
+    """La luna que lee el modelo, con el veredicto YA calculado.
+
+    Igual que con los deportes de agua (decisión 5): al modelo no se le pregunta
+    si se puede caminar de noche, se le da la respuesta hecha por una regla
+    explícita y se le pide que la respete. Un LLM haciendo de astrónomo daría
+    una respuesta distinta cada vez y no habría forma de auditarla.
+    """
+    luna = contexto.luna
+    if luna is None:
+        return "(No hay datos de la luna.)"
+
+    lineas = [
+        f"{luna.fase.nombre.capitalize()}, {luna.fase.iluminacion_pct:.0f} % iluminada "
+        f"({'creciendo' if luna.fase.creciendo else 'menguando'})",
+    ]
+
+    efem = luna.efemerides
+    if efem is not None and (efem.salida or efem.puesta):
+        # Solo la hora: la fecha ISO completa es ruido para el modelo, igual que
+        # en el amanecer y el anochecer.
+        salida = efem.salida[11:16] if efem.salida else "no sale hoy"
+        puesta = efem.puesta[11:16] if efem.puesta else "no se pone hoy"
+        lineas.append(f"Sale a las {salida}, se pone a las {puesta}")
+    else:
+        lineas.append("(No hay hora de salida ni de puesta: no se pudieron consultar.)")
+
+    lineas.append(f"Caminar de noche: {luna.veredicto.motivo}")
+    return "\n".join(lineas)
+
+
 def formatear_para_prompt(contexto: Contexto, pois: list[Poi]) -> str:
     """Renderiza el contexto como el bloque de texto que lee el modelo.
 
@@ -307,6 +342,9 @@ Coordenadas: {place.lat:.4f}, {place.lon:.4f}
 
 ### METEOROLOGÍA
 {_format_weather(contexto.tiempo)}
+
+### LA LUNA DE ESTA NOCHE
+{_format_luna(contexto)}
 
 ### PUNTOS DE INTERÉS CERCANOS (datos de OpenStreetMap, distancias en línea recta)
 {_format_pois(pois)}

@@ -22,7 +22,7 @@
    * desapareciendo y reapareciendo sin motivo. Lo que se oculta es su
    * desplegable de resultados, que sí depende de haber buscado. */
   const SECTIONS = [
-    "place-card", "warnings-card", "weather-card", "reco-card",
+    "place-card", "warnings-card", "weather-card", "luna-card", "reco-card",
   ];
 
   function setStatus(message, kind) {
@@ -163,6 +163,37 @@
     show("weather-card");
   }
 
+  function renderLuna(luna) {
+    if (!luna) return;
+
+    text(
+      "luna-fase",
+      luna.fase.nombre.charAt(0).toUpperCase() + luna.fase.nombre.slice(1) +
+        " · " + luna.fase.iluminacion_pct.toFixed(0) + "% iluminada" +
+        (luna.fase.creciendo ? " (creciendo)" : " (menguando)")
+    );
+
+    /* Sin efemérides la tarjeta NO desaparece: la fase se calcula en local y
+     * sigue siendo cierta. Lo que falta se dice, no se disimula. */
+    const ef = luna.efemerides;
+    text(
+      "luna-horas",
+      ef && (ef.salida || ef.puesta)
+        ? "Sale " + (ef.salida ? ef.salida.slice(11, 16) : "—") +
+          " · Se pone " + (ef.puesta ? ef.puesta.slice(11, 16) : "—")
+        : "Sin hora de salida ni de puesta: no se pudieron consultar."
+    );
+
+    const tag = document.getElementById("luna-veredicto");
+    tag.textContent = luna.veredicto.hay_luz
+      ? "Se puede caminar de noche"
+      : "Hace falta frontal";
+    tag.className = "tag tag-" + (luna.veredicto.hay_luz ? "bueno" : "malo");
+
+    text("luna-motivo", luna.veredicto.motivo);
+    show("luna-card");
+  }
+
   function renderRecommendation(reco) {
     if (!reco) return;
     text("reco-summary", reco.resumen);
@@ -281,6 +312,7 @@
       renderPlace(data.place, coords);
       renderWarnings(data.warnings);
       renderWeather(data.weather);
+      renderLuna(data.contexto && data.contexto.luna);
       renderRecommendation(data.recommendation);
       renderPois(data.pois);
       renderEstadoPois(data.contexto && data.contexto.fuentes && data.contexto.fuentes.pois);

@@ -48,6 +48,7 @@ from app.modules.contexto import (
     ensamblar,
 )
 from app.modules.location_context import InvalidCoordinates, LocationError, Place
+from app.modules.luna import Efemerides
 from app.modules.weather_context import Marine, Weather, WeatherError
 
 RUTA = "/api/contexto"
@@ -105,7 +106,7 @@ def sesion(cliente: Any) -> Any:
 
 @pytest.fixture
 def sin_red(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Sustituye las dos fuentes del contexto. Devuelve el configurador.
+    """Sustituye las TRES fuentes del contexto. Devuelve el configurador.
 
     Se parchean los nombres **tal y como los tiene importados `contexto`**, no
     en su módulo de origen: `from x import y` copia la referencia, así que
@@ -113,7 +114,7 @@ def sin_red(monkeypatch: pytest.MonkeyPatch) -> Any:
     misma trampa que documenta `test_app_despliegue.py` con `Config`.
     """
 
-    def _configurar(*, lugar: Any = None, tiempo: Any = None) -> None:
+    def _configurar(*, lugar: Any = None, tiempo: Any = None, luna: Any = None) -> None:
         def _lugar(lat: float, lon: float) -> Place:
             if isinstance(lugar, Exception):
                 raise lugar
@@ -124,8 +125,16 @@ def sin_red(monkeypatch: pytest.MonkeyPatch) -> Any:
                 raise tiempo
             return tiempo if tiempo is not None else _weather()
 
+        def _luna(lat: float, lon: float, instante: Any) -> Any:
+            if isinstance(luna, Exception):
+                raise luna
+            return luna if luna is not None else Efemerides(
+                salida="2026-07-27T21:30+02:00", puesta="2026-07-28T06:12+02:00"
+            )
+
         monkeypatch.setattr(contexto, "reverse_geocode", _lugar)
         monkeypatch.setattr(contexto, "get_weather", _tiempo)
+        monkeypatch.setattr(contexto, "efemerides", _luna)
 
     _configurar()
     return _configurar
@@ -169,22 +178,23 @@ def test_el_modulo_de_contexto_no_conoce_a_los_proveedores(sin_red: Any) -> None
     assert not [l for l in imports if "llm_providers" in l or "ai_orchestrator" in l]
 
 
-def test_las_dos_fuentes_se_consultan_en_paralelo(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_las_tres_fuentes_se_consultan_en_paralelo(monkeypatch: pytest.MonkeyPatch) -> None:
     """En serie se paga la suma de las latencias; en paralelo, la mayor.
 
     Con márgenes anchos a propósito: lo que se protege es que nadie convierta
-    esto en código secuencial, no medir milisegundos. Dos fuentes de 0,3 s
-    tardan 0,6 s en serie y ~0,3 s en paralelo.
+    esto en código secuencial, no medir milisegundos. Tres fuentes de 0,3 s
+    tardan 0,9 s en serie y ~0,3 s en paralelo.
     """
 
     def _lento(devuelve: Any) -> Any:
-        def _f(lat: float, lon: float) -> Any:
+        def _f(*args: Any) -> Any:
             time.sleep(0.3)
             return devuelve
         return _f
 
     monkeypatch.setattr(contexto, "reverse_geocode", _lento(_place()))
     monkeypatch.setattr(contexto, "get_weather", _lento(_weather()))
+    monkeypatch.setattr(contexto, "efemerides", _lento(Efemerides()))
 
     inicio = time.monotonic()
     contexto.construir(43.5622, -6.1456)
@@ -286,20 +296,51 @@ def test_sin_tiempo_el_oleaje_no_es_sin_datos_sino_no_consultado(sin_red: Any) -
     assert estado.fuentes["oleaje"].estado == NO_CONSULTADA
 
 
-def test_los_huecos_reservados_se_declaran(sin_red: Any) -> None:
-    """La luna y las métricas existen como hueco, con su motivo escrito.
+def test_el_hueco_reservado_se_declara(sin_red: Any) -> None:
+    """Las métricas existen como hueco, con su motivo escrito.
 
-    Que estén declaradas y no ausentes es lo que permite a la pantalla reservar
-    el sitio y al chatbot saber que no es que no haya datos, es que todavía no
-    se piden.
+    Que esté declarado y no ausente es lo que permite a la pantalla reservar el
+    sitio y al chatbot saber que no es que no haya datos, es que todavía no se
+    piden.
     """
     estado = ensamblar(_place(), _weather(), ahora=AHORA)
 
-    assert estado.luna is None
     assert estado.metricas is None
-    assert estado.fuentes["luna"].estado == NO_CONSULTADA
     assert estado.fuentes["metricas"].estado == NO_CONSULTADA
     assert "sin huecos" in estado.fuentes["metricas"].motivo
+
+
+def test_sin_efemerides_la_luna_no_desaparece(sin_red: Any) -> None:
+    """La fase se calcula, así que la luna sigue estando sin met.no.
+
+    Es lo que justifica el híbrido: en un camper sin cobertura sigues sabiendo
+    qué luna hay esta noche, que es justo cuando más sirve.
+    """
+    estado = ensamblar(_place(), _weather(), ahora=AHORA)
+
+    assert estado.luna is not None
+    assert estado.luna.fase.iluminacion_pct > 0
+    assert estado.luna.efemerides is None
+
+
+def test_no_pedir_las_efemerides_no_es_una_averia(sin_red: Any) -> None:
+    """Tres casos, no dos: se pudo, falló, o nadie lo pidió.
+
+    Marcar `fallo` cuando nadie ha preguntado sacaría un aviso de una avería
+    que no ha ocurrido.
+    """
+    estado = ensamblar(_place(), _weather(), ahora=AHORA)
+
+    assert estado.fuentes["luna"].estado == NO_CONSULTADA
+    assert estado.avisos() == []
+
+
+def test_las_efemerides_caidas_si_avisan(sin_red: Any) -> None:
+    estado = ensamblar(_place(), _weather(), fallo_luna="met.no no responde.",
+                       ahora=AHORA)
+
+    assert estado.fuentes["luna"].estado == FALLO
+    assert any("luna" in w.lower() for w in estado.avisos())
 
 
 def test_un_hueco_declarado_no_genera_ruido(sin_red: Any) -> None:
