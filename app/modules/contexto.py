@@ -55,6 +55,8 @@ from app.modules.location_context import (
     validate_coords,
 )
 from app.modules.luna import Efemerides, Luna, LunaError, efemerides, fase, veredicto_nocturno
+from app.modules.metricas import Metricas, obtener as obtener_metricas
+from app.modules.viaje import Viaje, resumen as resumen_viaje
 from app.modules.weather_context import Weather, WeatherError, get_weather
 
 __all__ = [
@@ -102,6 +104,7 @@ _ETIQUETAS: dict[str, str] = {
     "luna": "Sin salida y puesta de la luna",
     "pois": "Sin puntos de interés cercanos",
     "metricas": "Sin métricas del día",
+    "viaje": "Sin el registro del viaje",
     "zona_horaria": "Zona horaria sin confirmar",
 }
 
@@ -238,12 +241,11 @@ class Contexto:
     momento: Momento
     tiempo: Weather | None = None
     luna: Luna | None = None
-    # El hueco que sigue vacío. Tipado como Any porque hoy no tiene forma: se
-    # la dará quien lo llene al cerrar la 2d. Dejar la clave existiendo desde
-    # hoy es la decisión 4 otra vez —una columna vacía es gratis ahora y cara
-    # con datos dentro—: los consumidores ya pueden programar contra ella y la
-    # pantalla ya puede reservar el hueco.
-    metricas: Any = None
+    # El hueco que llevaba declarado y vacío desde la Fase 5, y que ahora se
+    # llena (decisión 36). Sigue siendo opcional: la pantalla rápida no lo pide.
+    metricas: Metricas | None = None
+    # El viaje hasta ahora: notas, días, kilómetros. Opcional por lo mismo.
+    viaje: Viaje | None = None
     fuentes: dict[str, Fuente] = field(default_factory=dict)
 
     def avisos(self) -> list[str]:
@@ -270,7 +272,8 @@ class Contexto:
             "momento": self.momento.to_dict(),
             "tiempo": self.tiempo.to_dict() if self.tiempo else None,
             "luna": self.luna.to_dict() if self.luna else None,
-            "metricas": self.metricas,
+            "metricas": self.metricas.to_dict() if self.metricas else None,
+            "viaje": self.viaje.to_dict() if self.viaje else None,
             "fuentes": {n: f.to_dict() for n, f in self.fuentes.items()},
             "warnings": self.avisos(),
         }
@@ -311,6 +314,8 @@ def ensamblar(
     fallo_tiempo: str = "",
     efem: Efemerides | None = None,
     fallo_luna: str = "",
+    metricas: Metricas | None = None,
+    viaje: Viaje | None = None,
     ahora: datetime | None = None,
 ) -> Contexto:
     """Arma el `Contexto` a partir de las piezas ya resueltas.
@@ -386,17 +391,40 @@ def ensamblar(
             "No se han pedido. La fase y la iluminación sí están calculadas.",
         )
 
-    # El hueco que sigue declarado y vacío. Aparece SIEMPRE, con su motivo, para
-    # que ningún consumidor tenga que deducir de un `null` si el dato no existe
-    # o es que nadie lo ha pedido.
-    fuentes["metricas"] = Fuente(
-        NO_CONSULTADA,
-        "La telemetría del móvil aún no ha demostrado que llega sin huecos, "
-        "así que no se construye nada encima de ella.",
-    )
+    # Las métricas y el viaje son opcionales y CAROS de explicar mal, así que
+    # sus tres casos van separados. Un `None` no distingue "no se pidió" de
+    # "se miró y la tabla está vacía", y esa es justo la diferencia entre que el
+    # chatbot calle y que diga "aún no tengo datos tuyos de hoy".
+    if metricas is None:
+        fuentes["metricas"] = Fuente(
+            NO_CONSULTADA, "No se han pedido: la pantalla rápida no las necesita."
+        )
+    elif not metricas.hay_datos:
+        fuentes["metricas"] = Fuente(
+            SIN_DATOS, "No ha llegado ninguna muestra del móvil en los últimos días."
+        )
+    else:
+        fuentes["metricas"] = Fuente(OK)
+
+    if viaje is None:
+        fuentes["viaje"] = Fuente(
+            NO_CONSULTADA, "No se ha pedido: la pantalla rápida no lo necesita."
+        )
+    elif not viaje.hay_datos:
+        fuentes["viaje"] = Fuente(
+            SIN_DATOS, "Todavía no hay ninguna nota ni ninguna foto del viaje."
+        )
+    else:
+        fuentes["viaje"] = Fuente(OK)
 
     return Contexto(
-        ubicacion=ubicacion, momento=momento, tiempo=tiempo, luna=luna, fuentes=fuentes
+        ubicacion=ubicacion,
+        momento=momento,
+        tiempo=tiempo,
+        luna=luna,
+        metricas=metricas,
+        viaje=viaje,
+        fuentes=fuentes,
     )
 
 
@@ -404,8 +432,22 @@ def ensamblar(
 # Entrada pública (la que hace red)
 # ---------------------------------------------------------------------------
 
-def construir(lat: float, lon: float, *, ahora: datetime | None = None) -> Contexto:
+def construir(
+    lat: float,
+    lon: float,
+    *,
+    ahora: datetime | None = None,
+    incluir_historia: bool = False,
+) -> Contexto:
     """El estado del viaje en unas coordenadas. Rápido, gratis y sin LLM.
+
+    `incluir_historia` añade las métricas del móvil y el resumen del viaje. Va
+    detrás de un interruptor y apagado por defecto por una razón medida: la
+    pantalla principal responde hoy por debajo del segundo, y lo hace porque
+    pide exactamente lo que enseña. Estas dos fuentes son locales (SQLite, sin
+    red) y baratas, pero con un mes de viaje dentro dejan de serlo, y la regla
+    del proyecto es que lo que no se enseña no se paga. Lo enciende el chatbot,
+    que sí las necesita para razonar sobre el viaje entero.
 
     Las dos consultas van **en paralelo**. No es micro-optimización: es la
     diferencia entre una pantalla que aparece y una que se espera. En serie se
@@ -467,11 +509,24 @@ def construir(lat: float, lon: float, *, ahora: datetime | None = None) -> Conte
 
         ubicacion = futuro_lugar.result()
 
+    metricas_ = None
+    viaje_ = None
+    if incluir_historia:
+        # Después de los hilos y no dentro: son lecturas de SQLite local, y
+        # meter la base de datos en un pool que existe para esperar a la red
+        # solo añadiría contención por una conexión que no se comparte.
+        # Ninguna de las dos lanza nunca; degradan a vacío.
+        zona = (tiempo.timezone if tiempo else "") or _ZONA_POR_DEFECTO
+        metricas_ = obtener_metricas(zona, ahora=ahora)
+        viaje_ = resumen_viaje()
+
     return ensamblar(
         ubicacion,
         tiempo,
         fallo_tiempo=fallo_tiempo,
         efem=efem,
         fallo_luna=fallo_luna,
+        metricas=metricas_,
+        viaje=viaje_,
         ahora=ahora,
     )

@@ -181,6 +181,34 @@ CREATE TABLE IF NOT EXISTS lugar_del_dia (
     registrado_en TEXT NOT NULL,
     UNIQUE(fecha_local)
 );
+
+-- La conversación con el chatbot (Fase 6).
+--
+-- Guardar y enviar son cosas DISTINTAS, y confundirlas es lo que haría esto
+-- carísimo. Aquí se guarda todo: es texto en SQLite, no cuesta nada, y dentro
+-- de un mes poder releer qué preguntaste en cada sitio es la mitad del
+-- "cuaderno de a bordo" del §1. Lo que se le manda al modelo en cada turno son
+-- solo los últimos mensajes (ver `chat.VENTANA_HISTORIAL`), porque eso sí se
+-- paga en tokens y crecería sin parar.
+--
+-- `rol` es "usuario" o "asistente", como en la API de cualquier proveedor.
+-- `lat`/`lon` se guardan con el mensaje y no se deducen después: la gracia de
+-- releer esto es saber DÓNDE preguntaste, y la ubicación de mañana no sirve
+-- para situar la pregunta de hoy.
+CREATE TABLE IF NOT EXISTS chat_mensajes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    rol         TEXT NOT NULL,
+    texto       TEXT NOT NULL,
+    -- UTC canónico, como `notes.created_at`. No es la hora local a propósito:
+    -- para ordenar una conversación hace falta un instante absoluto, y el huso
+    -- se puede recuperar de la ubicación si algún día hace falta.
+    creado_en   TEXT NOT NULL,
+    lat         REAL,
+    lon         REAL,
+    lugar       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_creado_en ON chat_mensajes(creado_en);
 """
 
 
@@ -414,6 +442,29 @@ def delete_telemetry(ids: Sequence[int]) -> int:
             f"DELETE FROM telemetria WHERE id IN ({marcadores})", tuple(ids)
         )
         return cur.rowcount
+
+
+def telemetry_since(desde: str, fuentes: Sequence[str] | None = None) -> list[dict[str, Any]]:
+    """Muestras medidas desde un instante, la más antigua primero.
+
+    Se consulta por rango y no trayendo las N últimas para filtrar en Python:
+    con un mes de viaje son miles de filas, y el índice sobre `medido_en` ya
+    existe precisamente para esto.
+
+    `fuentes` acota a una serie concreta. Quien pregunte "¿es fiable la
+    telemetría?" tiene que poder mirar SOLO `atajos-iphone`, sin que las
+    muestras simuladas entren en la respuesta (decisión 36). Por defecto no
+    filtra, porque el uso normal —el contexto del chatbot— quiere lo que haya.
+    """
+    sql = "SELECT id, " + ", ".join(_TELEMETRIA_COLS) + " FROM telemetria WHERE medido_en >= ?"
+    parametros: list[Any] = [desde]
+    if fuentes:
+        sql += f" AND fuente IN ({', '.join('?' for _ in fuentes)})"
+        parametros.extend(fuentes)
+    sql += " ORDER BY medido_en ASC"
+
+    with get_conn() as conn:
+        return [dict(f) for f in conn.execute(sql, tuple(parametros)).fetchall()]
 
 
 def delete_telemetry_by_source(fuente: str) -> int:
@@ -708,3 +759,71 @@ def lugares_del_dia_stats() -> dict[str, Any]:
         "primero": fila["primero"],
         "ultimo": fila["ultimo"],
     }
+
+
+# ---------------------------------------------------------------------------
+# La conversación con el chatbot (Fase 6)
+# ---------------------------------------------------------------------------
+
+def insert_chat_mensaje(fila: dict[str, Any]) -> int:
+    """Guarda un mensaje y devuelve su id.
+
+    Sin `INSERT OR IGNORE` ni clave de unicidad, al revés que casi todo lo demás
+    de este esquema: dos mensajes idénticos seguidos ("¿y ahora?", "¿y ahora?")
+    son dos preguntas de verdad, no un reenvío. Deduplicarlos haría desaparecer
+    una de las dos y su respuesta.
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO chat_mensajes (rol, texto, creado_en, lat, lon, lugar) "
+            "VALUES (:rol, :texto, :creado_en, :lat, :lon, :lugar)",
+            fila,
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_chat_mensajes(limit: int = 50) -> list[dict[str, Any]]:
+    """Los últimos mensajes, en orden cronológico (el más antiguo primero).
+
+    Se piden los N últimos por id descendente y se le da la vuelta, en vez de
+    leer la tabla entera y quedarse con el final: con un mes de conversación la
+    diferencia es traer 20 filas o traerlas todas para tirar casi todas.
+
+    El orden de salida es cronológico porque es como se lee una conversación y
+    como la espera el modelo. Que la consulta y la salida vayan al revés es lo
+    que hace que quien llame no tenga que acordarse de invertir nada.
+    """
+    with get_conn() as conn:
+        filas = conn.execute(
+            "SELECT id, rol, texto, creado_en, lat, lon, lugar "
+            "FROM chat_mensajes ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(f) for f in reversed(filas)]
+
+
+def chat_stats() -> dict[str, Any]:
+    """Cuántos mensajes hay y desde cuándo. Para el diagnóstico."""
+    with get_conn() as conn:
+        fila = conn.execute(
+            "SELECT COUNT(*) AS total, MIN(creado_en) AS primero, "
+            "       MAX(creado_en) AS ultimo FROM chat_mensajes"
+        ).fetchone()
+
+    return {
+        "total": fila["total"] or 0,
+        "primero": fila["primero"],
+        "ultimo": fila["ultimo"],
+    }
+
+
+def delete_chat_mensajes() -> int:
+    """Borra la conversación entera. Devuelve cuántos mensajes se han borrado.
+
+    Todo o nada, y no por id: borrar una pregunta suelta dejaría su respuesta
+    colgada contestando a algo que ya no está, y el historial pasaría a contar
+    una conversación que no ocurrió.
+    """
+    with get_conn() as conn:
+        return int(conn.execute("DELETE FROM chat_mensajes").rowcount)

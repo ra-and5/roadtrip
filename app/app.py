@@ -17,7 +17,17 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, contexto, diario, ingest, notes, ruta, storage, waypoints
+from app.modules import (
+    auth,
+    chat,
+    contexto,
+    diario,
+    ingest,
+    notes,
+    ruta,
+    storage,
+    waypoints,
+)
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
 from app.modules.notes import NoteError
@@ -109,6 +119,18 @@ def mapa() -> Any:
     tiles, que vienen de OpenStreetMap.
     """
     return render_template("mapa.html")
+
+
+@app.route("/chat")
+@auth.login_required
+def chat_page() -> Any:
+    """Preguntarle al contexto en vez de leerlo.
+
+    La página no incrusta ningún mensaje: pide el historial por `fetch`, igual
+    que el mapa pide las notas. Así el HTML y el JavaScript se cachean y lo
+    único que hace falta al abrirla es una petición pequeña.
+    """
+    return render_template("chat.html")
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +353,101 @@ def api_recommendations() -> Any:
 
     body["warnings"] = warnings
     return jsonify(body)
+
+
+@app.route("/api/chat", methods=["POST"])
+@auth.login_required
+def api_chat() -> Any:
+    """Una pregunta sobre el viaje, respondida con el contexto de ahora mismo.
+
+    **El contexto se rearma AQUÍ, no llega del navegador.** Es la misma decisión
+    que en `/api/recommendations`: aceptar el contexto del cliente obligaría a
+    revalidarlo entero y un cuerpo manipulado pondría al modelo a razonar sobre
+    un sitio, un tiempo y unos pasos inventados sin dar ningún error.
+
+    Se pide con `incluir_historia=True`, que es lo que distingue esta llamada de
+    la de la pantalla: aquí sí hacen falta los pasos y el viaje, porque son la
+    mitad de lo que se le puede preguntar.
+
+    El orden de escritura importa: la pregunta se guarda **antes** de llamar al
+    modelo. Si el proveedor falla o se agota la cuota, la pregunta no se pierde;
+    al revés, un 429 se llevaría por delante lo que el usuario acababa de
+    escribir. Es el mismo criterio que "archivo primero, fila después" de la
+    decisión 27: entre dos fallos, el recuperable.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    pregunta = payload.get("mensaje")
+    if not isinstance(pregunta, str) or not pregunta.strip():
+        return jsonify({"error": "Falta 'mensaje'."}), 400
+    pregunta = pregunta.strip()
+    if len(pregunta) > chat.MAX_PREGUNTA:
+        return jsonify(
+            {"error": f"El mensaje es demasiado largo (máximo {chat.MAX_PREGUNTA})."}
+        ), 400
+
+    lat, lon = _coordenadas_de(payload)
+    if lat is None:
+        return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
+
+    try:
+        estado = contexto.construir(lat, lon, incluir_historia=True)
+    except InvalidCoordinates as exc:
+        return jsonify({"error": str(exc)}), 400
+    except LocationError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    conversacion = chat.historial()
+    chat.guardar("usuario", pregunta, estado.ubicacion)
+
+    try:
+        respuesta = chat.responder(pregunta, estado, conversacion)
+    except AIError as exc:
+        # Igual que en las recomendaciones: el detalle completo al log siempre,
+        # y al usuario lo que decida SHOW_AI_ERROR_DETAIL. El mensaje ya viene
+        # sin secretos desde llm_providers.
+        app.logger.warning("Fallo de IA en el chat (%s): %s", Config.LLM_PROVIDER, exc)
+        # 502 y no 500: nuestro servidor está bien, el proveedor no. La pregunta
+        # ya está guardada, así que reintentar no la duplica en la pantalla.
+        return jsonify({"error": str(exc), "warnings": estado.avisos()}), 502
+    except Exception:  # noqa: BLE001
+        app.logger.exception("Fallo inesperado en el chat")
+        return jsonify({"error": "Error inesperado al responder."}), 500
+
+    chat.guardar("asistente", respuesta.texto, estado.ubicacion)
+
+    return jsonify(
+        {
+            "respuesta": respuesta.to_dict(),
+            # Los avisos viajan con la respuesta en vez de esconderse: si el
+            # tiempo se ha caído, el modelo ha contestado sin él y quien lee
+            # tiene derecho a saberlo (decisión 9).
+            "warnings": estado.avisos(),
+            "lugar": estado.ubicacion.short_label(),
+        }
+    )
+
+
+@app.route("/api/chat", methods=["GET"])
+@auth.login_required
+def api_chat_historial() -> Any:
+    """La conversación guardada, para repintarla al abrir la página.
+
+    Devuelve más mensajes de los que se le mandan al modelo, y eso no es una
+    incoherencia: guardar es gratis y enviar se paga. Aquí se lee, no se razona.
+    """
+    return jsonify({"mensajes": chat.historial()})
+
+
+@app.route("/api/chat", methods=["DELETE"])
+@auth.login_required
+def api_chat_borrar() -> Any:
+    """Borra la conversación entera.
+
+    Todo o nada: borrar una pregunta suelta dejaría su respuesta contestando a
+    algo que ya no está.
+    """
+    return jsonify({"borrados": chat.borrar_historial()})
 
 
 @app.route("/api/notes", methods=["POST"])

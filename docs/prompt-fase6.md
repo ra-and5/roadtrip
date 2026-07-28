@@ -132,7 +132,27 @@ tienen la forma buena, en vez de esperar dos semanas a tenerlos.
 
 ---
 
-## 3. El chatbot
+## 3. El chatbot — ✅ HECHO (29-07-2026)
+
+Está en `/chat`, con `app/modules/chat.py`. Las tres preguntas que este apartado
+dejaba abiertas quedaron decididas así (decisión 37 de `CLAUDE.md`):
+
+- **Qué entra en el contexto:** todo lo que se recoge en directo —notas, ruta,
+  métricas— pero **resumido**, no volcado. Para eso se añadieron `metricas.py` y
+  `viaje.py`, y `contexto.construir()` los trae con `incluir_historia=True`.
+- **Historial:** se guarda entero en `chat_mensajes` y se le mandan al modelo
+  solo los **últimos 3 turnos**. Guardar es gratis; enviar se paga.
+- **Coste:** sin caché y sin reintento ante un 429, que sigue aplicando.
+
+Probado de punta a punta contra el proveedor real (`kimi-k3`): contexto en
+**0,47 s** con las métricas y el viaje dentro, respuesta en **6,6 s**. Y las dos
+comprobaciones que importaban: preguntándole por los pasos contestó *"la cifra
+que aparece en la app es de prueba, no real"* en vez de inventárselos, y con
+historial resolvió un *"¿y si llueve?"* referido al plan del turno anterior.
+
+El texto original del encargo queda debajo.
+
+## 3 (original). El chatbot
 
 Es lo que la Fase 5 dejó preparado y no montó. La pieza que hacía falta ya
 existe, está probada y está en producción: **`contexto.construir(lat, lon)`**

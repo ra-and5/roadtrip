@@ -70,6 +70,9 @@ app/
   config.py                  Configuración desde variables de entorno
   modules/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
+    chat.py                  El chatbot. Decide QUÉ se le manda al modelo y qué no
+    metricas.py              Pasos y batería, resumidos. NO vuelca la tabla
+    viaje.py                 El viaje hasta ahora: agregados y últimas notas
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     diario.py                El primer sitio de cada día. Registra; NO analiza
     location_context.py      Nominatim (dónde estoy) + Overpass (qué hay cerca)
@@ -88,6 +91,7 @@ app/
     js/app.js                Pantalla principal: GPS → lugar, tiempo y recomendación
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
     js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
+    js/chat.js               Conversación. El historial lo pone el servidor, no este
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
@@ -145,7 +149,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
-| 6 | Pasos ciertos, cerrar la 2d y el chatbot | ⬜ **Siguiente** — encargo en [`docs/prompt-fase6.md`](docs/prompt-fase6.md) |
+| 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Chatbot hecho** (`/chat`, decisión 37) y métricas en el contexto. Falta cerrar la 2d con datos reales |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -1204,6 +1208,74 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Y el simulador **no envía a producción**: escribe en la base de datos local.
     Sembrar el servidor desplegado con datos inventados es otra decisión y
     tendría que tomarse a propósito, no de rebote.
+
+37. **Guardar y enviar son cosas distintas, y confundirlas es lo que hace caro
+    un chatbot.** Es la decisión que ordena la Fase 6, y sale de una objeción
+    del usuario que estaba bien puesta: *"si no, se va a llenar todo de contexto
+    y acabará siendo carísimo hacer peticiones"*.
+
+    Las dos mitades:
+
+    - **Se guarda la conversación entera** (`chat_mensajes`). Es texto en
+      SQLite: no cuesta nada, y poder releer dentro de un mes qué preguntaste en
+      cada sitio es la mitad del "cuaderno de a bordo" del §1. Por eso cada
+      mensaje guarda **dónde** se escribió: la ubicación de mañana no sitúa la
+      pregunta de hoy.
+    - **Se envían solo los últimos 3 turnos** (`chat.VENTANA_HISTORIAL = 6`).
+      Eso sí se paga en tokens, en **cada** mensaje, y crecería sin parar.
+
+    Y es un fallo de los que no dan error: si la ventana se rompe, todo sigue
+    funcionando y lo único que pasa es que la factura sube con el viaje —lo
+    último que alguien mira—. Por eso `ventana()` es una función con nombre y
+    con test propio en vez de un `[-6:]` escondido dentro del prompt, y por eso
+    hay un segundo test que comprueba que **el prompt la usa**: recortar y
+    enviar el recorte son dos cosas distintas.
+
+    La misma regla se aplica al contexto, y ahí es donde está el trabajo de
+    verdad: **entra todo lo que se puede recoger en directo, pero resumido**.
+    `metricas.py` no vuelca las muestras (hoy 81, en un mes más de mil): da los
+    pasos de hoy, el máximo por día de la semana y la media. `viaje.py` no
+    vuelca las notas: da los agregados y las **diez últimas** con su texto
+    recortado. El resto sigue en la base de datos y se consulta desde el mapa.
+
+    **Cómo habla con el modelo, y la alternativa que se descarta.** Se reutiliza
+    `LLMProvider.generate(system, context, schema)` tal cual, con un esquema de
+    una sola clave y el historial empaquetado como texto dentro del contexto. Lo
+    obvio habría sido añadir un método `converse()` al `ABC`, y se descarta:
+    obligaría a implementarlo en los cuatro proveedores —`OllamaProvider` ni
+    siquiera está escrito— para ganar, con un usuario y tres turnos,
+    exactamente nada. Es la decisión 18 otra vez. Lo que se pierde, dicho:
+    el proveedor no puede cachear el prefijo de la conversación como haría con
+    turnos reales.
+
+    Tres cosas más que son decisiones y no detalles:
+
+    - **La pregunta se guarda ANTES de llamar al modelo.** Si el proveedor falla
+      o se agota la cuota, la pregunta no se pierde. Es el criterio de "archivo
+      primero, fila después" de la decisión 27: entre dos fallos, el recuperable.
+    - **Sin caché**, al revés que las recomendaciones (decisión 6). La clave
+      tendría que incluir la pregunta *y* el historial, así que casi nunca
+      acertaría; y dos preguntas iguales en momentos distintos merecen
+      respuestas distintas, que es lo que una conversación es.
+    - **Sin cola offline**, al revés que las notas (decisión 26). Una nota
+      escrita sin cobertura no existe en ningún otro sitio y hay que salvarla;
+      una pregunta sin respuesta no vale nada, y reintentarla dos horas después
+      daría una respuesta sobre un sitio en el que ya no estás.
+
+    Y lo que el prompt **no puede afirmar**, que salió al mirar el texto real
+    generado y son tres fallos silenciosos de manual:
+
+    - un dato **simulado** se marca en el propio texto que lee el modelo, no
+      solo en un campo del JSON. Sin eso, Kimi respondía "hoy llevas 12.757
+      pasos" con total seguridad sobre una cifra que nos hemos inventado;
+    - **sin muestra de hoy no se dice que no ha andado.** Un bloque titulado "su
+      actividad de hoy" al que le faltan los pasos se lee como cero pasos, y a
+      las 00:30 lo normal es que aún no haya llegado ninguna muestra;
+    - **no se afirma que no hay POIs sin haberlos buscado.** El chatbot nunca
+      llama a Overpass, así que su lista siempre está vacía; traducir ese vacío
+      a "no hay nada mapeado aquí" haría que el modelo descartara la zona por un
+      dato inventado por nosotros. Es el corolario de la decisión 22 llegando
+      hasta el prompt.
 
 ## 7. Roadmap
 

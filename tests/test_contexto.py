@@ -296,18 +296,45 @@ def test_sin_tiempo_el_oleaje_no_es_sin_datos_sino_no_consultado(sin_red: Any) -
     assert estado.fuentes["oleaje"].estado == NO_CONSULTADA
 
 
-def test_el_hueco_reservado_se_declara(sin_red: Any) -> None:
-    """Las métricas existen como hueco, con su motivo escrito.
+def test_las_metricas_no_pedidas_no_se_confunden_con_no_haberlas(sin_red: Any) -> None:
+    """Los tres casos de una fuente opcional son TRES, y no dos.
 
-    Que esté declarado y no ausente es lo que permite a la pantalla reservar el
-    sitio y al chatbot saber que no es que no haya datos, es que todavía no se
-    piden.
+    "No se pidió" (la pantalla rápida no las necesita), "se miró y no hay" (el
+    móvil lleva días sin mandar nada) y "hay dato" se arreglan de formas
+    distintas y el chatbot tiene que responder distinto a cada una: callarse,
+    decir que no tiene datos tuyos, o usarlos. Un `None` para los dos primeros
+    haría imposible distinguirlos, que es la decisión 32 aplicada a este hueco.
+    """
+    from app.modules.metricas import Metricas
+
+    no_pedidas = ensamblar(_place(), _weather(), ahora=AHORA)
+    assert no_pedidas.metricas is None
+    assert no_pedidas.fuentes["metricas"].estado == NO_CONSULTADA
+
+    vacias = ensamblar(_place(), _weather(), metricas=Metricas(), ahora=AHORA)
+    assert vacias.fuentes["metricas"].estado == SIN_DATOS
+
+    con_datos = ensamblar(
+        _place(),
+        _weather(),
+        metricas=Metricas(pasos_hoy=5688, hay_datos=True),
+        ahora=AHORA,
+    )
+    assert con_datos.fuentes["metricas"].estado == OK
+    assert con_datos.metricas is not None
+    assert con_datos.metricas.pasos_hoy == 5688
+
+
+def test_las_metricas_y_el_viaje_no_avisan_cuando_no_se_piden(sin_red: Any) -> None:
+    """Un `no_consultada` no es una avería, así que no genera aviso.
+
+    Sacar "sin métricas del día" en cada petición de la pantalla principal es el
+    ruido permanente que hace que se dejen de leer los avisos.
     """
     estado = ensamblar(_place(), _weather(), ahora=AHORA)
 
-    assert estado.metricas is None
-    assert estado.fuentes["metricas"].estado == NO_CONSULTADA
-    assert "sin huecos" in estado.fuentes["metricas"].motivo
+    assert not any("métricas" in aviso.lower() for aviso in estado.avisos())
+    assert not any("viaje" in aviso.lower() for aviso in estado.avisos())
 
 
 def test_sin_efemerides_la_luna_no_desaparece(sin_red: Any) -> None:

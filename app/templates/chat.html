@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Preguntar{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Preguntar</h1>
+  <!-- Se dice de dónde sale la respuesta. Un chatbot que no enseña sobre qué
+       está razonando parece que lo sabe todo, y luego se le cree cuando no lo
+       sabe. -->
+  <p class="muted" id="chat-contexto">Buscando dónde estás…</p>
+  <p class="muted" id="chat-avisos" hidden></p>
+</section>
+
+<section class="card">
+  <div id="chat-hilo" class="chat-hilo" aria-live="polite" aria-label="Conversación"></div>
+
+  <form id="chat-form" class="chat-form" autocomplete="off">
+    <label class="sr-only" for="chat-texto">Tu pregunta</label>
+    <textarea id="chat-texto" rows="2" maxlength="2000"
+              placeholder="¿Qué hago esta tarde?"></textarea>
+    <button type="submit" id="chat-enviar" class="primary">Preguntar</button>
+  </form>
+  <p class="status" id="chat-estado" aria-live="polite"></p>
+</section>
+
+<section class="card">
+  <button type="button" id="chat-borrar" class="secondary">Borrar la conversación</button>
+  <p class="muted">
+    Se guarda entera para poder releerla, pero al modelo solo le van los últimos
+    turnos: lo que se guarda es gratis, lo que se envía se paga.
+  </p>
+</section>
+
+<p class="muted"><a href="{{ url_for('index') }}">← Volver</a></p>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}

@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.modules import storage
-from app.modules.contexto import Contexto
+from app.modules.contexto import NO_CONSULTADA, Contexto
 from app.modules.llm_providers import AIError, LLMProvider, build_provider
 from app.modules.location_context import Poi
 from app.modules.weather_context import Weather
@@ -204,13 +204,25 @@ bloque de código.\
 # Construcción del prompt (funciones puras: testeables sin red ni API key)
 # ---------------------------------------------------------------------------
 
-def _format_pois(pois: list[Poi]) -> str:
+def _format_pois(pois: list[Poi], consultados: bool = True) -> str:
     """Agrupa los POIs por categoría en texto compacto.
 
     Agrupar en vez de volcar JSON crudo tiene dos ventajas: gasta menos tokens
     y le da al modelo la estructura ya hecha, en vez de obligarle a deducirla.
+
+    `consultados` distingue las dos cosas que una lista vacía NO distingue: que
+    se haya mirado y no haya nada, o que no se haya mirado. Es el corolario de
+    la decisión 22 —el que se escribió al descartar el espejo suizo— llegando
+    hasta el prompt: decirle al modelo "no hay nada mapeado aquí" sin haber
+    preguntado le hace descartar la zona por un dato que nos hemos inventado, y
+    lo hará con toda la seguridad del mundo porque se lo hemos afirmado nosotros.
     """
     if not pois:
+        if not consultados:
+            return (
+                "(No se han buscado. NO son cero: es que nadie ha consultado el "
+                "mapa en este sitio. No digas que no hay nada cerca.)"
+            )
         return "(No hay puntos de interés mapeados en el radio consultado.)"
 
     grouped: dict[str, list[Poi]] = {}
@@ -313,7 +325,111 @@ def _format_luna(contexto: Contexto) -> str:
     return "\n".join(lineas)
 
 
-def formatear_para_prompt(contexto: Contexto, pois: list[Poi]) -> str:
+def _pois_consultados(contexto: Contexto) -> bool:
+    """¿Se ha llegado a mirar el mapa en este sitio?
+
+    La respuesta ya está en `contexto.fuentes["pois"]`, que rellena la vista con
+    los cuatro estados de la decisión 32. Aquí solo se traduce a la única
+    pregunta que le importa al texto del prompt. Si nadie ha puesto la fuente
+    —el chatbot, que no los pide— se asume que NO se han consultado, que es
+    equivocarse hacia el lado que no inventa datos.
+    """
+    fuente = contexto.fuentes.get("pois")
+    return fuente is not None and fuente.estado != NO_CONSULTADA
+
+
+def _format_metricas(contexto: Contexto) -> str:
+    """Los pasos y la batería que lee el modelo.
+
+    El aviso de que el dato es SIMULADO no es cosmético y por eso va aquí, en el
+    texto que lee el modelo, y no solo en un campo del JSON. Un modelo que no
+    sabe que los pasos son inventados dirá "hoy llevas 12.757 pasos, ya has
+    hecho bastante" con toda la seguridad del mundo, y eso es afirmar como
+    cierto algo que nos hemos inventado nosotros. Es la decisión 11 llevada al
+    único sitio donde el fallo no se puede detectar mirando la pantalla.
+    """
+    metricas = contexto.metricas
+    if metricas is None:
+        return "(No se han consultado.)"
+    if not metricas.hay_datos:
+        return "(El móvil no ha enviado ninguna muestra estos días.)"
+
+    lineas = []
+    media = metricas.media_diaria
+    if metricas.pasos_hoy is not None:
+        linea = f"Pasos de hoy hasta ahora: {metricas.pasos_hoy:,}".replace(",", ".")
+        if media is not None:
+            linea += f" (su media de los días anteriores es {media:,})".replace(",", ".")
+        lineas.append(linea)
+    else:
+        # Decirlo explícitamente y no callarlo: un bloque titulado "su actividad
+        # de hoy" del que faltan los pasos se lee como cero pasos, y entonces el
+        # modelo concluye que lleva el día entero sentado. Que no haya llegado
+        # todavía la muestra de hoy (a las 00:30 no ha llegado ninguna) y que no
+        # haya andado nada son cosas distintas.
+        linea = "Todavía no ha llegado ninguna muestra de hoy, así que NO se sabe cuánto ha andado."
+        if media is not None:
+            linea += f" Su media de los días anteriores es {media:,}".replace(",", ".")
+            linea += " pasos."
+        lineas.append(linea)
+    if metricas.bateria is not None:
+        lineas.append(f"Batería del móvil: {metricas.bateria} %")
+
+    if metricas.es_simulado:
+        lineas.append(
+            "ATENCIÓN: estas cifras son SIMULADAS, no medidas. No las presentes "
+            "como un hecho ni saques conclusiones sobre lo que ha hecho hoy de "
+            "verdad. Si te pregunta por ellas, dile que son datos de prueba."
+        )
+    return "\n".join(lineas) if lineas else "(Sin datos utilizables.)"
+
+
+def _format_viaje(contexto: Contexto) -> str:
+    """El viaje hasta ahora: los agregados y las últimas notas.
+
+    Las notas van con su texto porque son la única fuente que cuenta lo que le
+    pareció un sitio, y sin eso el modelo solo sabe por dónde pasó. Van las
+    últimas y no todas: el recorte lo decide `viaje.py`, aquí solo se pinta.
+    """
+    v = contexto.viaje
+    if v is None:
+        return "(No se ha consultado.)"
+    if not v.hay_datos:
+        return "(Todavía no hay ninguna nota ni ninguna foto de este viaje.)"
+
+    # Solo lo que tiene valor, y con el singular bien puesto. "1 días, 0
+    # lugares distintos, 0 km" no es un error de programa pero sí de lectura:
+    # un modelo entrenado con lenguaje natural trata un texto descuidado como
+    # una señal de que los datos también lo son.
+    partes = []
+    if v.dias:
+        partes.append(f"{v.dias} día" + ("s" if v.dias != 1 else ""))
+    if v.lugares:
+        partes.append(f"{v.lugares} lugares distintos")
+    if v.km:
+        partes.append(f"{v.km} km en línea recta")
+    if v.notas_totales:
+        partes.append(f"{v.notas_totales} notas")
+    if v.fotos:
+        partes.append(f"{v.fotos} foto" + ("s" if v.fotos != 1 else ""))
+    lineas = [(", ".join(partes) + ".") if partes else "Sin recorrido registrado todavía."]
+    if v.regiones:
+        lineas.append(f"Comunidades pisadas: {', '.join(v.regiones)}.")
+    if v.recientes:
+        lineas.append("\nÚltimas notas escritas (de la más antigua a la más reciente):")
+        for nota in v.recientes:
+            lugar = nota.get("lugar") or "sin lugar"
+            cuando = (nota.get("cuando") or "")[:10]
+            lineas.append(f"- [{cuando}, {lugar}] {nota['texto']}")
+    return "\n".join(lineas)
+
+
+def formatear_para_prompt(
+    contexto: Contexto,
+    pois: list[Poi],
+    *,
+    tarea: str = "Recomiéndame qué hacer desde aquí, ahora.",
+) -> str:
     """Renderiza el contexto como el bloque de texto que lee el modelo.
 
     Función pura: mismo contexto, mismo texto. Imprímela para depurar el prompt
@@ -347,10 +463,16 @@ Coordenadas: {place.lat:.4f}, {place.lon:.4f}
 {_format_luna(contexto)}
 
 ### PUNTOS DE INTERÉS CERCANOS (datos de OpenStreetMap, distancias en línea recta)
-{_format_pois(pois)}
+{_format_pois(pois, _pois_consultados(contexto))}
+
+### SU ACTIVIDAD DE HOY
+{_format_metricas(contexto)}
+
+### EL VIAJE HASTA AHORA
+{_format_viaje(contexto)}
 
 ### TAREA
-Recomiéndame qué hacer desde aquí, ahora."""
+{tarea}"""
 
 
 # ---------------------------------------------------------------------------
