@@ -172,6 +172,31 @@ def test_zona_buscada_y_vacia_no_es_lo_mismo_que_no_buscada(
     assert cuerpo["contexto"]["fuentes"]["pois"]["estado"] == "sin_datos"
 
 
+def test_el_sitio_y_el_tiempo_van_SOLO_dentro_del_contexto(
+    sesion: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Estuvieron duplicados en la raíz mientras la pantalla no sabía leer el
+    contexto, y esa deuda ya está pagada.
+
+    Se fija con un test porque volver a añadirlos es el atajo cómodo del día que
+    algo del frontend necesite un dato suelto, y dos copias del mismo dato en la
+    misma respuesta acaban divergiendo sin dar ningún error: a partir de ahí no
+    hay forma de saber cuál de las dos es la buena.
+    """
+    import app.app as modulo_app
+    monkeypatch.setattr(modulo_app, "get_recommendations",
+                        lambda estado, pois, **kw: _reco_falsa())
+
+    cuerpo = sesion.post("/api/recommendations",
+                         json={"lat": LAT, "lon": LON}).get_json()
+
+    assert "place" not in cuerpo
+    assert "weather" not in cuerpo
+    # Y siguen estando donde tienen que estar, que es la otra mitad del contrato.
+    assert cuerpo["contexto"]["ubicacion"]["short_label"]
+    assert "tiempo" in cuerpo["contexto"]
+
+
 # ---------------------------------------------------------------------------
 # La distinción, en el módulo
 # ---------------------------------------------------------------------------

@@ -183,10 +183,11 @@ Está **hecha y desplegada**, y funciona en el iPhone. Lo que falta:
 
 - **La presentación del tiempo.** Aplazada a propósito por el usuario ("eso con
   el tiempo"): los datos primero, la estética después. No se invierta el orden.
-- **`/api/recommendations` devuelve `place` y `weather` duplicados**, en la raíz
-  y dentro de `contexto`. Fue deuda deliberada para no romper el frontend a
-  mitad de fase. Ya no los usa nadie desde que la pantalla pinta con
-  `renderContexto`: se quitan en un commit.
+- ~~**`/api/recommendations` devuelve `place` y `weather` duplicados**~~ ✅
+  **Hecho el 29-07-2026.** Quitados de la raíz; van solo dentro de `contexto`.
+  Nadie los consumía: la pantalla pinta con `renderContexto(data.contexto)` y
+  los tests leen `cuerpo["contexto"]`. Lo fija ahora un test, porque volver a
+  añadirlos es el atajo cómodo del día que algo necesite un dato suelto.
 - **Las tres acciones sobrantes del atajo** (`Fecha actual`, `Obtener inicio del
   día`, `INICIO_DIA`), que quedaron inútiles al pasar a `es hoy`. Inofensivas,
   pero sobran.

@@ -319,15 +319,13 @@ def api_recommendations() -> Any:
 
     warnings: list[str] = estado.avisos()
 
+    # El sitio y el tiempo van SOLO dentro de `contexto`. Estuvieron también en
+    # la raíz mientras la pantalla no sabía leer el contexto, y se quitan ahora
+    # que lo pinta todo con `renderContexto`. Dos copias del mismo dato en la
+    # misma respuesta es una invitación a que diverjan, y entonces no habría
+    # forma de saber cuál es la buena.
     body: dict[str, Any] = {
         "contexto": estado.to_dict(),
-        # `place` y `weather` se mantienen en la raíz porque es lo que consume
-        # hoy la pantalla. Duplican lo que ya va dentro de `contexto`, y esa
-        # duplicación es temporal: desaparece cuando el §5 reescriba el
-        # frontend contra el contexto. Romperlo ahora dejaría la app rota entre
-        # dos fases.
-        "place": estado.ubicacion.to_dict(),
-        "weather": estado.tiempo.to_dict() if estado.tiempo else None,
         "pois": [p.to_dict() for p in pois],
         "recommendation": None,
         "warnings": warnings,
