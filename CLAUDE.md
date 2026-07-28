@@ -85,20 +85,27 @@ python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
-| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Atajo enviando a mano; **falta la prueba de varios días** |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
-**La Fase 2d no está cerrada, y su criterio de cierre es uno solo: ¿llegan los
-datos de forma fiable durante varios días?** Lo que sí está probado, contra el
-servidor desplegado y desde un iPhone real (28-07-2026): el token, la
-idempotencia (un reenvío devolvió `duplicadas: 1`, que es lo correcto) y una
-muestra completa con hora ISO, batería, coordenadas y pasos. Lo que falta es
-**tiempo**: el atajo se ha ejecutado a mano, no solo. Hasta que no haya varios
-días de muestras sin huecos no se construye análisis encima — hacerlo sobre una
-fuente que aún no se ha demostrado fiable es trabajo que hay que tirar. Por eso
-esta fase **no** tiene pantalla, gráfica ni resumen; para mirar los datos está
-`python tools/ver_telemetria.py`, desde una consola.
+**La Fase 2d está APARCADA como MVP, no cerrada,** y la diferencia importa.
+Probado contra el servidor desplegado y desde un iPhone real (28-07-2026): el
+token, la idempotencia (un reenvío devolvió `duplicadas: 1`, que es lo correcto)
+y una muestra completa con hora ISO, batería, coordenadas y pasos. Lo que falta
+no es trabajo, es **tiempo**: el atajo se ha ejecutado a mano, no solo, y el
+criterio de cierre es uno solo — ¿llegan los datos sin huecos durante varios
+días? Mientras tanto la automatización va acumulando muestras y se retoma para
+comprobarlo.
+
+La consecuencia práctica de estar aparcada y no cerrada: **no se construye
+análisis sobre estos datos todavía**, porque hacerlo sobre una fuente que aún no
+se ha demostrado fiable es trabajo que hay que tirar. Por eso esta fase no tiene
+pantalla, gráfica ni resumen; para mirar los datos está
+`python tools/ver_telemetria.py`, desde una consola. El mapa de la Fase 3 se
+construye sobre las **notas**, que son otra fuente; cuando la telemetría lleve
+días demostrando que llega, dibujar el trayecto encima es casi gratis, porque
+`lat`/`lon` ordenados por `medido_en` ya *son* la ruta.
 
 Montar el atajo dejó cuatro trampas documentadas en
 [`docs/atajo-iphone.md`](docs/atajo-iphone.md) que no se ven venir: los
@@ -470,6 +477,25 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
   cobertura. Hasta entonces, nada de análisis encima de estos datos.
   Ojo: las automatizaciones de iOS son **diarias**, no horarias; para varios
   envíos al día hay que crear una por cada hora.
+
+- **Poner nombre a las coordenadas, y hacerlo al CONSULTAR, no al ingerir.**
+  Una fila con `38.39064, -0.51648` no dice nada; "Cudillero, Asturias" sí. La
+  pieza ya existe: `location_context.reverse_geocode()`, con su caché en SQLite
+  por coordenada redondeada a ~110 m.
+
+  La tentación es resolver el nombre en el endpoint de ingesta, al recibir la
+  muestra. **Sería un error**, y por tres motivos que se acumulan: metería una
+  llamada de red dentro de la ruta que tiene que ser rápida y no puede fallar;
+  haría que un Nominatim caído impidiera **guardar** datos que están perfectos;
+  y rompería la regla de la fase, que es que la ingesta sea la tubería y no el
+  análisis. Un dato crudo se guarda siempre; interpretarlo es otro trabajo.
+
+  Al consultar sale casi gratis: en un camper te quedas horas en el mismo sitio,
+  así que decenas de muestras caen en la misma clave de caché y son **una sola**
+  petición a Nominatim (que además limita a 1/segundo, otro motivo para no
+  hacerlo en caliente). Y si Nominatim está caído, sigues teniendo las
+  coordenadas: se degrada, no se pierde nada. Encaja en `consultas.py` cuando
+  exista, y sirve igual para el mapa y para el contexto del agente.
 
 - **Decidir la forma de la tabla ANTES de la cuarta métrica.** Hoy `telemetria`
   tiene una columna por métrica (`pasos`, `bateria`, `lat`, `lon`). Con tres va
