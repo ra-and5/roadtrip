@@ -14,6 +14,41 @@ del viaje.
 Es un proyecto de portfolio **que se va a usar de verdad durante el viaje**. Eso
 condiciona todo: la fiabilidad con mala cobertura importa más que las features.
 
+### Hacia dónde va: el objetivo
+
+Conviene tenerlo escrito porque ordena todas las decisiones que quedan.
+
+Esto acaba siendo **un cuaderno de a bordo** que sirve para dos cosas distintas,
+y hoy están repartidas por pantallas sueltas:
+
+- **Decidir**, en el momento. *¿Qué hago hoy?* respondido con el contexto que de
+  verdad importa: dónde estoy, qué tiempo hace y qué dice el mar, cuánto he
+  andado, cómo he dormido, qué luna hay esta noche. Un asistente que sabe todo
+  eso recomienda otra cosa que uno que solo sabe la temperatura.
+- **Recordar**, después. Revivir el viaje entero: la ruta que salió de las fotos,
+  las notas como diario, un relato que lo cuente. Que quede constancia.
+
+Las dos se apoyan en lo mismo: **un contexto único, fiable y consultable**. Por
+eso la pieza central no es una pantalla, es **una función que devuelve el estado
+del viaje en un formato que un modelo pueda leer**. De ahí salen las tres caras:
+
+| Cara | Qué es | Para qué |
+|---|---|---|
+| **Dashboard** | Los datos crudos, bien enseñados | Que *tú* veas y decidas |
+| **Chatbot** | El mismo contexto, conversable | Preguntar en vez de buscar |
+| **Relato y mapa** | El viaje contado y dibujado | Revivirlo |
+
+**Y la regla que lo ordena todo, que ya está pagada con experiencia propia:**
+*un dato no entra en el dashboard ni en el contexto del modelo hasta que ha
+demostrado que llega solo y sin huecos.* No es purismo: construir análisis sobre
+una fuente que aún no se ha demostrado es trabajo que hay que tirar, y peor,
+produce conclusiones equivocadas sin dar ningún error (decisión 11). Por eso la
+Fase 2d sigue aparcada y por eso el progreso del mapa se calcula solo con notas.
+
+La consecuencia práctica: **la UI bonita va al final, no al principio.** Un
+dashboard precioso sobre datos que llegan a ratos es peor que una tabla fea
+sobre datos ciertos, porque el primero se cree.
+
 ## 2. Cómo trabajamos
 
 - **Fases cerradas.** No se empieza una fase sin la anterior funcionando de
@@ -793,6 +828,54 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     relato, no en el mapa). Esconderlas haría creer que el viaje está entero.
 
 ## 7. Roadmap
+
+### El orden que viene, y por qué es ese
+
+Decidido el 28-07-2026, tras cerrar la 3b. Cada paso desbloquea el siguiente;
+saltárselos cuesta rehacer trabajo.
+
+**0. Comprobar si la telemetría llega sin huecos.** Cinco minutos en una consola
+del servidor (`python tools/ver_telemetria.py 50`). No es burocracia: **decide si
+los pasos y la batería pueden aparecer en pantalla o no**. Mientras no esté
+demostrado, no entran.
+
+**1. Partir `/api/recommendations` en dos.** Hoy una sola petición hace ubicación
++ tiempo + POIs + LLM, y eso tiene tres consecuencias que se arreglan de una vez:
+no se puede mirar el tiempo sin pagar tokens, la pantalla tarda ~13 s por culpa
+del modelo, y **no existe ninguna forma de pedir "el contexto" sin pedir también
+una recomendación**. Separar en un `/api/contexto` rápido, gratis y sin LLM, y
+dejar `/api/recommendations` para cuando lo pidas.
+
+Esto **no es refactorizar por gusto**: esa función de contexto es exactamente la
+pieza que pide el §6 del encargo de la Fase 4 para el chatbot, y la que alimenta
+el dashboard. Se escribe una vez y sirve para las tres caras del §1.
+
+**2. Limpiar la pantalla principal.** Quitar las coordenadas crudas de la tarjeta
+de ubicación (el nombre del pueblo, la comunidad y la altitud sí; `38.39099,
+-0.52101 · ±1020 m` no le dice nada a nadie). Y resolver el aviso de POIs —ver
+abajo, porque no es "ocultar el aviso"—.
+
+**3. La luna.** Fase, iluminación, salida y puesta, junto al amanecer y el
+anochecer que ya están. Se calcula **en Python, sin red y sin API**: es
+astronomía determinista, así que encaja con la regla de tests sin red y con la
+decisión 5 (la lógica vive en Python, no en el prompt). Es el dato de mayor
+valor por línea escrita que queda pendiente.
+
+**4. El dashboard**, con las fuentes que hayan pasado el paso 0.
+
+**5. El chatbot**, sobre la función de contexto del paso 1.
+
+> **Sobre "quitar los avisos que no funcionan".** El aviso de POIs salta casi
+> siempre porque Overpass está muerto (decisión 22), y como ruido constante es
+> inútil. Pero **la solución no es callar el aviso**: la decisión 9 dice que una
+> app que oculta que le falta la mitad del contexto no es fiable, es opaca. Lo
+> honesto es **quitar la fuente que no funciona del camino normal** —dejar de
+> llamar a Overpass, o degradarlo a algo que no bloquee ni avise— para que no
+> haya nada que avisar. Ocultar el síntoma dejaría la app diciendo "aquí no hay
+> nada que ver" cuando lo que pasa es "no he podido consultarlo", que es el
+> error que ya se evitó a propósito al descartar el espejo suizo.
+
+### Lo demás, sin orden fijo
 
 - **Cerrar la Fase 2d.** El atajo ya está montado y envía bien a mano. Falta lo
   único que cierra la fase: **dejarlo corriendo solo varios días** con una
