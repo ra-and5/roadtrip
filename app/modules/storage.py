@@ -45,9 +45,25 @@ CREATE TABLE IF NOT EXISTS notes (
     photo_path  TEXT,               -- ruta relativa dentro de UPLOAD_DIR
     lat         REAL NOT NULL,
     lon         REAL NOT NULL,
-    place_name  TEXT,               -- nombre resuelto en el momento de crearla
-    -- Siempre UTC en ISO-8601. Convertir a hora local solo al mostrar.
-    created_at  TEXT NOT NULL
+    place_name  TEXT,               -- etiqueta corta: "Cudillero, Asturias"
+    -- La comunidad autónoma, en su propia columna en vez de deducida partiendo
+    -- `place_name` por la coma. El mapa cuenta regiones completadas, y cuando
+    -- Nominatim no devuelve región `place_name` es solo el pueblo: partir la
+    -- cadena daría "Cudillero" como comunidad autónoma sin dar ningún error,
+    -- y el contador del mapa mentiría (decisión 11).
+    region      TEXT,
+    -- Cuándo se ESCRIBIÓ la nota, en el móvil. Siempre UTC en ISO-8601 y
+    -- canonizado a segundos. No es lo mismo que `received_at`: con cola
+    -- offline una nota se escribe en un mirador sin cobertura y se guarda seis
+    -- horas después.
+    created_at  TEXT NOT NULL,
+    -- El desfase horario tal y como vino ("+02:00"), para poder reconstruir la
+    -- hora local desde una consola del servidor, que corre en UTC.
+    offset_original TEXT,
+    -- Cuándo la guardó el SERVIDOR (UTC). `received_at - created_at` es la
+    -- única prueba objetiva de que la cola offline funcionó: una chincheta se
+    -- ve igual llegue al instante o seis horas después.
+    received_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at);
@@ -118,10 +134,61 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columnas que la Fase 3 añadió a `notes`, que nació en la Fase 1.
+_NOTES_COLUMNAS_FASE3 = ("region", "offset_original", "received_at")
+
+
+class SchemaError(Exception):
+    """El esquema de la base de datos no es el que este código espera.
+
+    Es un error de arranque, no de petición: mejor no arrancar que arrancar
+    escribiendo en una tabla con la forma equivocada.
+    """
+
+
+def _migrar_notes(conn: sqlite3.Connection) -> None:
+    """Lleva una tabla `notes` de la Fase 1 a la forma de la Fase 3.
+
+    `CREATE TABLE IF NOT EXISTS` no añade columnas a una tabla que ya existe,
+    así que un despliegue con la base de datos de la Fase 1 seguiría corriendo
+    con la tabla vieja y el primer INSERT fallaría en producción.
+
+    La migración es *recrear*, y eso solo es admisible por una razón que se
+    comprueba en vez de suponerse: la tabla tiene que estar **vacía**. Lo está
+    por construcción, porque este es el primer código del proyecto que escribe
+    notas. Si algún día no lo estuviera, se levanta `SchemaError` en el
+    arranque en lugar de borrar nada: perder las notas del viaje para ahorrar
+    una migración a mano sería el peor intercambio posible.
+
+    Se recrea en vez de ir con `ALTER TABLE ADD COLUMN` porque `received_at` es
+    `NOT NULL` y añadirla así obligaría a darle un valor por defecto vacío. El
+    esquema de una instalación nueva y el de una migrada divergirían, y esa
+    clase de divergencia no da error: da una columna obligatoria que acepta
+    cadenas vacías solo en los servidores viejos.
+    """
+    columnas = {fila["name"] for fila in conn.execute("PRAGMA table_info(notes)")}
+    if not columnas:
+        return  # La tabla no existe todavía; el CREATE la hará bien.
+    faltan = [c for c in _NOTES_COLUMNAS_FASE3 if c not in columnas]
+    if not faltan:
+        return
+
+    filas = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+    if filas:
+        raise SchemaError(
+            f"La tabla 'notes' es de la Fase 1 (le faltan: {', '.join(faltan)}) "
+            f"y tiene {filas} filas. Migra a mano antes de arrancar: exporta las "
+            f"notas, borra la tabla y vuelve a importarlas."
+        )
+
+    conn.execute("DROP TABLE notes")
+
+
 def init_db() -> None:
     """Crea el esquema si no existe. Seguro de llamar en cada arranque."""
     Config.ensure_dirs()
     with get_conn() as conn:
+        _migrar_notes(conn)
         conn.executescript(_SCHEMA)
 
 
@@ -290,5 +357,113 @@ def recent_telemetry(limit: int = 20) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Notas (Fase 3) -- pendiente de implementar
+# Notas geolocalizadas (Fase 3)
 # ---------------------------------------------------------------------------
+
+# Igual que `_TELEMETRIA_COLS`: el orden de las columnas en un solo sitio, para
+# que el INSERT y la lectura no puedan desalinearse en silencio.
+_NOTES_COLS = (
+    "client_id",
+    "text",
+    "photo_path",
+    "lat",
+    "lon",
+    "place_name",
+    "region",
+    "created_at",
+    "offset_original",
+    "received_at",
+)
+
+
+def insert_note(row: dict[str, Any]) -> tuple[int, bool]:
+    """Guarda una nota. Devuelve (id, creada) -- `creada=False` si ya existía.
+
+    `INSERT OR IGNORE` contra el `UNIQUE(client_id)` es lo que hace idempotente
+    la creación: el móvil genera el `client_id` ANTES del primer intento y lo
+    reutiliza en cada reintento, así que reenviar una nota tras recuperar la
+    cobertura no puede duplicarla. La garantía vive en el esquema y no en un
+    `SELECT` previo porque comprobar-y-luego-insertar tiene una carrera con dos
+    peticiones a la vez; el `UNIQUE` no.
+
+    Devolver el id también cuando ya existía no es un adorno: la respuesta del
+    servidor tiene que decirle al cliente CUÁL es la nota que ya tenía, o la
+    cola local no podría enlazar lo que borra con lo que hay en el servidor.
+
+    El `SELECT` posterior va dentro de la misma conexión y transacción que el
+    `INSERT`, así que ve el estado ya escrito.
+    """
+    columnas = ", ".join(_NOTES_COLS)
+    marcadores = ", ".join("?" for _ in _NOTES_COLS)
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"INSERT OR IGNORE INTO notes ({columnas}) VALUES ({marcadores})",
+            tuple(row[c] for c in _NOTES_COLS),
+        )
+        # rowcount es 1 si entró y 0 si el UNIQUE la descartó.
+        creada = cur.rowcount == 1
+        fila = conn.execute(
+            "SELECT id FROM notes WHERE client_id = ?", (row["client_id"],)
+        ).fetchone()
+
+    return int(fila["id"]), creada
+
+
+def list_notes(limit: int = 1000) -> list[dict[str, Any]]:
+    """Las notas, de la más reciente a la más antigua.
+
+    Se ordena por `created_at` (cuándo se escribió) y no por `id` (en qué orden
+    llegaron), porque con cola offline no son lo mismo: una nota escrita el
+    martes sin cobertura entra en la base de datos después de otra del
+    miércoles. El orden que le importa a un mapa del viaje es el de los hechos,
+    no el del tráfico de red.
+
+    Devuelve diccionarios y no `sqlite3.Row`: fuera de este módulo nadie debe
+    manejar tipos de sqlite3.
+    """
+    with get_conn() as conn:
+        filas = conn.execute(
+            f"SELECT id, {', '.join(_NOTES_COLS)} FROM notes "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(f) for f in filas]
+
+
+def notes_stats() -> dict[str, Any]:
+    """Cuántas notas hay y de cuándo son. Para el diagnóstico y `ver_notas.py`."""
+    with get_conn() as conn:
+        fila = conn.execute(
+            "SELECT COUNT(*) AS total, MIN(created_at) AS primera, "
+            "       MAX(created_at) AS ultima, MAX(received_at) AS ultima_recepcion, "
+            "       COUNT(photo_path) AS con_foto "
+            "FROM notes"
+        ).fetchone()
+
+    return {
+        "total": fila["total"] or 0,
+        "primera": fila["primera"],
+        "ultima": fila["ultima"],
+        "ultima_recepcion": fila["ultima_recepcion"],
+        "con_foto": fila["con_foto"] or 0,
+    }
+
+
+def delete_notes(ids: Sequence[int]) -> int:
+    """Borra notas por id. Devuelve cuántas se han borrado de verdad.
+
+    Mismo criterio que `delete_telemetry`: se devuelve el recuento real y no
+    `len(ids)` porque desde una consola esa es la diferencia entre haber hecho
+    el trabajo y creer que lo has hecho.
+
+    Borrar es la única forma de corregir una nota, y es a propósito: la Fase 3
+    no tiene edición desde la web (ver el alcance del encargo).
+    """
+    if not ids:
+        return 0
+    marcadores = ", ".join("?" for _ in ids)
+    with get_conn() as conn:
+        cur = conn.execute(f"DELETE FROM notes WHERE id IN ({marcadores})", tuple(ids))
+        return cur.rowcount

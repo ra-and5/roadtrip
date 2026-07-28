@@ -25,13 +25,13 @@ datos buenos, justo en el escenario para el que se diseñó la ventana solapada.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from werkzeug.security import check_password_hash
 
 from app.config import Config
-from app.modules import storage
+from app.modules import storage, timeparse
 
 
 class IngestError(Exception):
@@ -52,19 +52,12 @@ class IngestError(Exception):
 FUENTES_VALIDAS = frozenset({"atajos-iphone"})
 FUENTE_POR_DEFECTO = "atajos-iphone"
 
-# Ventana de fechas aceptable, medida desde "ahora".
-#
-# Hacia el futuro se admiten 24 h: margen para el desfase del reloj del móvil y
-# para cruzar husos, pero no tanto como para que una fecha inventada pase por
-# buena. Hacia el pasado, 30 días, porque el pasado es justamente lo que la
-# ventana solapada tiene que poder recuperar tras días sin cobertura.
-#
-# El motivo de acotar: una fecha corrupta no da ningún error, se guarda tan
-# ricamente y envenena en silencio cualquier análisis posterior. Es más barato
-# rechazarla aquí que descubrir dentro de un mes que hay pasos fechados en 1970
-# metidos entre los buenos.
-MAX_FUTURO = timedelta(hours=24)
-MAX_PASADO = timedelta(days=30)
+# La ventana de fechas aceptable vive en `timeparse`, compartida con las notas
+# de la Fase 3: el criterio de "qué fecha es creíble" es el mismo para un dato
+# que recupera la ventana solapada y para una nota que recupera la cola
+# offline. Se reexportan para no romper a quien las importara de aquí.
+MAX_FUTURO = timeparse.MAX_FUTURO
+MAX_PASADO = timeparse.MAX_PASADO
 
 # Cuántos mensajes de descarte se devuelven como mucho. Un lote de 500 muestras
 # malas no debe generar una respuesta de 500 líneas; el recuento sí es exacto.
@@ -239,54 +232,16 @@ def _entero(valor: Any, campo: str) -> int:
 def _parse_medido_en(valor: Any) -> tuple[str, str | None]:
     """Valida el instante y lo canoniza. Devuelve (UTC canónico, offset original).
 
-    Tres cosas se comprueban aquí, y cada una tapa un fallo distinto:
-
-    1. Que sea ISO 8601 parseable.
-    2. Que traiga zona horaria. Sin ella no se sabe qué instante es: el mismo
-       "2026-07-27T10:00:00" son dos momentos distintos en Madrid y en el
-       servidor (que corre en UTC). Suponer una zona es inventarse una hora.
-    3. Que caiga dentro de la ventana razonable.
-
-    La canonización a UTC y a segundos es lo que hace efectivo el UNIQUE de la
-    tabla: dos representaciones del mismo instante tienen que producir la misma
-    cadena, o el reenvío de una muestra crearía una fila nueva y la
-    idempotencia sería mentira.
+    La aritmética vive en `timeparse` porque las notas de la Fase 3 necesitan
+    exactamente la misma, y las fechas son justo donde un bug corregido en un
+    sitio y no en el otro pasa desapercibido durante semanas. Aquí solo queda
+    la traducción de la excepción: `timeparse` lanza `ValueError` porque no
+    sabe quién lo usa, y este módulo la convierte en su descarte de muestra.
     """
-    if not isinstance(valor, str) or not valor.strip():
-        raise _MuestraInvalida("falta 'medido_en' (fecha ISO 8601 con zona horaria)")
-
     try:
-        # `fromisoformat` acepta "Z" desde Python 3.11, que es la versión mínima
-        # del proyecto. Atajos manda la fecha con desfase ("+02:00").
-        instante = datetime.fromisoformat(valor.strip())
-    except ValueError:
-        raise _MuestraInvalida(
-            f"'medido_en' no es una fecha ISO 8601 válida: {valor!r}"
-        ) from None
-
-    if instante.tzinfo is None:
-        raise _MuestraInvalida(
-            f"'medido_en' tiene que llevar zona horaria (p. ej. +02:00 o Z): {valor!r}"
-        )
-
-    ahora = datetime.now(timezone.utc)
-    if instante > ahora + MAX_FUTURO:
-        raise _MuestraInvalida(f"'medido_en' está demasiado en el futuro: {valor!r}")
-    if instante < ahora - MAX_PASADO:
-        raise _MuestraInvalida(f"'medido_en' está demasiado en el pasado: {valor!r}")
-
-    utc = instante.astimezone(timezone.utc).replace(microsecond=0)
-    # El desfase original se guarda solo si aportaba algo: "+00:00" ya está en
-    # `medido_en` y repetirlo es ruido.
-    # "%z" da "+0200". Se recorta a los cinco primeros caracteres porque un
-    # huso con segundos (los hay históricos, y `fromisoformat` los acepta)
-    # devolvería "+020000" y guardaríamos "+02:0000".
-    offset = instante.strftime("%z")[:5]
-    offset_original = None
-    if offset and offset != "+0000":
-        offset_original = f"{offset[:3]}:{offset[3:]}"
-
-    return utc.isoformat(timespec="seconds"), offset_original
+        return timeparse.parse_instant(valor, "medido_en")
+    except ValueError as exc:
+        raise _MuestraInvalida(str(exc)) from None
 
 
 def _parse_coordenadas(datos: dict[str, Any]) -> tuple[float | None, float | None]:

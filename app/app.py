@@ -18,9 +18,10 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, ingest, storage
+from app.modules import auth, ingest, notes, storage
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
+from app.modules.notes import NoteError
 from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
@@ -213,6 +214,69 @@ def api_recommendations() -> Any:
 
     body["warnings"] = warnings
     return jsonify(body)
+
+
+@app.route("/api/notes", methods=["POST"])
+@auth.login_required
+def api_crear_nota() -> Any:
+    """Crea una nota geolocalizada. Idempotente por `client_id`.
+
+    Con `@auth.login_required`, y aquí eso SÍ es lo correcto, al revés que en
+    `/api/telemetria`: al otro lado hay una persona con un navegador que ya ha
+    iniciado sesión. Que convivan los dos modelos de autenticación está bien
+    **mientras cada ruta tenga exactamente uno**; que el token de ingesta no
+    abra esta ruta lo fija un test, simétrico al que ya existe al revés.
+
+    Los códigos de estado no son decorativos: son lo que la cola offline del
+    navegador usa para decidir si borra la nota de la cola local o la
+    reintenta. `201` y `200` significan "está a salvo en el servidor, bórrala";
+    un `400` significa "esta nota no va a entrar nunca, deja de reintentarla";
+    cualquier `5xx` o un fallo de red significa "no se sabe, guárdala".
+    """
+    payload = request.get_json(silent=True)
+
+    try:
+        resultado = notes.create_note(payload)
+    except NoteError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # 201 cuando se ha creado y 200 cuando ya existía. El cuerpo lo dice además
+    # en `estado`, igual que la ingesta devuelve `guardadas`/`duplicadas`: una
+    # nota duplicada es funcionamiento normal (un reintento que en realidad
+    # había llegado bien), y quiero poder verlo sin mirar códigos de estado.
+    return jsonify(resultado.to_dict()), (201 if resultado.creada else 200)
+
+
+@app.route("/api/notes", methods=["GET"])
+@auth.login_required
+def api_listar_notas() -> Any:
+    """Las notas del mapa y el progreso del viaje, en una sola petición.
+
+    Una sola y no dos porque el cliente es un móvil con mala cobertura: dos
+    peticiones son dos oportunidades de que una falle y la pantalla quede a
+    medias.
+
+    `progreso` se calcula SIEMPRE sobre todas las notas, aunque `year` filtre
+    la lista. Es lo que permite comparar años sin pedir el histórico entero
+    otra vez: el filtro cambia qué se pinta, no cuánto llevas hecho.
+    """
+    year: int | None = None
+    bruto = request.args.get("year", "").strip()
+    if bruto:
+        try:
+            year = int(bruto)
+        except ValueError:
+            return jsonify({"error": f"'year' no es un número: {bruto!r}"}), 400
+
+    todas = notes.get_notes()
+
+    return jsonify(
+        {
+            "total": len(todas),
+            "notes": notes.solo_del_anio(todas, year),
+            "progreso": notes.progreso(todas),
+        }
+    )
 
 
 @app.route("/api/telemetria", methods=["POST"])
