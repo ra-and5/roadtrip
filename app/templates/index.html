@@ -40,8 +40,17 @@
   <p class="muted" id="reco-meta"></p>
 </section>
 
-<section id="pois-card" class="card" hidden>
-  <details>
+<!-- Overpass está muerto o saturado casi siempre (31,3 s medidos desde el
+     servidor para no devolver nada), así que buscar sitios es una decisión
+     tuya y no un peaje que paga cada pantalla. La caché dura 7 días: buscar
+     una vez en un sitio deja los puntos disponibles para las recomendaciones
+     de toda la semana. -->
+<section id="pois-card" class="card">
+  <h2>Sitios cerca</h2>
+  <p class="muted" id="pois-estado">Se consulta OpenStreetMap. Suele tardar,
+    y a veces no responde.</p>
+  <button id="pois-btn" class="secondary">Buscar sitios cerca</button>
+  <details id="pois-detalle" hidden>
     <summary>Puntos de interés cercanos (<span id="pois-count">0</span>)</summary>
     <ul id="pois-list" class="pois"></ul>
   </details>

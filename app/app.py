@@ -11,7 +11,6 @@ Si una vista empieza a crecer, la lógica se va a un módulo.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -27,8 +26,8 @@ from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
     LocationError,
-    Poi,
     find_nearby_pois,
+    pois_cacheados,
     reverse_geocode,
 )
 
@@ -186,6 +185,52 @@ def api_contexto() -> Any:
     return jsonify(estado.to_dict())
 
 
+@app.route("/api/pois", methods=["POST"])
+@auth.login_required
+def api_pois() -> Any:
+    """Busca sitios cerca en OpenStreetMap. Lento y a propósito bajo botón.
+
+    Overpass está medido en 31,3 s desde el servidor cuando fallan los tres
+    espejos (decisión 22), y eso era el 70 % de lo que tardaba la pantalla
+    gastado en no obtener nada. La respuesta **no** fue silenciar el aviso —eso
+    convierte un fallo ruidoso en uno silencioso, que es justo lo que se evitó
+    al descartar el espejo suizo que respondía 200 con cero elementos— sino
+    sacar la fuente del camino normal. Aquí esperar treinta segundos es una
+    decisión de quien pulsa, no un peaje que paga todo el mundo.
+
+    Lo que además deja hecho: la caché de POIs dura 7 días, así que a partir de
+    una búsqueda, `/api/recommendations` los usa gratis en ese sitio.
+
+    Devuelve 200 con `fuente` en el mismo vocabulario que `/api/contexto`, para
+    que "no hay nada mapeado aquí" y "no se pudo consultar" no se confundan.
+    """
+    payload = request.get_json(silent=True) or {}
+    lat, lon = _coordenadas_de(payload)
+    if lat is None:
+        return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
+
+    try:
+        pois = find_nearby_pois(lat, lon)
+    except InvalidCoordinates as exc:
+        return jsonify({"error": str(exc)}), 400
+    except LocationError as exc:
+        # 200 y no 502: la petición ha hecho su trabajo y la respuesta dice
+        # exactamente qué ha pasado. Un 502 aquí obligaría al frontend a
+        # distinguir "no hay sitios" de "error HTTP" por dos caminos distintos.
+        fuente = contexto.Fuente(contexto.FALLO, str(exc))
+        return jsonify({"pois": [], "fuente": fuente.to_dict(),
+                        "warnings": [f"Sin puntos de interés cercanos: {exc}"]})
+
+    fuente = contexto.Fuente(contexto.OK) if pois else contexto.Fuente(
+        contexto.SIN_DATOS, "No hay nada mapeado en OpenStreetMap en esta zona."
+    )
+    return jsonify({
+        "pois": [p.to_dict() for p in pois],
+        "fuente": fuente.to_dict(),
+        "warnings": [],
+    })
+
+
 @app.route("/api/recommendations", methods=["POST"])
 @auth.login_required
 def api_recommendations() -> Any:
@@ -215,43 +260,36 @@ def api_recommendations() -> Any:
     if lat is None:
         return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
 
-    # 1. El contexto y los POIs en paralelo. Overpass tarda entre 2 y 30
-    #    segundos y el contexto menos de dos: en serie se paga la suma, en
-    #    paralelo el máximo. Los POIs van por fuera del contexto a propósito
-    #    (ver el docstring de `get_recommendations`): son la fuente cara y la
-    #    pantalla rápida no debe pagarla.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        # Los dos `submit` van seguidos y sin ningún `result()` en medio: en
-        # cuanto se espera un resultado antes de lanzar lo siguiente, esto
-        # vuelve a ser código en serie disfrazado de paralelo.
-        futuro_contexto = pool.submit(contexto.construir, lat, lon)
-        futuro_pois = pool.submit(find_nearby_pois, lat, lon)
+    try:
+        estado = contexto.construir(lat, lon)
+    except InvalidCoordinates as exc:
+        return jsonify({"error": str(exc)}), 400
+    except LocationError as exc:
+        return jsonify({"error": str(exc)}), 502
 
-        # Primero lo que nunca propaga (los POIs), y después lo que sí puede
-        # cortar la vista. Al revés, un fallo de ubicación saldría con el hilo
-        # de Overpass todavía en vuelo y habría que esperarlo para poder
-        # contestar: un 502 que tarda medio minuto.
-        pois: list[Poi] = []
-        aviso_pois = ""
-        try:
-            pois = futuro_pois.result()
-        except LocationError as exc:
-            aviso_pois = f"Sin puntos de interés cercanos: {exc}"
-        except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba la petición
-            aviso_pois = "Sin puntos de interés por un error inesperado."
-
-        try:
-            estado = futuro_contexto.result()
-        except InvalidCoordinates as exc:
-            return jsonify({"error": str(exc)}), 400
-        except LocationError as exc:
-            return jsonify({"error": str(exc)}), 502
+    # Los POIs, SOLO si ya están en caché. Esta vista no espera nunca a
+    # Overpass: medido desde el servidor, un fallo de los tres espejos cuesta
+    # 31,3 s, que era el 70 % de lo que tardaba la pantalla gastado en no
+    # obtener nada. Buscarlos de verdad es una decisión del usuario y tiene su
+    # propia ruta (`/api/pois`); aquí se aprovecha lo que esa búsqueda dejó
+    # cacheado, que dura 7 días.
+    pois = pois_cacheados(lat, lon)
+    if pois is None:
+        pois = []
+        estado.fuentes["pois"] = contexto.Fuente(
+            contexto.NO_CONSULTADA,
+            "Nadie los ha buscado todavía en este sitio. La recomendación sale "
+            "del conocimiento general del modelo, sin datos del mapa.",
+        )
+    elif not pois:
+        estado.fuentes["pois"] = contexto.Fuente(
+            contexto.SIN_DATOS,
+            "No hay nada mapeado en OpenStreetMap en esta zona.",
+        )
+    else:
+        estado.fuentes["pois"] = contexto.Fuente(contexto.OK)
 
     warnings: list[str] = estado.avisos()
-    if aviso_pois:
-        warnings.append(aviso_pois)
-    elif not pois:
-        warnings.append("No hay puntos de interés mapeados en esta zona de OpenStreetMap.")
 
     body: dict[str, Any] = {
         "contexto": estado.to_dict(),

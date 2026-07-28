@@ -343,7 +343,8 @@ comprobaciones en orden con lo que deberías ver en cada una.
 | GET | `/mapa` | ✅ | El mapa acumulado del viaje y el progreso |
 | POST | `/api/location` | ✅ | `{lat, lon}` → datos del lugar |
 | POST | `/api/contexto` | ✅ | `{lat, lon}` → dónde estás, qué hora es y qué tiempo hace. **Sin LLM** |
-| POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → el contexto + POIs + recomendación |
+| POST | `/api/pois` | ✅ | `{lat, lon}` → sitios cerca (OpenStreetMap). **Lento, bajo botón** |
+| POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → el contexto + recomendación |
 | POST | `/api/notes` | ✅ | Crea una nota geolocalizada. Idempotente por `client_id` |
 | GET | `/api/notes?year=` | ✅ | Las notas y el progreso del viaje |
 | GET | `/api/ruta?year=` | ✅ | El viaje entero: notas + fotos en orden, días y progreso |
@@ -560,11 +561,25 @@ imprescindible; el resto pueden caerse de forma independiente:
 |-------|----------|
 | Ubicación (Nominatim) | `502`. Es lo único sin lo que no hay app. |
 | Tiempo (Open-Meteo) | Se recomienda sin él, y el prompt le prohíbe al modelo inventárselo. |
-| POIs (Overpass) | El modelo tira de conocimiento general y lo marca como tal. |
+| POIs (Overpass) | Ya no está en el camino normal: ver abajo. El modelo tira de conocimiento general y lo marca como tal. |
 | El LLM | Se devuelven igualmente ubicación, tiempo y puntos de interés. |
 
 Cada fallo añade una entrada a `warnings`, que la interfaz muestra. Una app
 que oculta que le falta la mitad del contexto no es fiable, es opaca.
+
+**Overpass está fuera del camino normal, y el aviso NO se ha silenciado.** Los
+tres espejos fallan desde el servidor y cuestan 31,3 s por petición (decisión 22
+de `CLAUDE.md`): eso era el 70 % de lo que tardaba la pantalla, gastado en no
+obtener nada. Lo que se ha quitado es la **fuente**, no el aviso — callarlo
+convertiría un fallo ruidoso en uno silencioso. Ahora:
+
+- buscar sitios cerca es un botón, donde esperar treinta segundos es una
+  decisión de quien pulsa (`/api/pois`);
+- `/api/recommendations` usa los POIs que ya estén en caché y **nunca** espera a
+  Overpass, así que buscar una vez en un sitio los deja disponibles 7 días;
+- y `fuentes.pois` distingue los cuatro casos, que no son el mismo:
+  `ok`, `sin_datos` (buscado, y aquí no hay nada mapeado), `no_consultada` (no
+  se ha buscado) y `fallo` (no se pudo).
 
 Cada actividad recomendada lleva un campo `origen`:
 `lista_cercana` (sale de OpenStreetMap, con distancia medida — la interfaz lo

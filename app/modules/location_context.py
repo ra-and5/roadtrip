@@ -378,8 +378,45 @@ def _parse_overpass(payload: dict[str, Any], lat: float, lon: float) -> list[Poi
     return balanced
 
 
+def _poi_cache_key(lat: float, lon: float, radius_m: int) -> str:
+    return f"{storage.cache_key_for_coords('pois', lat, lon)}:r{radius_m}"
+
+
+def pois_cacheados(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi] | None:
+    """Los POIs que YA estén en caché. Nunca toca la red.
+
+    Devuelve `None` cuando no hay nada cacheado para ese sitio, y eso es
+    distinto de devolver `[]`:
+
+        [] -> se consultó y aquí no hay nada mapeado en OpenStreetMap
+        None -> no se ha consultado nunca
+
+    Confundir las dos cosas es el error que ya se evitó a propósito al
+    descartar el espejo suizo de Overpass (decisión 22): convertir "no lo he
+    mirado" en "aquí no hay nada que ver". Por eso son valores distintos y no
+    una lista vacía para ambos.
+
+    Existe porque Overpass está medido en 31,3 s desde el servidor cuando falla
+    (decisión 22), y hacer esperar eso para generar una recomendación es
+    inaceptable. La recomendación usa lo que ya haya; buscar de verdad es una
+    decisión explícita del usuario, con su botón. La caché dura 7 días, así que
+    en un sitio donde ya se buscó una vez esto sale gratis y completo.
+    """
+    lat, lon = validate_coords(lat, lon)
+
+    cached = storage.cache_get(_poi_cache_key(lat, lon, radius_m), _POI_CACHE_TTL)
+    if cached is None:
+        return None
+    return _parse_overpass(cached, lat, lon)
+
+
 def find_nearby_pois(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi]:
-    """Busca puntos de interés alrededor de unas coordenadas.
+    """Busca puntos de interés alrededor de unas coordenadas. PUEDE TARDAR.
+
+    Medido desde PythonAnywhere: hasta 31,3 s cuando los tres espejos fallan.
+    Por eso esta llamada solo cuelga de una acción explícita del usuario, y no
+    del camino normal de la pantalla. Para lo que ya se sepa sin esperar está
+    `pois_cacheados()`.
 
     Args:
         lat, lon: centro de la búsqueda.
@@ -397,7 +434,7 @@ def find_nearby_pois(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi
     """
     lat, lon = validate_coords(lat, lon)
 
-    cache_key = f"{storage.cache_key_for_coords('pois', lat, lon)}:r{radius_m}"
+    cache_key = _poi_cache_key(lat, lon, radius_m)
     cached = storage.cache_get(cache_key, _POI_CACHE_TTL)
     if cached is not None:
         return _parse_overpass(cached, lat, lon)

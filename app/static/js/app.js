@@ -10,14 +10,19 @@
 
   const btn = document.getElementById("locate-btn");
   const refreshBtn = document.getElementById("refresh-btn");
+  const poisBtn = document.getElementById("pois-btn");
   const statusEl = document.getElementById("status");
 
   /* Guardamos la última posición para que "generar otra" no tenga que volver
    * a esperar un fix de GPS, que es la parte más lenta del proceso. */
   let lastCoords = null;
 
+  /* `pois-card` NO está aquí: es la tarjeta que lleva el botón de buscar
+   * sitios, y esconderla al pedir una recomendación dejaría el botón
+   * desapareciendo y reapareciendo sin motivo. Lo que se oculta es su
+   * desplegable de resultados, que sí depende de haber buscado. */
   const SECTIONS = [
-    "place-card", "warnings-card", "weather-card", "reco-card", "pois-card",
+    "place-card", "warnings-card", "weather-card", "reco-card",
   ];
 
   function setStatus(message, kind) {
@@ -218,19 +223,39 @@
   }
 
   function renderPois(pois) {
-    if (!pois || pois.length === 0) return;
+    const detalle = document.getElementById("pois-detalle");
+    if (!pois || pois.length === 0) {
+      detalle.hidden = true;
+      return;
+    }
     text("pois-count", String(pois.length));
     const list = document.getElementById("pois-list");
     list.innerHTML = "";
     pois.forEach(function (poi) {
-      const li = document.createElement("li");
       const km = poi.distance_m / 1000;
+      const li = document.createElement("li");
       li.textContent =
         (km < 1 ? poi.distance_m + " m" : km.toFixed(1) + " km") +
         " — " + poi.name + " (" + poi.category + ")";
       list.appendChild(li);
     });
-    show("pois-card");
+    detalle.hidden = false;
+  }
+
+  /* El estado de los POIs se enseña con las palabras de cada caso, no con un
+   * "no hay resultados" para todo. Los cuatro significan cosas distintas y
+   * confundirlos es el fallo que costó descartar un espejo de Overpass: decir
+   * "aquí no hay nada que ver" cuando lo que pasa es "no he podido mirar". */
+  function renderEstadoPois(fuente) {
+    if (!fuente) return;
+    const MENSAJES = {
+      ok: "",
+      sin_datos: "Buscado: OpenStreetMap no tiene nada mapeado en esta zona.",
+      no_consultada: "Todavía no se han buscado. La recomendación va sin datos del mapa.",
+      fallo: "No se pudo consultar OpenStreetMap: " + (fuente.motivo || ""),
+    };
+    const mensaje = MENSAJES[fuente.estado];
+    text("pois-estado", mensaje === "" ? "Datos de OpenStreetMap." : mensaje);
   }
 
   // --- Flujo principal -----------------------------------------------------
@@ -258,6 +283,7 @@
       renderWeather(data.weather);
       renderRecommendation(data.recommendation);
       renderPois(data.pois);
+      renderEstadoPois(data.contexto && data.contexto.fuentes && data.contexto.fuentes.pois);
 
       setStatus("");
       refreshBtn.hidden = false;
@@ -275,10 +301,58 @@
     }
   }
 
+  /* Buscar sitios cerca. Va por su cuenta y no bloquea nada más: Overpass
+   * puede tardar 30 s o no contestar, y esa espera es una decisión de quien
+   * pulsa. Lo que deja hecho vale para toda la semana, porque el servidor
+   * cachea los puntos 7 días. */
+  async function buscarSitios() {
+    poisBtn.disabled = true;
+    text("pois-estado", "Buscando en OpenStreetMap… puede tardar media minuto.");
+
+    try {
+      let coords = lastCoords;
+      if (!coords) {
+        const position = await getPosition();
+        coords = position.coords;
+        lastCoords = coords;
+      }
+
+      const response = await fetch("/api/pois", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: coords.latitude, lon: coords.longitude }),
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const data = await response.json().catch(function () {
+        return {};
+      });
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error del servidor (" + response.status + ").");
+      }
+
+      renderPois(data.pois);
+      renderEstadoPois(data.fuente);
+    } catch (err) {
+      text(
+        "pois-estado",
+        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message
+      );
+    } finally {
+      poisBtn.disabled = false;
+    }
+  }
+
   btn.addEventListener("click", function () {
     run(false);
   });
   refreshBtn.addEventListener("click", function () {
     run(true);
   });
+  poisBtn.addEventListener("click", buscarSitios);
 })();

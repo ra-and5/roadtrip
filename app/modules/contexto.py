@@ -99,6 +99,7 @@ _ETIQUETAS: dict[str, str] = {
     "tiempo": "Sin datos meteorológicos",
     "oleaje": "Sin datos de oleaje",
     "luna": "Sin datos de la luna",
+    "pois": "Sin puntos de interés cercanos",
     "metricas": "Sin métricas del día",
     "zona_horaria": "Zona horaria sin confirmar",
 }

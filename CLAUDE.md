@@ -916,6 +916,39 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     ambigüedad que este proyecto ya evitó llamando de forma distinta a
     `waypoints.capturado_en` y `notes.created_at`.
 
+33. **Se quita la FUENTE de Overpass del camino normal, no el aviso.** El
+    usuario pidió "quitar los avisos porque no funcionan", y el aviso tenía
+    razón: los tres espejos fallan y cuestan **31,3 s por petición** medidos
+    desde el servidor (decisión 22). Eso era el 70 % de lo que tardaba la
+    pantalla, gastado en no obtener nada. Silenciar el aviso habría convertido
+    un fallo ruidoso en uno silencioso, que es exactamente lo que se evitó al
+    descartar el espejo suizo que respondía `200` con cero elementos.
+
+    **Se descarta quitarlo del todo**, que era la otra opción sobre la mesa. Sin
+    POIs se pierde la distinción `lista_cercana` / `conocimiento_general`, y con
+    ella la única forma que tiene la app de decir "esto está verificado en el
+    mapa" en vez de "esto me lo sé de memoria". Poder distinguirlo es lo que
+    hace fiable una recomendación; renunciar a ello para ahorrar una espera que
+    ya no se paga habría sido un mal cambio.
+
+    Lo que se hace en su lugar sale gratis de la caché que ya existía:
+
+    - **buscar** es un botón (`/api/pois`), donde esperar treinta segundos es
+      una decisión de quien pulsa y no un peaje;
+    - **`/api/recommendations` usa `pois_cacheados()` y NUNCA espera a
+      Overpass.** La caché dura 7 días, así que buscar una vez en un sitio deja
+      los puntos disponibles toda la semana para las recomendaciones de esa
+      zona — que es justo como se viaja en camper, parándose días en la misma
+      comarca.
+
+    Y la pieza que impide que esto se convierta en otro fallo mudo:
+    `pois_cacheados()` devuelve **`None` cuando no hay nada cacheado y `[]`
+    cuando se buscó y no había nada**. Devolver `[]` para los dos casos era lo
+    cómodo y habría hecho que la app dijera "aquí no hay nada que ver" sin haber
+    mirado. Los cuatro estados de `contexto.Fuente` (decisión 32) sirven tal
+    cual para expresarlo, sin inventar vocabulario nuevo: `ok`, `sin_datos`,
+    `no_consultada`, `fallo`.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
