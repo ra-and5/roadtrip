@@ -653,6 +653,13 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   (`weather_context.water_sports()`), y al modelo se le pasa el veredicto ya
   calculado. Es determinista, testeable y auditable; un LLM no debería hacer de
   meteorólogo cuando unas reglas dan una respuesta mejor.
+- **`api.met.no` exige un User-Agent con contacto real, y el proxy de
+  PythonAnywhere tiene que dejarlo pasar.** Las dos cosas las comprueba
+  `tools/diagnostico.py` en su línea `api.met.no (salida y puesta)`, y por eso
+  el checklist obliga a correrlo **en el servidor** antes de tocar el móvil: un
+  dominio fuera de la lista blanca devuelve un 403 del proxy que la app degrada
+  en silencio. Si esa línea falla, la luna NO desaparece — la fase y la
+  iluminación se calculan en local; lo único que se pierde es la hora de salida.
 - **La API marina responde 200 con `null`, no 4xx, tierra adentro.**
   Comprobado contra la API real. Asumir un código de error habría sido un bug
   silencioso: creerías tener datos de oleaje donde no los hay.

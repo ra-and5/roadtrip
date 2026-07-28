@@ -86,7 +86,10 @@ def main() -> None:
         print(f"  configuración: FALLO -> {exc}")
         sys.exit(1)
 
-    from app.modules import storage
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.modules import luna, storage
     from app.modules.ai_orchestrator import get_recommendations
     from app.modules.contexto import ensamblar
     from app.modules.llm_providers import PROVIDER_NAMES, build_provider
@@ -186,6 +189,33 @@ def main() -> None:
         weather = get_weather(lat, lon)
         return f"{weather.summary()[:40]} | agua: {weather.water_sports().rating}"
     weather_ok = check("Open-Meteo (tiempo + oleaje)", _weather)
+
+    # La luna, en DOS comprobaciones y no en una, porque son dos cosas con
+    # riesgos distintos y mezclarlas escondería cuál ha fallado.
+    #
+    # La primera no toca la red: si esta fallara sería un bug del cálculo, no
+    # una fuente caída. La segunda sale a `api.met.no`, que es un **dominio
+    # más** que tiene que pasar la lista blanca del proxy de PythonAnywhere —
+    # y comprobar eso ANTES de tocar el móvil es literalmente para lo que
+    # existe este script (decisión 21). Un host no permitido devuelve un 403
+    # del proxy que la app degrada en silencio.
+    #
+    # Que la segunda falle NO cuenta para el veredicto final, y es lo correcto:
+    # sin met.no sigue habiendo fase, iluminación y veredicto nocturno. Lo
+    # único que se pierde es la hora de salida y puesta.
+    ahora_local = datetime.now(ZoneInfo("Europe/Madrid"))
+
+    def _fase_luna() -> str:
+        f = luna.fase(ahora_local)
+        return f"{f.nombre} al {f.iluminacion_pct:.0f} % (sin red, siempre)"
+    check("luna: fase (calculada)", _fase_luna)
+
+    def _efemerides_luna() -> str:
+        ef = luna.efemerides(lat, lon, ahora_local)
+        sale = ef.salida[11:16] if ef.salida else "no sale hoy"
+        pone = ef.puesta[11:16] if ef.puesta else "no se pone hoy"
+        return f"sale {sale}, se pone {pone}"
+    check("api.met.no (salida y puesta)", _efemerides_luna)
 
     pois: list = []
     def _pois():
