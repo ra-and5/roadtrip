@@ -64,7 +64,7 @@ roadtrip/
 │   │   ├── waypoints.py            Puntos del viaje sacados de las fotos
 │   │   ├── ruta.py                 Notas + fotos en una línea de tiempo, y su medida
 │   │   ├── timeparse.py            Instantes ISO 8601: validar, canonizar, volver a local
-│   │   └── storage.py              SQLite: caché, notas y telemetría
+│   │   └── storage.py              SQLite: caché, notas, puntos y telemetría
 │   ├── templates/          HTML (Jinja2)
 │   └── static/
 │       ├── js/notas.js     Cola offline en IndexedDB: guarda primero, envía después
