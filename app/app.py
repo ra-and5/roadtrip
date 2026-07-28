@@ -21,7 +21,7 @@ from app.config import Config
 from app.modules import auth, ingest, storage
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
-from app.modules.llm_providers import build_provider
+from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
     LocationError,
@@ -51,6 +51,10 @@ app.config["MAX_CONTENT_LENGTH"] = Config.MAX_CONTENT_LENGTH
 # Crear el esquema al arrancar. Es idempotente, así que da igual cuántos
 # workers levante PythonAnywhere.
 storage.init_db()
+
+# Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
+# el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
+_MAX_ECO_CUERPO = 400
 
 
 # ---------------------------------------------------------------------------
@@ -235,13 +239,35 @@ def api_telemetria() -> Any:
         app.logger.warning("Ingesta rechazada: credencial ausente o inválida")
         return jsonify({"error": "no_autorizado"}), 401
 
+    payload = request.get_json(silent=True)
+
     try:
-        resultado = ingest.ingest(request.get_json(silent=True))
+        resultado = ingest.ingest(payload)
     except IngestError as exc:
         # Culpa del cliente y con el campo culpable en el mensaje: al otro lado
         # hay un atajo que alguien está escribiendo a mano, y "400" a secas no
         # se puede depurar desde un iPhone.
-        return jsonify({"error": str(exc)}), 400
+        cuerpo: dict[str, Any] = {"error": str(exc)}
+
+        if payload is None:
+            # El cuerpo ni siquiera era JSON. Aquí el mensaje solo puede decir
+            # "esperaba un objeto JSON", que no ayuda a nadie: lo que hace falta
+            # saber es QUÉ se envió. Devolverlo cierra el bucle de depuración
+            # sin salir del móvil -- y montando el atajo del iPhone eso importa,
+            # porque el teclado mete tildes, los decimales salen con coma y una
+            # variable rota se envía vacía sin que Atajos avise (ver
+            # docs/atajo-iphone.md). Sin esto, se depura a ciegas.
+            #
+            # Se devuelve solo el principio: un cuerpo entero en un mensaje de
+            # error es ruido, y no hay razón para reflejar 128 KB de vuelta.
+            # Y pasa por redact() por si acaso: es exactamente el sitio donde un
+            # secreto mal pegado saldría reflejado hacia fuera.
+            crudo = request.get_data(as_text=True)
+            cuerpo["recibido"] = redact(crudo[:_MAX_ECO_CUERPO])
+            if len(crudo) > _MAX_ECO_CUERPO:
+                cuerpo["recibido"] += "..."
+
+        return jsonify(cuerpo), 400
 
     return jsonify(resultado.to_dict())
 

@@ -376,6 +376,56 @@ def test_un_json_ilegible_da_400_y_no_500(cliente: Any) -> None:
     assert respuesta.status_code == 400
 
 
+def test_un_cuerpo_que_no_es_json_se_devuelve_en_el_error(cliente: Any) -> None:
+    """El 400 enseña lo que llegó. Sin esto se depura a ciegas desde un móvil.
+
+    "esperaba un objeto JSON" no le sirve a nadie: lo que hace falta saber es
+    QUÉ se envió. Montando el atajo del iPhone es la diferencia entre ver la
+    coma decimal de `43,5622` al instante y pasar media noche adivinando.
+    """
+    roto = '{"muestras":[{"lat":43,5622}]}'
+
+    cuerpo = cliente.post(
+        RUTA, data=roto, content_type="application/json", headers=_auth()
+    ).get_json()
+
+    assert cuerpo["recibido"] == roto
+
+
+def test_el_eco_del_cuerpo_esta_acotado(cliente: Any) -> None:
+    """Un cuerpo entero en un mensaje de error es ruido, no ayuda."""
+    from app.app import _MAX_ECO_CUERPO
+
+    cuerpo = cliente.post(
+        RUTA, data="x" * 5000, content_type="application/json", headers=_auth()
+    ).get_json()
+
+    assert len(cuerpo["recibido"]) == _MAX_ECO_CUERPO + len("...")
+    assert cuerpo["recibido"].endswith("...")
+
+
+def test_el_eco_no_devuelve_un_secreto_que_venga_en_el_cuerpo(cliente: Any) -> None:
+    """Reflejar la entrada es justo donde un secreto mal pegado saldría fuera.
+
+    Pasa por `redact()`, la misma defensa que los mensajes de los proveedores.
+    """
+    cuerpo = cliente.post(
+        RUTA,
+        data=f'{{roto, Authorization: Bearer {TOKEN}}}',
+        content_type="application/json",
+        headers=_auth(),
+    ).get_json()
+
+    assert TOKEN not in cuerpo["recibido"]
+
+
+def test_un_lote_con_json_valido_no_lleva_eco(cliente: Any) -> None:
+    """Si el JSON se parseó, el mensaje ya nombra el campo: el eco sobra."""
+    cuerpo = cliente.post(RUTA, json={"muestras": []}, headers=_auth()).get_json()
+
+    assert "recibido" not in cuerpo
+
+
 def test_un_lote_vacio_se_rechaza(cliente: Any) -> None:
     """Un atajo que manda cero muestras no está funcionando: no leyó nada.
 
