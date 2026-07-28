@@ -33,7 +33,26 @@ está rota, no solo que hay un error:
 python tools/diagnostico.py            # Cudillero por defecto
 python tools/diagnostico.py 43.38 -4.29
 python tools/diagnostico.py --todos    # prueba todos los proveedores de LLM
+python tools/diagnostico.py -v         # con la traza completa de cada fallo
 ```
+
+Salen cuatro bloques, y el orden va de lo que no puede fallar a lo que degrada:
+**CONFIGURACIÓN** (lo que ni se intenta si está mal), **DATOS DEL VIAJE** (lo
+nuestro: SQLite, el disco y si las fuentes propias llegan sin huecos), **FUENTES
+EXTERNAS** (lo de fuera, que se cae y se sustituye por un aviso) y **EL
+CONTEXTO**, que prueba `contexto.construir()` por el mismo camino que usa la app
+y **cronometrado**: su tiempo es un contrato de menos de un segundo, y si sube
+de dos falla a propósito, porque alguien habrá metido una fuente lenta en el
+camino normal.
+
+Dos cosas que se leen mal si no se avisan:
+
+- **La telemetría separa lo real de lo simulado.** `14 reales en 3/5 días — 2
+  días SIN datos` dice mucho más que un total, y un total mezclado diría que
+  está llegando cuando no llega nada (decisión 36).
+- **El código de salida es 0 también en modo degradado**, porque degradar es un
+  estado de funcionamiento diseñado a propósito y no un despliegue roto. Solo
+  devuelve 1 cuando la app no se puede usar.
 
 Si ya sabes el síntoma pero no la causa,
 [`docs/troubleshooting.md`](docs/troubleshooting.md) va por síntomas: la app no
@@ -76,7 +95,7 @@ roadtrip/
 ├── tools/
 │   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
 │   ├── token_ingesta.py    Genera el token del iPhone y su hash
-│   ├── diagnostico.py      Estado de cada dependencia externa
+│   ├── diagnostico.py      Estado de cada pieza: config, datos, fuentes y contexto
 │   ├── ver_telemetria.py   Últimas muestras del móvil, y borrado de las malas
 │   ├── ver_notas.py        Notas del viaje, progreso, y borrado de las malas
 │   ├── importar_fotos.py   Lee el EXIF de una carpeta y monta la ruta

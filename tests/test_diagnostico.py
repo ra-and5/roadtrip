@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -102,6 +103,41 @@ def test_con_margen_no_avisa_y_dice_cuanto_queda() -> None:
     usado = 118.0
 
     assert diagnostico.libres_mb(usado, cuota) == pytest.approx(394.0)
+
+
+def test_hace_cuanto_contesta_la_pregunta_que_se_hace_uno() -> None:
+    """"¿esto sigue llegando?" no la contesta una marca ISO.
+
+    En una consola del servidor, `2026-07-28T21:32:11+00:00` obliga a mirar la
+    hora, restar el huso y hacer la cuenta — que es justo el trabajo que un
+    diagnóstico existe para ahorrarte.
+    """
+    ahora = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+
+    assert diagnostico.hace_cuanto("2026-07-29T11:30:00+00:00", ahora) == "hace 30 min"
+    assert diagnostico.hace_cuanto("2026-07-29T04:00:00+00:00", ahora) == "hace 8 h"
+    assert diagnostico.hace_cuanto("2026-07-26T12:00:00+00:00", ahora) == "hace 3 días"
+    assert diagnostico.hace_cuanto(None, ahora) == "nunca"
+
+
+def test_una_muestra_en_el_futuro_se_dice_en_vez_de_disimularse() -> None:
+    """Un reloj mal puesto en el móvil es un dato, no un adorno.
+
+    Sin este caso, una muestra fechada mañana saldría como "hace -3 h", que se
+    lee como recentísima y tranquiliza justo cuando no debe: el que la envía
+    tiene la hora mal y todo lo que dependa del día local está corrido.
+    """
+    ahora = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+
+    assert "FUTURO" in diagnostico.hace_cuanto("2026-07-30T12:00:00+00:00", ahora)
+
+
+def test_una_marca_sin_huso_se_lee_como_UTC() -> None:
+    """Es lo que guarda la base de datos, y suponer hora local la desplazaría
+    dos horas en España sin dar ningún error."""
+    ahora = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+
+    assert diagnostico.hace_cuanto("2026-07-29T10:00:00", ahora) == "hace 2 h"
 
 
 def test_la_cuota_no_se_pregunta_al_sistema_de_archivos() -> None:

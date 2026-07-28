@@ -233,7 +233,7 @@ una serie.
 
 ## 7. Verificación
 
-- **Tests sin red y sin API keys.** La suite son **481** (eran 434 al escribir
+- **Tests sin red y sin API keys.** La suite son **491** (eran 434 al escribir
   esto) y `tests/conftest.py` **corta los sockets**, así que "sin red" ya no es
   una promesa sino algo que falla ruidosamente si alguien lo incumple.
 - **Los pasos, contra la app Salud.** ✅ Hecho el 29-07-2026: coinciden. Era la

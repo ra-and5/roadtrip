@@ -40,7 +40,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.modules import storage
 
-__all__ = ["Metricas", "obtener", "resumir"]
+__all__ = ["Cobertura", "Metricas", "cobertura", "dia_local", "obtener", "resumir"]
 
 # Cuántos días atrás se miran para dar contexto al día de hoy. Una semana es lo
 # que hace falta para que "hoy has andado poco" signifique algo, y lo que cabe
@@ -51,6 +51,13 @@ DIAS_DE_CONTEXTO = 7
 # La fuente que llega de un móvil de verdad. Todo lo demás es simulado y hay
 # que decirlo (decisión 36).
 FUENTE_REAL = "atajos-iphone"
+
+# Cuántas muestras debería traer un día completo: las seis automatizaciones de
+# *Hora del día* que hay puestas en el iPhone (08:00, 12:00, 16:00, 18:00,
+# 20:00 y 23:55). No es un número redondo elegido a ojo — es la cuenta que
+# convierte "han llegado 2 muestras hoy" en "faltan cuatro", que es lo que
+# decide si la Fase 2d se puede cerrar.
+ENVIOS_ESPERADOS_POR_DIA = 6
 
 
 @dataclass(frozen=True)
@@ -97,8 +104,12 @@ class Metricas:
         }
 
 
-def _dia_local(muestra: dict[str, Any]) -> date | None:
+def dia_local(muestra: dict[str, Any]) -> date | None:
     """El día LOCAL de una muestra, deshaciendo la canonización a UTC.
+
+    Es pública porque la usan dos cosas —el resumen de pasos y la cobertura— y
+    reescribirla en la segunda sería reintroducir el bug de la decisión 29 en
+    la mitad del código que no lo tiene.
 
     `medido_en` está en UTC y `offset_original` guarda el desfase con el que
     llegó, precisamente para poder volver atrás. Sin esto, todo lo que ocurra
@@ -138,7 +149,7 @@ def resumir(muestras: list[dict[str, Any]], hoy: date) -> Metricas:
     por_dia: dict[date, int] = {}
     for muestra in muestras:
         pasos = muestra.get("pasos")
-        dia = _dia_local(muestra)
+        dia = dia_local(muestra)
         if pasos is None or dia is None:
             continue
         por_dia[dia] = max(por_dia.get(dia, 0), int(pasos))
@@ -152,13 +163,85 @@ def resumir(muestras: list[dict[str, Any]], hoy: date) -> Metricas:
         pasos_por_dia=[(d.isoformat(), p) for d, p in sorted(por_dia.items())],
         bateria=ultima.get("bateria"),
         ultima_medida=ultima.get("medido_en"),
-        muestras_hoy=sum(1 for m in muestras if _dia_local(m) == hoy),
+        muestras_hoy=sum(1 for m in muestras if dia_local(m) == hoy),
         # Basta con que UNA muestra sea simulada para marcarlo todo. Es
         # equivocarse hacia el lado seguro: decir "esto es real" teniendo dentro
         # datos inventados es el error que no se puede permitir; lo contrario
         # solo es una advertencia de más.
         es_simulado=any(m.get("fuente") != FUENTE_REAL for m in muestras),
         hay_datos=bool(por_dia),
+    )
+
+
+@dataclass(frozen=True)
+class Cobertura:
+    """Si la telemetría llega SOLA y SIN HUECOS, que es lo que cierra la 2d.
+
+    Es una pregunta distinta de la que responde `Metricas`, y por eso es otro
+    tipo. `Metricas` dice *cuánto has andado*; esto dice *si te puedes creer ese
+    número*. Mezclarlas haría que una serie llena de agujeros se leyera igual
+    que una completa, que es justo lo que la Fase 2d lleva semanas sin dar por
+    bueno.
+    """
+
+    dias_abarcados: int = 0
+    dias_con_datos: int = 0
+    huecos: int = 0
+    dias_incompletos: int = 0
+    por_dia: list[tuple[str, int]] = field(default_factory=list)
+    primera: str | None = None
+    ultima: str | None = None
+
+    @property
+    def sin_huecos(self) -> bool:
+        return bool(self.dias_con_datos) and self.huecos == 0
+
+
+def cobertura(
+    muestras: list[dict[str, Any]], hoy: date,
+    *, esperadas_por_dia: int = ENVIOS_ESPERADOS_POR_DIA,
+) -> Cobertura:
+    """Cuántos días cubre esa serie y cuántos le faltan. Función PURA.
+
+    **La ventana va del primer día con datos hasta hoy, no de hoy hacia atrás.**
+    La diferencia importa: contar sobre los últimos siete días diría "cinco
+    huecos" el día siguiente a montar las automatizaciones, y un aviso que salta
+    cuando todo va bien se aprende a ignorar. Contando desde la primera muestra,
+    un hueco es siempre un envío que se perdió — y que hoy no haya llegado nada
+    también sale, porque el tramo llega hasta hoy.
+
+    `dias_incompletos` es la señal fina, y hace falta: seis automatizaciones al
+    día que entregan dos muestras dan cero huecos y aun así no son una serie
+    fiable. Sin esta cifra, "sin huecos" se leería como "cerrado".
+
+    Quien llama decide qué muestras entran. Para responder "¿es fiable la
+    telemetría?" hay que pasarle SOLO las de `FUENTE_REAL`: una simulación no
+    cierra nada (decisión 36).
+    """
+    por_dia: dict[date, int] = {}
+    for muestra in muestras:
+        dia = dia_local(muestra)
+        if dia is not None:
+            por_dia[dia] = por_dia.get(dia, 0) + 1
+
+    if not por_dia:
+        return Cobertura()
+
+    primer_dia = min(por_dia)
+    # `max(..., 1)` por si la única muestra es de mañana: un reloj adelantado en
+    # el móvil no puede producir un tramo de cero días y una división rara.
+    abarcados = max((hoy - primer_dia).days + 1, 1)
+
+    instantes = [m["medido_en"] for m in muestras if m.get("medido_en")]
+
+    return Cobertura(
+        dias_abarcados=abarcados,
+        dias_con_datos=len(por_dia),
+        huecos=max(abarcados - len(por_dia), 0),
+        dias_incompletos=sum(1 for n in por_dia.values() if n < esperadas_por_dia),
+        por_dia=[(d.isoformat(), n) for d, n in sorted(por_dia.items())],
+        primera=min(instantes) if instantes else None,
+        ultima=max(instantes) if instantes else None,
     )
 
 

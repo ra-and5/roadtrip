@@ -71,7 +71,7 @@ app/
   modules/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
     chat.py                  El chatbot. Decide QUÉ se le manda al modelo y qué no
-    metricas.py              Pasos y batería, resumidos. NO vuelca la tabla
+    metricas.py              Pasos y batería, resumidos. Y si la serie tiene huecos
     viaje.py                 El viaje hasta ahora: agregados y últimas notas
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     diario.py                El primer sitio de cada día. Registra; NO analiza
@@ -111,8 +111,9 @@ pip install -r requirements.txt            # producción (lo que va al servidor)
 pip install -r requirements-dev.txt        # + pytest, para desarrollar
 python run.py                              # servidor local (127.0.0.1:5000)
 python -m pytest -q                        # tests (sin red, sin API keys)
-python tools/diagnostico.py                # estado de cada dependencia
+python tools/diagnostico.py                # config, datos, fuentes y contexto
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
+python tools/diagnostico.py -v             # con la traza completa de cada fallo
 python tools/listar_modelos.py             # qué modelos de Gemini sirven con tu key
 python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HASH
 python tools/token_ingesta.py              # genera el token del iPhone y su hash
@@ -157,7 +158,7 @@ Leaflet servido por nosotros, y progreso del viaje (sitios, días, racha,
 tablero de 19 comunidades, comparación entre años). Las fotos se aplazaron a
 propósito (decisión 27) y su diseño queda escrito para cuando toquen.
 
-Lo que **sí** está probado, y no solo por la suite (481 tests): la cola offline
+Lo que **sí** está probado, y no solo por la suite (491 tests): la cola offline
 se ejecutó entera en un Chrome de escritorio, cortando la red a mano, y los
 cuatro caminos se comportaron como debían. Con `fetch` fallando, la nota se
 guardó en IndexedDB y la interfaz enseñó "1 nota por enviar"; al disparar
@@ -1322,6 +1323,70 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     dentro del diagnóstico, por la regla de siempre: lo único que **decide** algo
     aquí es si sale un aviso o no, y eso es exactamente lo que estuvo roto sin
     dar la cara.
+
+39. **El diagnóstico mide continuidad, no volumen — y no cuenta lo simulado.**
+    Arreglado el disco quedó a la vista que la herramienta tenía el mismo
+    problema en más sitios: imprimía cifras que **parecían** contestar la
+    pregunta y no la contestaban.
+
+    La peor era la telemetría. Decía `81 muestras, última medida <ISO>`, y las
+    dos mitades engañaban:
+
+    - **el total mezclaba lo real con lo simulado.** La decisión 36 separó las
+      dos series en la tabla para que una simulación no pudiera pasar por dato
+      medido — y luego la herramienta que se abre en el servidor las volvía a
+      sumar. La garantía estaba en el esquema y se perdía al leer, que es donde
+      nadie la estaba vigilando. Hoy salen separadas y lo simulado va marcado,
+      igual que en `ver_telemetria.py`. Con la base de datos de desarrollo, la
+      línea pasó de un tranquilizador `81 muestras` a `0 muestras REALES`.
+    - **un total no dice si hay huecos**, y lo que cierra la 2d no es el volumen
+      sino la continuidad: seis envíos diarios que llegan tres días y fallan dos
+      suman igual que cinco días completos.
+
+    De ahí sale `metricas.cobertura()`, con dos decisiones dentro:
+
+    - **La ventana va de la primera muestra hasta HOY, no de hoy hacia atrás.**
+      Contando los últimos siete días, el día siguiente a montar las
+      automatizaciones saldrían cinco huecos que no son fallos, y un aviso que
+      salta cuando todo va bien se aprende a ignorar. Que el tramo llegue hasta
+      hoy tiene la otra mitad del valor: una fuente que dejó de llegar hace tres
+      días no puede salir como "sin huecos", que sería certificar una serie
+      muerta.
+    - **`dias_incompletos` es una señal aparte, y hace falta.** Un día con dos
+      muestras de seis no es un hueco y tampoco es un día bueno. Sin esa cifra,
+      "sin huecos" se leería como "cerrado" con un tercio de los envíos
+      perdiéndose cada día.
+
+    Lo demás que se añadió responde al mismo criterio —¿esta línea contesta una
+    pregunta que alguien se hace de verdad?—:
+
+    - **`contexto.construir()` se prueba entero y cronometrado.** Es lo único
+      que recorre el mismo camino que la app, y su tiempo es un contrato: por
+      debajo de un segundo. Falla a propósito por encima de dos, porque ahí lo
+      que ha pasado es que alguien devolvió una fuente lenta al camino normal
+      (Overpass costaba 31,3 s, decisión 33) y eso **no da ningún error**: solo
+      una app que se abandona por lenta.
+    - **`hace 3 h` en vez de una marca ISO.** La pregunta en una consola del
+      servidor es "¿esto sigue llegando?", y restar el huso de cabeza es
+      justamente el trabajo que un diagnóstico existe para ahorrar. Una muestra
+      **en el futuro** se dice en voz alta: es un reloj mal puesto en el móvil, y
+      si se imprimiera como "hace -3 h" se leería como recentísima.
+    - **La cookie de sesión y el contacto del User-Agent**, que son dos fallos
+      mudos documentados (decisiones 15 y 34) que la herramienta no miraba: uno
+      deja la app en bucle de login sin mensaje, el otro apaga la luna con un 403
+      de nginx sin cuerpo. El contacto se valida llamando a la **misma** función
+      con la que el módulo de la luna decide si llama, para que el diagnóstico no
+      pueda decir una cosa distinta de la que hace la app.
+    - **Código de salida**: 0 también en modo degradado. Degradar es un estado de
+      funcionamiento diseñado a propósito (decisión 9), no un despliegue roto, y
+      hacerlo fallar convertiría un Overpass caído —que lo está casi siempre— en
+      un rojo permanente. Solo devuelve 1 cuando la app no se puede usar.
+
+    Y una consolidación que va en la misma dirección: `"atajos-iphone"` estaba
+    escrita a mano en tres sitios. Ahora sale de `metricas.FUENTE_REAL`, porque
+    esa cadena decide qué cuenta para cerrar la 2d y dos copias que se separen
+    harían que una herramienta diga que hay datos reales y otra que no, sin dar
+    ningún error.
 
 ## 7. Roadmap
 

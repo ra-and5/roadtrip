@@ -51,7 +51,7 @@ from datetime import datetime
 # del proyecto. Sin esto, `from app.config import Config` falla.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.modules import storage  # noqa: E402  (después del sys.path, a la fuerza)
+from app.modules import metricas, storage  # noqa: E402  (tras el sys.path, a la fuerza)
 from app.modules.location_context import reverse_geocode  # noqa: E402
 
 
@@ -61,7 +61,10 @@ from app.modules.location_context import reverse_geocode  # noqa: E402
 _ANCHO_DONDE = 30
 
 # La única fuente que llega de un móvil de verdad. Todo lo demás se marca.
-_FUENTE_REAL = "atajos-iphone"
+# Se importa en vez de reescribirse: esta cadena decide qué cuenta para
+# cerrar la Fase 2d, y dos copias que se separen harían que una herramienta
+# diga que hay datos reales y la otra que no, sin dar ningún error.
+_FUENTE_REAL = metricas.FUENTE_REAL
 
 
 def _nombres(filas: list) -> dict[tuple, str]:

@@ -214,7 +214,7 @@ def _offset_iso(instante: datetime) -> str:
     return f"{crudo[:3]}:{crudo[3:]}"
 
 
-def _contacto_valido(user_agent: str) -> bool:
+def contacto_valido(user_agent: str) -> bool:
     minusculas = user_agent.lower()
     return bool(user_agent.strip()) and not any(
         marca in minusculas for marca in _CONTACTOS_DE_EJEMPLO
@@ -235,7 +235,7 @@ def efemerides(lat: float, lon: float, instante: datetime) -> Efemerides:
         LunaError: no se pudo consultar, o el User-Agent no vale.
     """
     user_agent = Config.NOMINATIM_USER_AGENT
-    if not _contacto_valido(user_agent):
+    if not contacto_valido(user_agent):
         raise LunaError(
             "api.met.no exige un User-Agent con un contacto real y rechaza el de "
             "ejemplo con un 403 sin explicación. Pon un correo o una URL tuyos en "

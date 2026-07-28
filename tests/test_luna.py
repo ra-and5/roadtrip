@@ -246,9 +246,9 @@ def test_un_contacto_real_no_se_bloquea(monkeypatch: pytest.MonkeyPatch) -> None
     Una heurística más lista rechazaría contactos buenos, y un falso positivo
     aquí apaga la luna sin motivo.
     """
-    assert modulo_luna._contacto_valido("roadtrip/0.1 (ram58@alu.ua.es)")
-    assert modulo_luna._contacto_valido("roadtrip/0.1 (https://ejemplo.pythonanywhere.com)")
-    assert not modulo_luna._contacto_valido("roadtrip/0.1 (yo@example.com)")
+    assert modulo_luna.contacto_valido("roadtrip/0.1 (ram58@alu.ua.es)")
+    assert modulo_luna.contacto_valido("roadtrip/0.1 (https://ejemplo.pythonanywhere.com)")
+    assert not modulo_luna.contacto_valido("roadtrip/0.1 (yo@example.com)")
 
 
 def test_el_offset_va_con_dos_puntos() -> None:

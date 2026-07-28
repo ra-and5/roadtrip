@@ -1,4 +1,4 @@
-"""Comprueba una por una todas las dependencias externas de la app.
+"""Comprueba una por una todas las piezas de la app: las de fuera y las de casa.
 
 Uso:
     python tools/diagnostico.py                  # usa Cudillero por defecto
@@ -10,9 +10,29 @@ Para cuando algo no funciona y estás a 800 km de casa: te dice QUÉ falla, no
 solo que "hay un error". Cada línea es independiente, así que sabes
 exactamente qué pieza está rota y cuál sigue en pie.
 
+Cuatro bloques, y el orden no es decorativo — va de lo que no puede fallar a lo
+que degrada:
+
+    CONFIGURACIÓN     lo que ni siquiera llega a intentarse si está mal
+    DATOS DEL VIAJE   lo nuestro: SQLite, el disco y si las fuentes propias
+                      están llegando sin huecos
+    FUENTES EXTERNAS  lo de fuera, que puede caerse y la app lo sustituye por
+                      un aviso (decisión 9)
+    EL CONTEXTO       la pieza central, de punta a punta y cronometrada
+
+**Por qué el contexto se prueba aparte, al final.** `contexto.construir()` es lo
+que alimentan a la vez la pantalla, el recomendador y el chatbot, así que es lo
+único cuyo fallo se nota en las tres caras. Y va cronometrado porque su tiempo
+es un contrato: por debajo de un segundo. Si sube de dos, alguien ha vuelto a
+meter una fuente lenta en el camino normal —Overpass costaba 31 s (decisión
+33)—, y eso no da ningún error: solo una app que se abandona por lenta.
+
 El detalle de los errores de IA se muestra aquí SIEMPRE, tenga el valor que
 tenga SHOW_AI_ERROR_DETAIL: esa variable controla lo que ve el usuario en la
 interfaz, no lo que ves tú depurando.
+
+Código de salida: 0 si la app es utilizable (aunque sea degradada), 1 si no.
+Así se puede encadenar en un script de despliegue sin leer la salida a ojo.
 """
 
 from __future__ import annotations
@@ -21,6 +41,7 @@ import os
 import sys
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -120,6 +141,46 @@ def check(nombre: str, fn) -> bool:
     return True
 
 
+def dato(nombre: str, valor: str) -> None:
+    """Una línea informativa: ni pasa ni falla, solo se lee.
+
+    Existe para separar dos cosas que `check()` mezclaría: "esto lo he probado
+    y funciona" de "esto es como está configurado". Un valor de configuración no
+    puede salir con un OK y un cronómetro al lado, porque no se ha probado nada.
+    """
+    print(f"  {nombre:.<34} {valor}")
+
+
+def hace_cuanto(iso: str | None, ahora: datetime) -> str:
+    """"hace 3 h" en vez de una marca ISO que hay que restar de cabeza.
+
+    La pregunta que se hace uno en una consola del servidor es "¿esto sigue
+    llegando?", y `2026-07-28T21:32:11+00:00` no la contesta: hay que mirar la
+    hora, restar el huso y hacer la cuenta. Es exactamente el trabajo que un
+    diagnóstico tiene que ahorrarte, y la última vez que se leyó mal una marca
+    así se dio por viva una fuente que llevaba un día parada.
+    """
+    if not iso:
+        return "nunca"
+    try:
+        instante = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=timezone.utc)
+
+    segundos = (ahora - instante).total_seconds()
+    if segundos < 0:
+        # Una muestra en el futuro es un reloj mal puesto en el móvil, y hay que
+        # decirlo: si no, se leería como recentísima y tranquilizaría.
+        return f"EN EL FUTURO (+{-segundos / 3600:.0f} h)"
+    if segundos < 90 * 60:
+        return f"hace {segundos / 60:.0f} min"
+    if segundos < 48 * 3600:
+        return f"hace {segundos / 3600:.0f} h"
+    return f"hace {segundos / 86400:.0f} días"
+
+
 def main() -> None:
     # OJO: no se puede filtrar "lo que empieza por '-'" como si fueran flags.
     # Todo el norte de España tiene longitud NEGATIVA (-4.29, -6.14...), así
@@ -130,42 +191,85 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if a not in _FLAGS]
     lat, lon = (float(args[0]), float(args[1])) if len(args) >= 2 else (43.5622, -6.1456)
 
-    print(f"\nDiagnóstico para {lat}, {lon}\n" + "=" * 56)
+    ahora_utc = datetime.now(timezone.utc)
+    print(f"\nDiagnóstico para {lat}, {lon}"
+          f"   ({ahora_utc.astimezone().strftime('%d-%m-%Y %H:%M %Z')})")
+    print("=" * 66)
 
     # 1. Configuración: si esto falla, nada más va a funcionar.
     print("\nCONFIGURACIÓN")
     try:
         from app.config import Config
-        print(f"  {'proveedor activo':.<34} OK     LLM_PROVIDER={Config.LLM_PROVIDER}")
-        print(f"  {'ANTHROPIC_API_KEY':.<34} "
-              f"{'definida' if Config.ANTHROPIC_API_KEY else 'ausente'}"
-              f"   (modelo={Config.ANTHROPIC_MODEL}, effort={Config.ANTHROPIC_EFFORT})")
-        print(f"  {'GEMINI_API_KEY':.<34} "
-              f"{'definida' if Config.GEMINI_API_KEY else 'ausente'}"
-              f"   (modelo={Config.GEMINI_MODEL})")
-        print(f"  {'KIMI_API_KEY':.<34} "
-              f"{'definida' if Config.KIMI_API_KEY else 'ausente'}"
-              f"   (modelo={Config.KIMI_MODEL}, effort={Config.KIMI_REASONING_EFFORT})")
-        print(f"  {'SHOW_AI_ERROR_DETAIL':.<34} "
-              f"{'activado' if Config.SHOW_AI_ERROR_DETAIL else 'desactivado (por defecto)'}")
+        # La versión importa en el servidor y no es curiosidad: PythonAnywhere
+        # tiene varios Python instalados y el virtualenv se puede haber creado
+        # con el que no era (ver el aviso del README sobre `virtualenv` contra
+        # `python3.11 -m venv`). Un fallo de ese tipo aparece luego disfrazado
+        # de "un paquete no se instala".
+        # `importlib.metadata` y no `flask.__version__`, que está deprecado y
+        # desaparece en Flask 3.2: un diagnóstico que escupe un DeprecationWarning
+        # antes de la primera línea inspira poca confianza en lo que dice después.
+        from importlib.metadata import version as _version
+        dato("Python / Flask",
+             f"{sys.version.split()[0]} / {_version('flask')}"
+             f"   ({'virtualenv' if sys.prefix != sys.base_prefix else 'SIN virtualenv'})")
+        dato("proveedor activo", f"LLM_PROVIDER={Config.LLM_PROVIDER}")
+        dato("ANTHROPIC_API_KEY",
+             f"{'definida' if Config.ANTHROPIC_API_KEY else 'ausente'}"
+             f"   (modelo={Config.ANTHROPIC_MODEL}, effort={Config.ANTHROPIC_EFFORT})")
+        dato("GEMINI_API_KEY",
+             f"{'definida' if Config.GEMINI_API_KEY else 'ausente'}"
+             f"   (modelo={Config.GEMINI_MODEL})")
+        dato("KIMI_API_KEY",
+             f"{'definida' if Config.KIMI_API_KEY else 'ausente'}"
+             f"   (modelo={Config.KIMI_MODEL}, effort={Config.KIMI_REASONING_EFFORT})")
+        dato("SHOW_AI_ERROR_DETAIL",
+             "activado" if Config.SHOW_AI_ERROR_DETAIL else "desactivado (por defecto)")
         # Se informa de si el HASH está puesto, nunca de su contenido, y el
         # token en claro no existe aquí: el servidor solo guarda el hash.
-        print(f"  {'INGEST_TOKEN_HASH':.<34} "
-              f"{'configurado' if Config.INGEST_TOKEN_HASH else 'AUSENTE (ingesta cerrada)'}"
-              f"   (máx. {Config.INGEST_MAX_SAMPLES} muestras/envío)")
+        dato("INGEST_TOKEN_HASH",
+             f"{'configurado' if Config.INGEST_TOKEN_HASH else 'AUSENTE (ingesta cerrada)'}"
+             f"   (máx. {Config.INGEST_MAX_SAMPLES} muestras/envío)")
+        # La trampa de la decisión 15, que cuesta una tarde y no da NINGÚN
+        # mensaje de error: con la cookie `Secure` (que es lo que hay por
+        # defecto, y bien) y *Force HTTPS* desactivado en PythonAnywhere, el
+        # navegador descarta la cookie y la app entra en bucle de login sin
+        # decir nada. Aquí no se puede comprobar desde fuera, así que se
+        # recuerda: es lo único que gatea la app entera y no se estaba mirando.
+        dato("cookie de sesión",
+             "Secure ACTIVADA — exige *Force HTTPS* en el servidor, o bucle de login"
+             if Config.SESSION_COOKIE_SECURE
+             else "Secure DESACTIVADA — la sesión viaja en claro si entras por http")
+        dato("cuota de disco declarada",
+             f"{Config.DISCO_CUOTA_MB:.0f} MB (DISCO_CUOTA_MB)")
     except Exception as exc:  # noqa: BLE001
         print(f"  configuración: FALLO -> {exc}")
         sys.exit(1)
 
-    from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from app.modules import luna, storage
+    from app.modules import contexto, luna, metricas, storage
     from app.modules.ai_orchestrator import get_recommendations
     from app.modules.contexto import ensamblar
     from app.modules.llm_providers import PROVIDER_NAMES, build_provider
     from app.modules.location_context import find_nearby_pois, reverse_geocode
     from app.modules.weather_context import get_weather
+
+    # El contacto del User-Agent, que es una fuente de fallos mudos con nombre
+    # propio: met.no devuelve un 403 de nginx SIN mensaje ante un dominio de
+    # ejemplo, y Nominatim puede bloquear la IP (decisión 34). Se valida con la
+    # misma función que usa el módulo de la luna para negarse a llamar, para
+    # que aquí no pueda decir una cosa distinta de la que hace la app.
+    contacto = Config.NOMINATIM_USER_AGENT
+    dato("contacto (User-Agent)",
+         (contacto[:44] if luna.contacto_valido(contacto)
+          else f"DOMINIO DE EJEMPLO -> la luna no llamará: {contacto[:30]}"))
+
+    # La hora local, una sola vez y compartida. Se usa para la luna y para saber
+    # qué día es "hoy" al contar la telemetría, y son la MISMA pregunta: si cada
+    # una leyera su reloj podrían caer a distinto lado de la medianoche y el
+    # diagnóstico se contradiría a sí mismo. Europe/Madrid explícito, porque el
+    # servidor corre en UTC y ahí "hoy" no es el día del viaje (decisión 29).
+    ahora_local = datetime.now(ZoneInfo("Europe/Madrid"))
 
     # El diagnóstico SIEMPRE enseña el detalle completo del error: para eso
     # existe. SHOW_AI_ERROR_DETAIL controla lo que ve el usuario en la
@@ -173,7 +277,7 @@ def main() -> None:
     # aplicándose igualmente: eso no lo desactiva nada.
     Config.SHOW_AI_ERROR_DETAIL = True
 
-    print("\nSERVICIOS")
+    print("\nDATOS DEL VIAJE   (lo nuestro; solo SQLite cuenta para el veredicto)")
     ok = True
     ok &= check("base de datos (SQLite)", lambda: (storage.init_db(), "esquema listo")[1])
 
@@ -181,11 +285,47 @@ def main() -> None:
     # cuenta para el veredicto final: la app funciona igual sin ella. Se mira
     # aquí porque es la pregunta que cierra esa fase —¿siguen llegando datos?—
     # y esta es la herramienta que se abre en el servidor cuando no llegan.
+    #
+    # Esto decía "5 muestras, última medida <ISO>" y las dos mitades engañaban:
+    #
+    #   - **el total mezclaba lo real con lo SIMULADO.** Con el simulador
+    #     sembrado, un "86 muestras" verde se lee como "la telemetría llega",
+    #     que es exactamente lo contrario de lo que pasa. Y es el peor sitio
+    #     para ese error, porque esta línea es la que decide si la 2d se cierra
+    #     (decisión 36). Ahora las dos series salen separadas y la simulada va
+    #     marcada, como en `ver_telemetria.py`.
+    #   - **un total no dice si hay huecos.** Seis envíos diarios que llegan
+    #     tres días y fallan dos suman igual que cinco días completos. Lo que
+    #     cierra la fase no es el volumen, es la continuidad, así que se enseña
+    #     lo mismo que en `lugar del día`: días cubiertos, huecos, y los días
+    #     que llegaron a medias — que no son un hueco y tampoco son un día
+    #     bueno.
     def _telemetria() -> str:
         s = storage.telemetry_stats()
         if not s["total"]:
             return "0 muestras (aún no ha llegado ninguna)"
-        return f"{s['total']} muestras, última medida {s['ultima_medida']}"
+
+        reales = s["por_fuente"].get(metricas.FUENTE_REAL, 0)
+        simuladas = s["total"] - reales
+        cola = f"  [+{simuladas} simuladas, que NO cierran nada]" if simuladas else ""
+
+        if not reales:
+            return f"0 muestras REALES de {metricas.FUENTE_REAL}{cola}"
+
+        # Desde el principio de los tiempos: aquí interesa el histórico entero,
+        # no una ventana. `medido_en` se compara como texto ISO, así que una
+        # fecha anterior a cualquier muestra posible las trae todas.
+        muestras = storage.telemetry_since(
+            "1970-01-01T00:00:00+00:00", fuentes=[metricas.FUENTE_REAL]
+        )
+        cob = metricas.cobertura(muestras, ahora_local.date())
+
+        estado = "sin huecos" if cob.sin_huecos else f"{cob.huecos} días SIN datos"
+        if cob.dias_incompletos:
+            estado += (f", {cob.dias_incompletos} a medias "
+                       f"(<{metricas.ENVIOS_ESPERADOS_POR_DIA}/día)")
+        return (f"{reales} reales en {cob.dias_con_datos}/{cob.dias_abarcados} días — "
+                f"{estado}; última {hace_cuanto(cob.ultima, ahora_utc)}{cola}")
     check("telemetría del móvil", _telemetria)
 
     # Notas del viaje (Fase 3). Tampoco cuenta para el veredicto: la app
@@ -196,7 +336,7 @@ def main() -> None:
         s = storage.notes_stats()
         if not s["total"]:
             return "0 notas (aún no hay ninguna)"
-        return f"{s['total']} notas, la última del {s['ultima']}"
+        return f"{s['total']} notas, la última {hace_cuanto(s['ultima'], ahora_utc)}"
     check("notas del viaje", _notas)
 
     # Puntos sacados del EXIF de las fotos (Fase 3b). Tampoco cuenta para el
@@ -206,8 +346,9 @@ def main() -> None:
         s = storage.waypoints_stats()
         if not s["total"]:
             return "0 puntos (aún no se ha importado ninguna foto)"
+        plural = "punto" if s["total"] == 1 else "puntos"
         return (
-            f"{s['total']} puntos, {s['ubicados']} con GPS, "
+            f"{s['total']} {plural}, {s['ubicados']} con GPS, "
             f"de {(s['primera'] or '?')[:10]} a {(s['ultima'] or '?')[:10]}"
         )
     check("puntos de las fotos", _puntos)
@@ -226,6 +367,20 @@ def main() -> None:
         estado = "sin huecos" if s["huecos"] == 0 else f"{s['huecos']} días SIN registrar"
         return f"{s['total']} días, de {s['primero']} a {s['ultimo']} — {estado}"
     check("lugar del día", _lugares)
+
+    # El chatbot (Fase 6). `storage.chat_stats()` se escribió literalmente "para
+    # el diagnóstico" y el diagnóstico no la llamaba: la tabla que la app está
+    # escribiendo era la única que no se veía desde aquí. Tampoco cuenta para el
+    # veredicto —no haber preguntado nada no es un fallo—, pero sí responde
+    # "¿se está guardando lo que pregunto?", que es la mitad del cuaderno de a
+    # bordo y no se puede comprobar de otra forma sin abrir la web.
+    def _chat() -> str:
+        s = storage.chat_stats()
+        if not s["total"]:
+            return "0 mensajes (aún no se ha preguntado nada)"
+        return (f"{s['total']} mensajes, el último "
+                f"{hace_cuanto(s['ultimo'], ahora_utc)}")
+    check("conversaciones del chat", _chat)
 
     # El disco, que es el recurso que se agota sin avisar en un plan gratuito
     # de 512 MB. Hoy las notas son solo texto y no gastan casi nada, pero el
@@ -264,6 +419,8 @@ def main() -> None:
         )
     check("espacio en disco", _disco)
 
+    print("\nFUENTES EXTERNAS   (se caen, y la app lo sustituye por un aviso)")
+
     place = None
     def _geo():
         nonlocal place
@@ -275,7 +432,13 @@ def main() -> None:
     def _weather():
         nonlocal weather
         weather = get_weather(lat, lon)
-        return f"{weather.summary()[:40]} | agua: {weather.water_sports().rating}"
+        # La altitud sale gratis en la misma respuesta (decisión 35) y es lo
+        # único de esta línea que se puede contrastar contra un mapa, así que
+        # vale como comprobación de que las coordenadas son las que crees.
+        altitud = (f", {weather.elevation_m:.0f} m"
+                   if weather.elevation_m is not None else "")
+        return (f"{weather.summary()[:52]}{altitud}"
+                f" | agua: {weather.water_sports().rating}")
     weather_ok = check("Open-Meteo (tiempo + oleaje)", _weather)
 
     # La luna, en DOS comprobaciones y no en una, porque son dos cosas con
@@ -291,8 +454,6 @@ def main() -> None:
     # Que la segunda falle NO cuenta para el veredicto final, y es lo correcto:
     # sin met.no sigue habiendo fase, iluminación y veredicto nocturno. Lo
     # único que se pierde es la hora de salida y puesta.
-    ahora_local = datetime.now(ZoneInfo("Europe/Madrid"))
-
     def _fase_luna() -> str:
         f = luna.fase(ahora_local)
         return f"{f.nombre} al {f.iluminacion_pct:.0f} % (sin red, siempre)"
@@ -357,10 +518,51 @@ def main() -> None:
         from app.modules.llm_providers import KimiProvider
         check("saldo de Kimi", lambda: KimiProvider().balance())
 
-    print("\n" + "=" * 56)
-    if ok and weather_ok and pois_ok and ai_ok:
+    # 4. El contexto, de punta a punta. Es lo ÚNICO que se prueba por el mismo
+    #    camino que usa la app: todo lo de arriba llama a cada fuente por
+    #    separado —que es lo que permite decir cuál falla— y esto llama a la
+    #    función que de verdad se ejecuta cuando alguien abre la pantalla.
+    #
+    #    Vale por tres cosas que ninguna línea anterior puede dar:
+    #
+    #    - **el tiempo.** Es un contrato medido: por debajo de un segundo. Si
+    #      sube de dos, alguien ha metido una fuente lenta en el camino normal,
+    #      y eso no da error — solo una app que se abandona por lenta. Como las
+    #      fuentes acaban de consultarse arriba, aquí están cacheadas, así que
+    #      un tiempo alto significa además que la caché no está funcionando.
+    #    - **que los POIs siguen FUERA.** Overpass costaba 31,3 s en el camino
+    #      normal (decisión 33). Si vuelve, se ve aquí y en ningún otro sitio.
+    #    - **el veredicto de cada fuente**, en el vocabulario de la decisión 32:
+    #      una fuente en `sin_datos` no es una fuente caída, y confundirlas es
+    #      el error que este proyecto ya evitó a propósito.
+    print("\nEL CONTEXTO   (la pieza que alimenta pantalla, recomendador y chat)")
+
+    def _contexto() -> str:
+        t0 = time.time()
+        estado = contexto.construir(lat, lon)
+        tardanza = time.time() - t0
+
+        caidas = [n for n, f in estado.fuentes.items() if f.estado == contexto.FALLO]
+        resumen = f"{estado.ubicacion.short_label()}"
+        if estado.momento.zona_es_supuesta:
+            # La zona supuesta desplaza una hora todo lo que cuelga de la hora
+            # local, y en Canarias eso ya no es un detalle (decisión 32).
+            resumen += " · ZONA HORARIA SUPUESTA"
+        resumen += f" · {len(estado.fuentes) - len(caidas)}/{len(estado.fuentes)} fuentes"
+        if caidas:
+            resumen += f" (caídas: {', '.join(caidas)})"
+        if tardanza > 2:
+            raise RuntimeError(
+                f"ha tardado {tardanza:.1f}s, y el contrato es <1s. Alguien ha "
+                f"metido una fuente lenta en el camino normal: {resumen}"
+            )
+        return resumen
+    contexto_ok = check("contexto.construir()", _contexto)
+
+    print("\n" + "=" * 66)
+    if ok and contexto_ok and weather_ok and pois_ok and ai_ok:
         print("Todo correcto.")
-    elif ok:
+    elif ok and contexto_ok:
         # Este es el mensaje importante: recuerda que la app está diseñada
         # para seguir sirviendo aunque falten fuentes opcionales.
         print("La app FUNCIONA en modo degradado: la ubicación se resuelve y")
@@ -368,6 +570,12 @@ def main() -> None:
     else:
         print("La ubicación no se puede resolver: la app no será utilizable.")
     print()
+
+    # Degradado sale 0: es un estado de funcionamiento diseñado a propósito
+    # (decisión 9), no un fallo, y hacerlo fallar convertiría un Overpass caído
+    # —que lo está casi siempre— en un despliegue "roto". Solo el caso en que
+    # la app no se puede usar devuelve 1.
+    sys.exit(0 if (ok and contexto_ok) else 1)
 
 
 if __name__ == "__main__":
