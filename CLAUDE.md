@@ -597,6 +597,21 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     decisión correcta para métricas puntuales (una lectura de batería perdida
     no se recupera nunca); para un contador acumulado es innecesaria.
 
+    **Corrección del 28-07-2026, y es importante:** el atajo pedía `los últimos
+    1 día`, que en Atajos son las últimas 24 horas **móviles** y NO "hoy". Se vio
+    en los datos: una muestra de las 02:48 traía 12.427 pasos, que arrastraban la
+    tarde anterior entera. Ese número no es ni el día ni el viaje, y **no da
+    ningún error**: solo medias infladas si se analiza como días. Se cambió a
+    `Fecha de inicio` **es hoy**, que Atajos ya trae hecho, y ahora cada muestra
+    dice *pasos de hoy hasta este momento* — se reinicia sola a medianoche, los
+    envíos del día dibujan la curva y el total del día es el máximo.
+
+    Consecuencia obligatoria: **la columna `pasos` cambia de significado**, así
+    que las muestras anteriores a ese cambio hay que borrarlas. Mezclar ventanas
+    rodantes con acumulados del día en la misma columna es el análisis
+    silenciosamente equivocado que esta misma decisión advierte dos párrafos más
+    abajo.
+
     **Lo que sí se pierde, dicho claramente:** el desglose por horas de los
     envíos fallidos. Si el móvil está sin cobertura de 10:00 a 14:00, sabrás el
     total al recuperarla pero no cuánto se anduvo en cada una de esas cuatro

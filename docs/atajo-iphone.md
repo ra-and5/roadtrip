@@ -179,7 +179,7 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 
 5. **Buscar muestras de salud** *donde todas las condiciones sean verdaderas*:
    - Tipo **es** `Steps`
-   - `Fecha de inicio` **está entre los últimos** `1` `día`
+   - `Fecha de inicio` **es hoy**  ← **esta opción y ninguna otra**
    - Unidad: **contar** · Agrupar por: Ninguno · Ordenar por: Ninguno
    - **Límite: desactivado.** Con el límite puesto te devuelve solo las primeras
      muestras y el total sale corto **sin dar ningún error**.
@@ -188,6 +188,27 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 8. **Redondear** la suma a **Número entero** → *Definir variable* `PASOS`.
 
    Salud devuelve las muestras con decimales y el servidor espera un entero.
+
+> **La trampa que costó una hora, y la lección de fondo.**
+>
+> El filtro que trae la receta original es `está entre los últimos 1 día`, y
+> **no es lo que parece**: son las últimas 24 horas MÓVILES, no "hoy". Se ve en
+> los propios datos — una muestra de las 02:48 de la madrugada traía 12.427
+> pasos, que evidentemente no se han dado "hoy": arrastraba toda la tarde
+> anterior. Es un número que no sirve ni para el día ni para el viaje, y **no da
+> ningún error**: solo produce medias infladas y comparaciones falsas si algún
+> día lo analizas creyendo que son días.
+>
+> El arreglo bueno es `es hoy`, que Atajos ya trae hecho. Antes de dar con él se
+> montó un rodeo de tres acciones (`Fecha actual` → `Obtener inicio del día` →
+> `INICIO_DIA`) y un filtro `está entre` con dos fechas, que **devolvía cero
+> muestras** y dejaba `pasos` vacío. Toda esa hora se habría ahorrado mirando
+> primero qué opciones ofrece el desplegable del filtro: `es el`, `es hoy`,
+> `está entre`, `está entre los últimos`.
+>
+> **La regla del proyecto ("verificar, no suponer") también aplica a Atajos, no
+> solo a las APIs.** Antes de diseñar encima de una herramienta, hay que mirar
+> qué sabe hacer.
 
 ### Bloque C — La muestra de ahora (batería y ubicación)
 
