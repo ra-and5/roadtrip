@@ -15,7 +15,7 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | 2b | Proveedor intercambiable: Anthropic / Gemini / Kimi | ✅ Hecho |
 | — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; aparcada a la espera de días de datos |
-| 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | ⬜ Pendiente |
+| 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | 🟨 Hecho; falta validarlo en el móvil |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
 Desplegado en PythonAnywhere (plan gratuito) y probado desde un iPhone con datos
@@ -58,14 +58,20 @@ roadtrip/
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
 │   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
 │   │   ├── ingest.py               Telemetría del móvil: token, validación, idempotencia
+│   │   ├── notes.py                Notas geolocalizadas y progreso del mapa
+│   │   ├── timeparse.py            Instantes ISO 8601: validar, canonizar, volver a local
 │   │   └── storage.py              SQLite: caché, notas y telemetría
 │   ├── templates/          HTML (Jinja2)
-│   └── static/             CSS, JS, manifest.json, iconos
+│   └── static/
+│       ├── js/notas.js     Cola offline en IndexedDB: guarda primero, envía después
+│       ├── js/mapa.js      Mapa, chinchetas y progreso del viaje
+│       └── vendor/leaflet/ Leaflet 1.9.4, servido por nosotros (no por un CDN)
 ├── tools/
 │   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
 │   ├── token_ingesta.py    Genera el token del iPhone y su hash
 │   ├── diagnostico.py      Estado de cada dependencia externa
 │   ├── ver_telemetria.py   Últimas muestras del móvil, y borrado de las malas
+│   ├── ver_notas.py        Notas del viaje, progreso, y borrado de las malas
 │   └── listar_modelos.py   Qué modelos de Gemini funcionan con tu key
 ├── tests/                  pytest
 └── data/                   BD e imágenes. NO va a git.
@@ -74,7 +80,7 @@ roadtrip/
 **Regla de arquitectura:** `app.py` solo valida la entrada, llama a un módulo y
 formatea la respuesta. Cada módulo tiene una función de entrada clara, tipada, y
 lanza sus propias excepciones (`LocationError`, `WeatherError`, `AIError`,
-`IngestError`) en vez de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
+`IngestError`, `NoteError`) en vez de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
 
 ---
 
@@ -327,9 +333,12 @@ comprobaciones en orden con lo que deberías ver en cada una.
 |--------|------|:----:|-------------|
 | GET/POST | `/login` | — | Formulario de acceso |
 | GET | `/logout` | — | Cierra sesión |
-| GET | `/` | ✅ | Pantalla principal |
+| GET | `/` | ✅ | Pantalla principal, y el formulario para marcar un sitio |
+| GET | `/mapa` | ✅ | El mapa acumulado del viaje y el progreso |
 | POST | `/api/location` | ✅ | `{lat, lon}` → datos del lugar |
 | POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → lugar + tiempo + POIs + recomendación |
+| POST | `/api/notes` | ✅ | Crea una nota geolocalizada. Idempotente por `client_id` |
+| GET | `/api/notes?year=` | ✅ | Las notas y el progreso del viaje |
 | POST | `/api/telemetria` | 🔑 | Muestras del iPhone (pasos, ubicación, batería) |
 | GET | `/healthz` | — | Comprobación de vida |
 
@@ -341,6 +350,43 @@ Códigos de error: `400` entrada ausente o inválida · `401` sin sesión o sin
 token · `405` método incorrecto · `413` cuerpo por encima de
 `MAX_CONTENT_LENGTH` · `502` el servicio de mapas falló (solo en
 `/api/location`).
+
+### `/api/notes`
+
+Lo llama la cola offline del navegador, una nota por petición. El `client_id`
+lo genera el móvil **antes** del primer intento y lo reutiliza en cada
+reintento: es lo que hace que reenviar una nota tras recuperar la cobertura no
+la duplique.
+
+```jsonc
+// POST /api/notes
+{
+  "client_id": "6f4b1e2a-8c3d-4a91-b7e0-1f2c3d4e5a6b",  // UUID en minúsculas
+  "text": "Mirador sobre la playa, viento fuerte",       // obligatorio, máx. 2000
+  "lat": 43.5619, "lon": -6.1467,                        // obligatorias
+  "created_at": "2026-07-28T11:32:05+02:00",             // ISO 8601 CON zona horaria
+  "place_name": "Cudillero, Asturias",                   // opcional
+  "region": "Asturias"                                   // opcional
+}
+```
+
+Respuestas, que son lo que la cola usa para decidir si borra la nota o la
+reintenta:
+
+| Código | Cuerpo | Qué hace la cola |
+|---|---|---|
+| `201` | `{"estado": "creada", "id": 12, ...}` | La borra: está a salvo |
+| `200` | `{"estado": "duplicada", "id": 12, ...}` | La borra: ya estaba (reintento normal) |
+| `400` | `{"error": "…qué campo está mal"}` | La marca *rechazada* y deja de intentarlo |
+| `401` | `{"error": "no_autenticado"}` | La conserva y pide entrar otra vez |
+
+`received_at` lo pone **siempre el servidor** y nunca se acepta del cliente:
+`received_at - created_at` es la medida del retraso de la cola offline, y es lo
+que enseña `python tools/ver_notas.py`.
+
+`GET /api/notes` devuelve `{total, notes, progreso}`. `progreso` se calcula
+sobre **todas** las notas aunque `?year=` filtre la lista: el filtro cambia qué
+se pinta, no cuánto llevas hecho.
 
 ### `/api/telemetria`
 
@@ -435,10 +481,33 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   decimales (~110 m) con TTL por tipo de dato: el nombre de un pueblo 30 días,
   el tiempo ~1 hora. Además hace que volver a un sitio ya visitado funcione sin
   cobertura.
-- **Las notas llevarán un `client_id` generado en el móvil.** Es lo que permite
+- **Las notas llevan un `client_id` generado en el móvil.** Es lo que permite
   reintentar el envío cuando vuelve la cobertura sin duplicar la nota. Está en
   el esquema desde la Fase 1 porque cambiar el modelo de datos con datos reales
   dentro es caro.
+- **La cola offline guarda primero y envía después.** Al pulsar *Guardar* la
+  nota se escribe en IndexedDB y se da por guardada; el POST es un intento
+  posterior. Una nota que se pierde porque el POST falló es exactamente el
+  fallo que la Fase 3 existe para impedir: los pasos de Salud se pueden volver
+  a consultar hacia atrás, pero una nota escrita en un mirador no está en
+  ningún otro sitio. La interfaz enseña cuántas quedan por enviar, porque una
+  cola invisible es una cola en la que no confías.
+- **Leaflet se sirve desde `app/static/vendor/`, no desde un CDN,** con la
+  versión fijada (ver `app/static/vendor/leaflet/VERSION.md`). Los **tiles** sí
+  los pide el navegador a OpenStreetMap: la lista blanca del proxy de
+  PythonAnywhere afecta solo al tráfico saliente del servidor y aquí no
+  interviene. Sin cobertura los tiles no cargan y el mapa sale gris, pero las
+  chinchetas y el listado siguen, porque salen de nuestro servidor; la página
+  lo dice en vez de disimularlo.
+- **Presupuesto de disco.** El plan gratuito son **512 MB**: el virtualenv
+  ocupa ~101 MB, el repositorio ~3 MB y la base de datos crece despacio (una
+  nota de texto son ~200 bytes; un mes entero escribiendo diez notas al día no
+  llega a 1 MB). Con las fotos aplazadas, el disco **no es hoy un problema**, y
+  aun así `python tools/diagnostico.py` avisa por debajo de **50 MB libres**:
+  en PythonAnywhere un disco lleno no degrada, rompe la app entera, porque
+  SQLite necesita sitio hasta para leer (escribe el WAL). Cuando lleguen las
+  fotos: ~355 MB disponibles a ~450 KB por foto son **~780 fotos**, unas 26 al
+  día durante un mes.
 - **Fechas siempre en UTC (ISO-8601).** Se convierten a hora local solo al
   mostrarlas.
 - **Timeout en toda llamada saliente.** Sin él, una API caída cuelga el worker

@@ -39,8 +39,15 @@ app/
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
     llm_providers.py         Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
     ingest.py                Telemetría del móvil: token, validación e idempotencia
+    notes.py                 Notas geolocalizadas, y el progreso del mapa
+    timeparse.py             Instantes ISO 8601: validar, canonizar a UTC, volver a local
     storage.py               SQLite: caché, notas y telemetría
     auth.py                  Login de un solo usuario (sesión; NO cubre la ingesta)
+  static/
+    js/app.js                Pantalla principal: GPS → lugar, tiempo y recomendación
+    js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
+    js/mapa.js               Mapa Leaflet, chinchetas y progreso del viaje
+    vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
 Regla: `app.py` valida la entrada, llama a un módulo y formatea la respuesta.
@@ -67,6 +74,9 @@ python tools/token_ingesta.py              # genera el token del iPhone y su has
 python tools/ver_telemetria.py             # últimas muestras recibidas del móvil
 python tools/ver_telemetria.py 50          # las 50 últimas
 python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
+python tools/ver_notas.py                  # notas del viaje + progreso del mapa
+python tools/ver_notas.py 50               # las 50 últimas
+python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
 ```
 
 ## 5. Estado actual
@@ -80,8 +90,22 @@ python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
-| 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
+| 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho en local; **falta validarlo en el móvil** |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
+
+**La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
+Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
+Leaflet servido por nosotros, y progreso del viaje (sitios, días, racha,
+tablero de 19 comunidades, comparación entre años). Las fotos se aplazaron a
+propósito (decisión 27) y su diseño queda escrito para cuando toquen.
+
+Lo que falta para cerrarla es exactamente lo que no se puede probar desde aquí:
+**escribir una nota de verdad en un sitio sin cobertura y comprobar que aparece
+en el mapa al volver la señal, sin duplicarse.** El servidor está probado (287
+tests, incluida la idempotencia del reintento); IndexedDB, el evento `online` y
+el GPS del iPhone no los ha ejecutado nadie todavía. En la 2d, esa misma
+distancia entre "escrito" y "probado en el móvil" escondía cuatro trampas
+([`docs/atajo-iphone.md`](docs/atajo-iphone.md)).
 
 **La Fase 2d está APARCADA como MVP, no cerrada,** y la diferencia importa.
 Probado contra el servidor desplegado y desde un iPhone real (28-07-2026): el
@@ -473,6 +497,142 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     análisis silenciosamente equivocados** (decisión 11 otra vez). La salida
     limpia sería una tabla estrecha con nombre de métrica; está en el roadmap.
 
+26. **Aquí SÍ hay cola offline, y en la 2d no. La asimetría es el diseño, no
+    una incoherencia.** Las dos fases resuelven el mismo problema —el norte de
+    España se queda sin cobertura a ratos— y lo resuelven al revés. El motivo
+    está en el **origen del dato**, no en el transporte:
+
+    | | Telemetría (2d) | Notas (3) |
+    |---|---|---|
+    | ¿Existe el dato en otro sitio? | Sí: Salud lo guarda y se consulta hacia atrás | **No.** Solo está en la cabeza de quien la escribió |
+    | Si se pierde un envío | El siguiente lo trae otra vez | Se ha perdido para siempre |
+    | Solución | Ventana solapada, sin estado | Cola en el navegador, con estado |
+
+    Una cola es estado que hay que mantener sincronizado entre dos sistemas, y
+    en la 2d se descartó a propósito (decisión 23) porque el origen ya
+    garantizaba la recuperación. Aquí no la garantiza nadie, así que el estado
+    hay que pagarlo. Pagar por lo que no hace falta es lo que se evitó allí;
+    ahorrárselo aquí sería perder notas.
+
+    De ahí sale la regla que ordena todo el JavaScript de esta fase: **se
+    escribe primero en IndexedDB y se le dice al usuario que está guardada; el
+    envío es un intento posterior.** Nunca al revés.
+
+    IndexedDB y no `localStorage`: `localStorage` es síncrono (bloquea la
+    interfaz al escribir), guarda solo texto y ronda los 5 MB. IndexedDB además
+    guarda `Blob`, que es lo que hará falta el día que haya fotos.
+
+    **Y la decisión que no se ve venir hasta que pasa: qué hacer con un 400.**
+    El encargo decía que solo se borra de la cola con un `201` o un
+    "duplicada", y que un `500` o un timeout la dejan. No decía nada del `400`,
+    y ahí estaba la trampa: una nota que el servidor rechaza por inválida y que
+    se reintenta para siempre **atasca la cola detrás de ella** y las notas
+    buenas no salen nunca. Se resuelve por clases de fallo, no por códigos:
+
+    | Respuesta | Qué significa | Qué hace la cola |
+    |---|---|---|
+    | `201` / `200` | Está a salvo en el servidor | La borra |
+    | `400` | No va a entrar nunca | La marca *rechazada* y deja de intentarlo |
+    | `401` | Sesión caducada; la nota no tiene la culpa | La conserva y pide entrar |
+    | `5xx`, timeout, sin red | No se sabe si llegó | La conserva |
+
+    El `200` de "duplicada" no es un caso raro que haya que tolerar: es el
+    reintento normal cuando el POST llegó bien y la respuesta se perdió al
+    entrar en un túnel. Por eso el servidor distingue `creada` de `duplicada`
+    en el cuerpo y no solo en el código de estado, igual que la ingesta
+    devuelve `guardadas`/`duplicadas`.
+
+    Sin `setInterval`: se sincroniza al abrir la app, al guardar una nota y en
+    el evento `online`. Un temporizador machacando gasta batería en un móvil
+    que va en un camper y no adelanta nada; y `online` por sí solo no basta,
+    porque el navegador cree que hay red en cualquier wifi de camping aunque no
+    llegue a ninguna parte. El reintento al abrir la app es el que de verdad
+    recupera las notas atascadas.
+
+27. **El MVP es solo texto. Las fotos se aplazan, y el razonamiento se guarda
+    hecho.** Se decidió durante la fase: lo que hace falta durante el viaje es
+    marcar sitios con texto, y las fotos traen consigo la mitad del riesgo de
+    la fase (presupuesto de disco, validación de imagen, límite por ruta,
+    nombres de archivo hostiles). Hacerlas a medias habría sido peor que no
+    hacerlas.
+
+    `photo_path` se queda en el esquema, a NULL. Es la decisión 4 otra vez: una
+    columna vacía es gratis hoy y cara con un mes de viaje dentro.
+
+    Lo que ya está decidido para cuando toque, para no volver a discutirlo:
+
+    - **Las fotos viajarán en `multipart/form-data`, no en base64 dentro del
+      JSON.** base64 infla un 33 % (medio segundo más por el wifi de un camping
+      y más ventana para que se caiga), obliga a materializar el cuerpo entero
+      como cadena en memoria y a decodificarlo en la ruta —CPU, que en
+      PythonAnywhere es **cuota diaria**— y hace que el límite por ruta mida el
+      tamaño inflado, así que "2 MiB" dejaría de significar 2 MiB de foto.
+      IndexedDB además guarda `Blob` nativo: `FormData.append` lo envía sin
+      conversión, mientras que base64 obligaría a un `FileReader` en **cada
+      reintento**, con poca batería y peor red.
+    - **Se redimensionarán en el NAVEGADOR** (canvas, lado máximo ~1600 px,
+      JPEG ~0,8). Subir 4 MB por la red de un camping es medio minuto en el que
+      la conexión puede caerse, y redimensionar en el servidor gasta esa misma
+      cuota diaria de CPU. `Pillow` sigue comentado en `requirements.txt`.
+    - **El orden de escritura será archivo primero, fila después.** Al revés
+      —fila y luego archivo— un fallo al escribir deja una fila apuntando a una
+      foto que no existe, y como el reintento devuelve "duplicada", **la foto
+      se pierde para siempre**. En el orden bueno el peor caso es un archivo
+      huérfano: desperdicia disco, se ve desde el diagnóstico y el reintento lo
+      reescribe idéntico. Un fallo recuperable contra uno irrecuperable.
+    - **El nombre del archivo saldrá del `client_id`, jamás del cliente.** Por
+      eso el `client_id` se valida ya hoy como UUID canónico estricto: hace que
+      el nombre sea seguro **por construcción** en vez de por saneado. Se
+      descartó pasar cualquier cadena por `secure_filename()`, porque sanear
+      puede colapsar dos ids distintos en el mismo nombre y una nota se comería
+      el archivo de otra sin dar ningún error.
+
+28. **Leaflet servido desde `app/static/vendor/`, con la versión fijada.** Un
+    CDN es un tercero más que puede caerse, y con mala cobertura el navegador
+    tiene más probabilidades de tener nuestro archivo en caché (ya ha entrado a
+    la app) que de alcanzar `unpkg.com` desde un camping. Es la decisión 17
+    aplicada al frontend: lo que se probó es lo que se sirve.
+
+    **Lo que hay que tener claro para no razonar mal:** los *tiles* del mapa los
+    pide el **navegador**, no el servidor. La lista blanca del proxy de
+    PythonAnywhere (decisión 21) afecta solo al tráfico saliente del servidor,
+    así que no interviene aquí para nada, y vendorizar Leaflet no es una forma
+    de esquivarla. Que `tile.openstreetmap.org` no esté en esa lista da igual.
+
+    Consecuencia sin cobertura, que se documenta en vez de disimularse
+    (decisión 9): **los tiles no cargan y el mapa sale gris, pero las
+    chinchetas y el listado siguen ahí**, porque salen de nuestro servidor. La
+    página lo dice en voz alta tras tres tiles fallidos seguidos —uno suelto
+    pasa al hacer zoom rápido y no significa nada—. No se implementan mapas
+    offline: está fuera del alcance de la fase.
+
+29. **El progreso del mapa se calcula en Python y sale solo de las notas.**
+    Podría haber sido un puñado de `if` en el JavaScript del mapa; es una
+    función pura en `notes.py` con sus tests. El motivo es que estas cifras son
+    justamente las que **no dan error cuando están mal**: una racha o un
+    contador de comunidades equivocados no rompen nada, solo mienten.
+
+    Tres decisiones dentro de esa función:
+
+    - **Un "sitio" son ~1,1 km (2 decimales), no los ~110 m de la caché de
+      APIs.** Son preguntas distintas: allí es "¿puedo reutilizar la respuesta
+      de Nominatim?", y aquí "¿he estado ya aquí?". Con la precisión fina,
+      pasear por un pueblo escribiendo notas contaría como varios lugares
+      visitados, y el contador premiaría caminar en vez de viajar.
+    - **Los días se cuentan en hora LOCAL, no en UTC.** Una nota escrita a las
+      00:30 en España es del día siguiente en UTC: contarla ahí desplaza un día
+      entero del viaje. Por eso `offset_original` está en la tabla.
+    - **El tablero de comunidades enseña también las que faltan.** "Llevas 2 de
+      19" se entiende sola; "2 regiones" no. Y el encaje de nombres es código
+      con tests porque Nominatim devuelve "Principado de Asturias": comparar
+      las cadenas a pelo dejaría la casilla apagada habiendo estado allí. Lo
+      que no encaja con ninguna comunidad conocida (una nota de Portugal) no se
+      descarta, se enseña aparte.
+
+    Todo esto sale de las **notas** y de nada más. La telemetría sigue aparcada
+    a la espera de demostrar que llega sin huecos, y construir el progreso
+    sobre una fuente que aún no es fiable es trabajo que habría que tirar.
+
 ## 7. Roadmap
 
 - **Cerrar la Fase 2d.** El atajo ya está montado y envía bien a mano. Falta lo
@@ -541,10 +701,44 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
 - **Espejos de Overpass** (ver decisión 22). Hoy solo hay uno vivo y saturado,
   así que los POIs son intermitentes en producción. Hay que buscar espejos y
   validarlos con datos españoles reales, no con que devuelvan `200`.
-- **Fase 3.** Notas geolocalizadas con cola offline (IndexedDB en el móvil,
-  sincronización cuando hay red) y mapa acumulado con Leaflet.
+- **Cerrar la Fase 3.** Escribir una nota de verdad en una zona sin cobertura y
+  comprobar en el mapa que aparece al volver la señal, sin duplicarse. Es lo
+  único que falta y no se puede hacer desde un escritorio.
+
+- **Fotos en las notas.** Aplazadas a propósito (decisión 27), con el diseño ya
+  decidido: multipart, redimensionado en el navegador, archivo antes que fila,
+  nombre derivado del `client_id`. Lo que hay que calcular al retomarlo es el
+  **presupuesto de disco**: de los 512 MB del plan gratuito, el virtualenv se
+  come ~101 MB, así que quedan ~355 MB tras reservar 50 MB de margen, o sea
+  ~780 fotos de 450 KB (~26 al día en un mes). `tools/diagnostico.py` ya avisa
+  por debajo de 50 MB libres.
+
 - **Fase 4.** Resumen narrativo del viaje generado por el LLM a partir de todas
   las notas, y `manifest.json` + iconos para instalar como PWA en el iPhone.
+
+- **Metadatos de las fotos del carrete (EXIF).** Idea distinta de "subir fotos
+  a la app", y probablemente más útil: un script que lee la galería del viaje y
+  saca fecha, coordenadas y orden real en que se hicieron. Da el trayecto y el
+  relato del día **sin subir ni un megabyte** al servidor, que es justo el
+  recurso escaso. Encaja con la Fase 4: material para que el LLM haga preguntas
+  y monte el diario. Antes de escribir nada hay que verificar contra la
+  realidad qué EXIF conservan las fotos del iPhone al exportarlas (los
+  metadatos se pierden en varias rutas de exportación, y eso decide si la idea
+  funciona).
+
+- **La app también en casa.** Hoy el uso pensado es el viaje, pero la mitad de
+  lo que hace ya sirve desde el sofá: oleaje y tiempo con veredicto propio,
+  recomendaciones, y el mapa como registro de sitios. Lo que falta para eso no
+  es código nuevo sino una pantalla que no dé por supuesto que estás de ruta.
+
+- **El asistente que sabe de ti (universidad, exámenes, entrenamientos).**
+  Es la ambición grande y conviene decir por qué **no** toca todavía: un
+  asistente útil se construye sobre contexto que ya está guardado y es fiable,
+  y hoy la única fuente demostrada son las notas. La telemetría sigue sin
+  cerrar, Hevy no está ni empezado y no hay ningún dato de asignaturas. El
+  orden que lo hace posible es: cerrar la 2d → decidir la forma de la tabla de
+  métricas (ancha contra estrecha) → análisis en segundo plano. Construirlo
+  antes es exactamente el trabajo que hay que tirar.
 - **Sin fecha.** Implementar `OllamaProvider` (el diseño está documentado en la
   propia clase): permitiría afinar el prompt sin conexión, en el propio camper.
 

@@ -18,6 +18,7 @@ interfaz, no lo que ves tú depurando.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -25,6 +26,11 @@ import traceback
 # Este script vive en tools/, así que Python pone tools/ en el path, no la
 # raíz del proyecto. Sin esto, `from app.config import Config` falla.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Por debajo de esto el disco se considera en peligro. 50 MB no es donde la app
+# se rompe, es donde todavía da tiempo a hacer algo: el margen existe para que
+# el aviso llegue ANTES del problema, no a la vez.
+MIN_DISCO_MB = 50
 
 
 def check(nombre: str, fn) -> bool:
@@ -106,6 +112,37 @@ def main() -> None:
             return "0 muestras (aún no ha llegado ninguna)"
         return f"{s['total']} muestras, última medida {s['ultima_medida']}"
     check("telemetría del móvil", _telemetria)
+
+    # Notas del viaje (Fase 3). Tampoco cuenta para el veredicto: la app
+    # funciona sin ninguna nota. Se mira por lo mismo que la telemetría, y
+    # porque es lo único que responde "¿está llegando lo que escribo desde el
+    # móvil?" sin abrir el mapa.
+    def _notas() -> str:
+        s = storage.notes_stats()
+        if not s["total"]:
+            return "0 notas (aún no hay ninguna)"
+        return f"{s['total']} notas, la última del {s['ultima']}"
+    check("notas del viaje", _notas)
+
+    # El disco, que es el recurso que se agota sin avisar en un plan gratuito
+    # de 512 MB. Hoy las notas son solo texto y no gastan casi nada, pero el
+    # aviso tiene que existir ANTES de que haya fotos: quedarse sin disco a
+    # mitad de viaje no puede ser una sorpresa, y en PythonAnywhere un disco
+    # lleno no degrada, rompe la app entera (SQLite necesita sitio hasta para
+    # leer, porque escribe el WAL).
+    def _disco() -> str:
+        libres = shutil.disk_usage(Config.DATA_DIR).free / (1024 * 1024)
+        subidas = sum(
+            f.stat().st_size for f in Config.UPLOAD_DIR.rglob("*") if f.is_file()
+        ) / (1024 * 1024)
+        detalle = f"{libres:.0f} MB libres, uploads {subidas:.1f} MB"
+        if libres < MIN_DISCO_MB:
+            raise RuntimeError(
+                f"quedan {libres:.0f} MB (menos de {MIN_DISCO_MB}): "
+                f"libera sitio antes de que la app deje de poder escribir"
+            )
+        return detalle
+    check("espacio en disco", _disco)
 
     place = None
     def _geo():
