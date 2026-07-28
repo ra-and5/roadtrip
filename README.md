@@ -1,7 +1,7 @@
 # Compañero de viaje
 
 Aplicación web (PWA) que usa el GPS del móvil para saber dónde estás,
-recomendarte qué hacer cerca con ayuda de Claude, guardar notas
+recomendarte qué hacer cerca con ayuda de un LLM, guardar notas
 geolocalizadas y construir el mapa acumulado de un viaje.
 
 ---
@@ -14,7 +14,7 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
 | 2b | Proveedor intercambiable: Anthropic / Gemini / Kimi | ✅ Hecho |
 | — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
-| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Atajo enviando; falta la prueba de varios días |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; aparcada a la espera de días de datos |
 | 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
@@ -73,8 +73,8 @@ roadtrip/
 
 **Regla de arquitectura:** `app.py` solo valida la entrada, llama a un módulo y
 formatea la respuesta. Cada módulo tiene una función de entrada clara, tipada, y
-lanza sus propias excepciones (`LocationError`, `WeatherError`, `AIError`) en vez
-de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
+lanza sus propias excepciones (`LocationError`, `WeatherError`, `AIError`,
+`IngestError`) en vez de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
 
 ---
 
@@ -414,9 +414,9 @@ imprescindible; el resto pueden caerse de forma independiente:
 | Falla | Qué pasa |
 |-------|----------|
 | Ubicación (Nominatim) | `502`. Es lo único sin lo que no hay app. |
-| Tiempo (Open-Meteo) | Se recomienda sin él, y el prompt le prohíbe a Claude inventárselo. |
-| POIs (Overpass) | Claude tira de conocimiento general y lo marca como tal. |
-| Claude | Se devuelven igualmente ubicación, tiempo y puntos de interés. |
+| Tiempo (Open-Meteo) | Se recomienda sin él, y el prompt le prohíbe al modelo inventárselo. |
+| POIs (Overpass) | El modelo tira de conocimiento general y lo marca como tal. |
+| El LLM | Se devuelven igualmente ubicación, tiempo y puntos de interés. |
 
 Cada fallo añade una entrada a `warnings`, que la interfaz muestra. Una app
 que oculta que le falta la mitad del contexto no es fiable, es opaca.
@@ -443,7 +443,7 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   mostrarlas.
 - **Timeout en toda llamada saliente.** Sin él, una API caída cuelga el worker
   de Flask indefinidamente y la app entera deja de responder.
-- **La API key de Claude nunca sale del backend.** Si llega al navegador,
+- **La API key del proveedor nunca sale del backend.** Si llega al navegador,
   cualquiera puede leerla en las herramientas de desarrollo.
 - **Overpass con peticiones escalonadas.** Medido en Llanes: probar los tres
   espejos en serie tardaba **53 s** (el primero agotaba su timeout de 30 s y el
@@ -456,7 +456,7 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   entre 2 y 25: en serie pagas la suma, en paralelo el máximo.
 - **La lógica meteorológica vive en Python, no en el prompt.** Si se puede
   hacer paddle surf se decide con reglas explícitas sobre oleaje y viento
-  (`weather_context.water_sports()`), y a Claude se le pasa el veredicto ya
+  (`weather_context.water_sports()`), y al modelo se le pasa el veredicto ya
   calculado. Es determinista, testeable y auditable; un LLM no debería hacer de
   meteorólogo cuando unas reglas dan una respuesta mejor.
 - **La API marina responde 200 con `null`, no 4xx, tierra adentro.**
@@ -466,5 +466,5 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   modelo cumple el esquema. Es la diferencia entre un frontend que se rompe
   cuando el modelo decide escribir markdown, y uno que no se rompe nunca.
 - **`build_context()` es una función pura.** Puedes imprimir el prompt exacto
-  que recibe Claude sin gastar una sola llamada a la API. Iterar sobre un
+  que recibe el modelo sin gastar una sola llamada a la API. Iterar sobre un
   prompt a ciegas es la forma más cara de perder una tarde.

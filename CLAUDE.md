@@ -2,12 +2,6 @@
 
 Documento de trabajo del proyecto. Lo lee Claude Code al empezar cada sesión.
 
-> **Nota sobre este archivo.** Hasta ahora `CLAUDE.md` contenía en realidad un
-> prompt de despliegue, no este documento (el mensaje del commit prometía
-> "reglas, decisiones y roadmap" pero el contenido era otra cosa). Ese prompt
-> se conserva íntegro en [`docs/prompt-despliegue.md`](docs/prompt-despliegue.md);
-> este archivo es ya el documento de proyecto con las secciones numeradas.
-
 ---
 
 ## 1. Qué es esto
@@ -132,7 +126,14 @@ sistema no fingió haber verificado nada.
 - Checklist de despliegue: sección *Despliegue* del `README.md`.
 - Las seis comprobaciones en el móvil: [`docs/validacion-movil.md`](docs/validacion-movil.md).
 - Cuando algo falle: [`docs/troubleshooting.md`](docs/troubleshooting.md).
-- El encargo original: [`docs/prompt-despliegue.md`](docs/prompt-despliegue.md).
+- Montar el atajo del iPhone: [`docs/atajo-iphone.md`](docs/atajo-iphone.md).
+
+**Los encargos de cada fase viven en `docs/prompt-*.md`.** No son tareas
+pendientes: son el registro de **qué se pidió**, que es lo que permite luego
+contrastarlo con lo que se hizo. Los de fases terminadas se quedan como están.
+Hoy hay dos: [`prompt-despliegue.md`](docs/prompt-despliegue.md) (hecho) y
+[`prompt-fase3.md`](docs/prompt-fase3.md) (por hacer, y el único que describe
+trabajo futuro).
 
 **Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
 factura: el plan gratuito saca todo el tráfico por un proxy con lista blanca de
@@ -140,9 +141,14 @@ dominios, y un host no permitido devuelve un **403 del proxy** que la app ve
 como "fuente caída" y degrada en silencio. Por eso el checklist obliga a correr
 `tools/diagnostico.py` **en el servidor** antes de tocar el móvil.
 
-**Saldo de Anthropic agotado** (confirmado: la API devuelve 400 con *"Your credit
-balance is too low"*). Por eso se usa Gemini, ya verificado generando
-recomendaciones reales en ~11 s con `gemini-3.6-flash`.
+**Proveedor activo: Kimi** (`kimi-k3`), verificado generando recomendaciones
+reales. Es de prepago y queda saldo; el diagnóstico lo consulta al final para
+que la cifra ya refleje lo que acaba de gastarse. **Anthropic sigue sin saldo**
+(confirmado: la API devuelve 400 con *"Your credit balance is too low"*), y
+**Gemini queda como alternativa gratuita**, también verificada en ~11 s con
+`gemini-3.6-flash`. Cambiar entre los tres es una línea del `.env`
+(decisión 10); comprueba cuáles responden hoy con
+`python tools/diagnostico.py --todos`.
 
 ## 6. Registro de decisiones
 
