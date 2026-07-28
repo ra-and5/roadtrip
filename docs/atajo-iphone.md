@@ -210,6 +210,31 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 > solo a las APIs.** Antes de diseñar encima de una herramienta, hay que mirar
 > qué sabe hacer.
 
+> **Y la trampa gorda, medida el 28-07-2026: los pasos se cuentan DOS VECES.**
+>
+> ```
+> App Salud (pasos de hoy) .......  5.428
+> Lo que enviaba el atajo ........ 10.675   ← casi el doble
+> ```
+>
+> Si hay más de una fuente escribiendo pasos en Salud —lo normal en cuanto
+> tienes un **Apple Watch**, y también con algunas apps—, HealthKit guarda las
+> muestras de **cada dispositivo por separado**. La app Salud te enseña el total
+> ya deduplicado; `Buscar muestras de salud` + `Calcular Suma` **las suma todas**.
+>
+> No da ningún error. Solo te deja un histórico entero con el doble de pasos, y
+> cuando lo notes ya no sabrás qué días estaban bien.
+>
+> **Cómo comprobarlo, y hay que hacerlo SIEMPRE al montar esto en un móvil
+> nuevo:** ejecuta el atajo y compara el número con el que enseña la app Salud
+> para hoy. Si no coinciden, no sigas.
+>
+> **Cómo arreglarlo:** en `Buscar muestras de salud` → *Añadir filtro* →
+> **`Origen`** (o *Fuente*) → y elegir **un solo dispositivo**. Cuál conviene
+> depende de qué llevas encima: el reloj es más preciso pero solo cuenta cuando
+> lo llevas puesto; el iPhone cuenta siempre que lo lleves en el bolsillo. Lo
+> que **no** vale es dejar los dos.
+
 ### Bloque C — La muestra de ahora (batería y ubicación)
 
 > La batería y la ubicación ya se han cogido en el bloque A, que es donde las

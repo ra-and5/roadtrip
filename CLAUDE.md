@@ -139,7 +139,8 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
-| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha, sin cerrar.** Las cuatro partes escritas y probadas en local; **falta desplegar y validar en el móvil** |
+| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
+| 6 | Pasos ciertos, cerrar la 2d y el chatbot | ⬜ **Siguiente** — encargo en [`docs/prompt-fase6.md`](docs/prompt-fase6.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -264,8 +265,9 @@ su §1, el resto sigue pendiente), y
 que viene**.
 
 **Si vienes con el contexto en blanco, el orden de lectura es:** este documento
-→ [`prompt-fase5.md`](docs/prompt-fase5.md) → y solo si toca esa parte,
-[`prompt-fase4.md`](docs/prompt-fase4.md).
+→ [`prompt-fase6.md`](docs/prompt-fase6.md), que es **el que describe el trabajo
+que viene** → y solo si toca esa parte, [`prompt-fase5.md`](docs/prompt-fase5.md)
+o [`prompt-fase4.md`](docs/prompt-fase4.md).
 
 **Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
 factura: el plan gratuito saca todo el tráfico por un proxy con lista blanca de
@@ -605,6 +607,16 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     `Fecha de inicio` **es hoy**, que Atajos ya trae hecho, y ahora cada muestra
     dice *pasos de hoy hasta este momento* — se reinicia sola a medianoche, los
     envíos del día dibujan la curva y el total del día es el máximo.
+
+    **Y una segunda corrección el mismo día, más grave: los pasos se contaban
+    DOS VECES.** La app Salud daba 5.428 pasos de hoy y el atajo enviaba 10.675.
+    Con más de una fuente escribiendo pasos (un Apple Watch, o ciertas apps),
+    HealthKit guarda las muestras de cada dispositivo por separado: Salud enseña
+    el total deduplicado, pero `Calcular Suma` sobre las muestras crudas las suma
+    todas. **No da ningún error**, solo un histórico entero al doble. Se arregla
+    filtrando por `Origen` en la propia búsqueda. La comprobación que lo caza, y
+    que hay que hacer siempre al montar esto en un móvil nuevo: **ejecutar el
+    atajo y comparar con lo que dice la app Salud para hoy.**
 
     Consecuencia obligatoria: **la columna `pasos` cambia de significado**, así
     que las muestras anteriores a ese cambio hay que borrarlas. Mezclar ventanas
@@ -1304,6 +1316,12 @@ valor por línea escrita que queda pendiente.
   orden que lo hace posible es: cerrar la 2d → decidir la forma de la tabla de
   métricas (ancha contra estrecha) → análisis en segundo plano. Construirlo
   antes es exactamente el trabajo que hay que tirar.
+- **Personalizar el mapa (idea del usuario, 28-07-2026).** Skins, decorar "tu
+  espacio", quién sabe si algún día alguien pagaría por ello. Se anota porque la
+  idea es buena y porque el orden ya está decidido y no cambia: **primero que los
+  datos sean ciertos, la estética después.** Un mapa precioso sobre pasos
+  contados dos veces sigue siendo un mapa que miente, y encima uno que te crees.
+
 - **Sin fecha.** Implementar `OllamaProvider` (el diseño está documentado en la
   propia clase): permitiría afinar el prompt sin conexión, en el propio camper.
 
