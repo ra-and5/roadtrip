@@ -147,7 +147,11 @@
       );
     }
     if (rechazadas.length) {
-      partes.push(rechazadas.length + " rechazadas por el servidor");
+      partes.push(
+        rechazadas.length === 1
+          ? "1 rechazada por el servidor"
+          : rechazadas.length + " rechazadas por el servidor"
+      );
     }
     colaResumen.textContent = partes.join(" · ");
 
