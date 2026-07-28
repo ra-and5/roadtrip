@@ -253,10 +253,16 @@ sistema no fingió haber verificado nada.
 **Los encargos de cada fase viven en `docs/prompt-*.md`.** No son tareas
 pendientes: son el registro de **qué se pidió**, que es lo que permite luego
 contrastarlo con lo que se hizo. Los de fases terminadas se quedan como están.
-Hoy hay tres: [`prompt-despliegue.md`](docs/prompt-despliegue.md) y
-[`prompt-fase3.md`](docs/prompt-fase3.md) (hechos), y
-[`prompt-fase4.md`](docs/prompt-fase4.md), que es el único que describe trabajo
-futuro. **Empieza por ahí si vienes con el contexto en blanco.**
+Hoy hay cinco: [`prompt-despliegue.md`](docs/prompt-despliegue.md) y
+[`prompt-fase3.md`](docs/prompt-fase3.md) (hechos),
+[`prompt-fase4.md`](docs/prompt-fase4.md) (hecho a medias: la 3b se cerró desde
+su §1, el resto sigue pendiente), y
+[`prompt-fase5.md`](docs/prompt-fase5.md), que es **el que describe el trabajo
+que viene**.
+
+**Si vienes con el contexto en blanco, el orden de lectura es:** este documento
+→ [`prompt-fase5.md`](docs/prompt-fase5.md) → y solo si toca esa parte,
+[`prompt-fase4.md`](docs/prompt-fase4.md).
 
 **Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
 factura: el plan gratuito saca todo el tráfico por un proxy con lista blanca de
