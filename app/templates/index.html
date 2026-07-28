@@ -46,8 +46,32 @@
     <ul id="pois-list" class="pois"></ul>
   </details>
 </section>
+
+<!-- Marcar el sitio no depende de haber pedido una recomendación: se puede
+     escribir una nota nada más abrir la app. Por eso la tarjeta está siempre
+     visible y no escondida detrás del botón de arriba. -->
+<section class="card" id="nota-card">
+  <h2>Marcar este sitio</h2>
+  <form id="nota-form">
+    <textarea id="nota-texto" rows="3" maxlength="2000"
+              placeholder="Qué hay aquí, qué ha pasado, a qué huele…"></textarea>
+    <button type="submit" id="nota-guardar" class="primary">Guardar nota</button>
+  </form>
+  <p id="nota-estado" class="status" aria-live="polite"></p>
+
+  <!-- La cola a la vista. Una cola invisible es una cola en la que no
+       confías: si no se ve cuántas notas quedan por enviar, no hay forma de
+       distinguir "todo enviado" de "se está perdiendo todo en silencio". -->
+  <div id="nota-cola" hidden>
+    <p class="muted" id="nota-cola-resumen"></p>
+    <ul class="cola" id="nota-cola-lista"></ul>
+  </div>
+
+  <p class="muted"><a href="{{ url_for('mapa') }}">Ver el mapa del viaje →</a></p>
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/notas.js') }}"></script>
 {% endblock %}

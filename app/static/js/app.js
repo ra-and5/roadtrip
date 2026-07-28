@@ -109,6 +109,18 @@
         (coords.accuracy ? "  ·  ±" + Math.round(coords.accuracy) + " m" : "")
     );
     show("place-card");
+
+    /* Se avisa por un evento del DOM en vez de llamar a notas.js o compartir
+     * una variable global: los dos archivos siguen sin conocerse, y si mañana
+     * el formulario de notas no está en esta página, aquí no hay que tocar
+     * nada. El nombre del sitio se aprovecha porque ya lo tenemos resuelto y
+     * cacheado: resolverlo otra vez al crear la nota metería una llamada a
+     * Nominatim dentro de la ruta que no puede fallar. */
+    document.dispatchEvent(
+      new CustomEvent("lugar-resuelto", {
+        detail: { place_name: place.short_label, region: place.region || null },
+      })
+    );
   }
 
   function renderWarnings(warnings) {

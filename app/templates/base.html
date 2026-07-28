@@ -8,6 +8,7 @@
   <meta name="theme-color" content="#1b3a2f">
   <title>{% block title %}Compañero de viaje{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
   <header class="topbar">

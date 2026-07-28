@@ -187,3 +187,159 @@ button.secondary {
 
 .pois { margin: 0.6rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); }
 .pois li { margin-bottom: 0.25rem; }
+
+/* ---------- Fase 3: notas geolocalizadas y mapa ---------- */
+
+textarea {
+  width: 100%;
+  padding: 0.75rem;
+  /* 16px otra vez: por debajo de eso Safari en iOS hace zoom al enfocar y
+     descoloca la pantalla justo cuando vas a escribir. */
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1.45;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+  margin-bottom: 0.7rem;
+}
+
+button.pequeno {
+  width: auto;
+  min-height: 34px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+/* La cola de envío. Se ve siempre que tenga algo dentro: una cola invisible
+   es una cola en la que no confías. */
+.cola { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.cola li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.cola-texto {
+  flex: 1 1 60%;
+  /* Una nota larga no puede empujar el estado fuera de la pantalla. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cola-meta { color: var(--muted); font-size: 0.82rem; }
+.cola-rechazada .cola-meta { color: var(--error); }
+
+/* --- Progreso del mapa --- */
+
+.progreso-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.progreso-cabecera h1 { margin: 0; }
+
+#filtro-anio {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.marcadores {
+  display: grid;
+  /* auto-fit + minmax: cuatro cifras en una pantalla ancha, dos en un iPhone,
+     sin media queries que mantener. */
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+.marcador {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.7rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.marcador-valor { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+.marcador-etiqueta { font-size: 0.82rem; color: var(--muted); }
+.marcador-detalle { font-size: 0.72rem; color: var(--muted); opacity: 0.8; }
+
+/* El tablero de comunidades: lo que hace que el mapa se quiera completar.
+   Las que faltan se ven apagadas pero se ven, que es el punto. */
+.casillas {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.casilla {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+.casilla-hecha {
+  background: var(--accent);
+  border-style: solid;
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+  .casilla-hecha { color: #14150f; }
+}
+
+/* --- El mapa --- */
+
+#mapa {
+  height: 60vh;
+  /* Un mínimo en píxeles además del alto relativo: en un iPhone en
+     horizontal, 60vh son 180 px y el mapa deja de servir para nada. */
+  min-height: 320px;
+  border-radius: 8px;
+  /* Leaflet pinta los tiles fuera del contenedor si no se recorta. */
+  overflow: hidden;
+}
+/* El fondo gris del mapa sin tiles es el mismo del tema: sin cobertura no
+   parece un error de la app, y el aviso de debajo explica qué pasa. */
+.leaflet-container { background: var(--border); font: inherit; }
+
+.notas { list-style: none; margin: 0; padding: 0; }
+.notas li {
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 0;
+  cursor: pointer;
+}
+.notas li:first-child { border-top: none; }
+.nota-cabecera {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.notas p { margin: 0.3rem 0 0; font-size: 0.95rem; }
+
+.visitados { list-style: none; margin: 0; padding: 0; font-size: 0.92rem; }
+.visitados li {
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 0;
+  cursor: pointer;
+}
+.visitados li:first-child { border-top: none; }

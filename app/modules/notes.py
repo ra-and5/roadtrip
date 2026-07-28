@@ -32,6 +32,7 @@ registro de decisiones para no volver a discutirlo.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -331,6 +332,103 @@ def solo_del_anio(notas: list[dict[str, Any]], year: int | None) -> list[dict[st
 # Progreso del mapa
 # ---------------------------------------------------------------------------
 
+# Las 17 comunidades autónomas y las 2 ciudades autónomas. Es el tablero del
+# juego: "llevas 6 de 19" es una frase que se entiende sola, y "6 regiones" no.
+#
+# La lista está escrita a mano y no sale de los datos a propósito: un contador
+# que solo cuenta lo visitado no puede decirte lo que te falta, que es
+# justamente lo que hace que un mapa se quiera completar.
+COMUNIDADES = (
+    "Andalucía", "Aragón", "Asturias", "Islas Baleares", "Canarias",
+    "Cantabria", "Castilla-La Mancha", "Castilla y León", "Cataluña",
+    "Comunidad Valenciana", "Extremadura", "Galicia", "La Rioja", "Madrid",
+    "Murcia", "Navarra", "País Vasco", "Ceuta", "Melilla",
+)
+
+# Prefijos oficiales que Nominatim devuelve y que sobran para comparar:
+# "Principado de Asturias" y "Asturias" son la misma comunidad.
+_PREFIJOS = (
+    "principado de ", "comunidad foral de ", "comunidad autonoma de ",
+    "comunidad de ", "comunitat ", "region de ", "islas ", "illes ",
+)
+
+# Nombres en lengua cooficial. Nominatim se pide con `accept-language: es`, así
+# que en la práctica no deberían aparecer -- pero un nombre que no encaja no da
+# ningún error, solo una comunidad que se queda apagada en el mapa habiendo
+# estado allí. Es más barato contemplarlo que descubrirlo en el viaje.
+# Las claves y los valores están ya en la forma compacta que produce el resto
+# de la normalización (sin acentos, sin espacios, sin guiones). Escribirlos
+# "bonitos" fue el primer intento y no funciona: el valor del alias no vuelve a
+# pasar por la normalización, así que "cataluña" no encajaba con "cataluna".
+_ALIAS = {
+    "catalunya": "cataluna",
+    "valenciana": "comunidadvalenciana",
+    "valenciano": "comunidadvalenciana",
+    "balears": "islasbaleares",
+    "baleares": "islasbaleares",
+    "euskadi": "paisvasco",
+    "euskalherria": "paisvasco",
+    "nafarroa": "navarra",
+    "galiza": "galicia",
+}
+
+
+def _normaliza_region(nombre: str) -> str:
+    """Deja un nombre de región en la forma con la que se comparan dos.
+
+    Sin acentos, sin mayúsculas, sin el prefijo oficial, sin guiones y sin
+    espacios. Comparar las cadenas tal cual haría que "Principado de Asturias"
+    no encajara con "Asturias" y la casilla se quedara apagada habiendo estado
+    allí: un fallo que no da error, solo un tablero que miente.
+
+    El orden importa: el prefijo se quita cuando todavía hay espacios (si no,
+    "islas " ya no se reconocería), y el alias se aplica al final, sobre la
+    forma compacta, que es la única en la que las dos partes de la comparación
+    están garantizadamente escritas igual.
+    """
+    limpio = unicodedata.normalize("NFKD", nombre.strip().lower())
+    limpio = "".join(c for c in limpio if not unicodedata.combining(c))
+    limpio = limpio.replace("-", " ").replace(",", " ")
+    limpio = " ".join(limpio.split())
+    for prefijo in _PREFIJOS:
+        if limpio.startswith(prefijo):
+            limpio = limpio[len(prefijo) :]
+            break
+    compacto = limpio.replace(" ", "")
+    return _ALIAS.get(compacto, compacto)
+
+
+# Índice normalizado -> nombre bonito, construido una vez al importar.
+_INDICE_COMUNIDADES = {_normaliza_region(c): c for c in COMUNIDADES}
+
+
+def tablero_regiones(regiones: Iterable[str]) -> dict[str, Any]:
+    """Qué comunidades llevas y cuáles te faltan.
+
+    Las que no encajan con ninguna conocida NO se descartan: van en `otras`.
+    Descartarlas en silencio sería perder una nota de Portugal o de Francia sin
+    que nadie se entere, y el criterio de esta app es enseñar lo que no sabe
+    hacer en vez de disimularlo.
+    """
+    visitadas: set[str] = set()
+    otras: set[str] = set()
+    for region in regiones:
+        clave = _normaliza_region(region)
+        if clave in _INDICE_COMUNIDADES:
+            visitadas.add(_INDICE_COMUNIDADES[clave])
+        elif region.strip():
+            otras.add(region.strip())
+
+    return {
+        "completadas": len(visitadas),
+        "total": len(COMUNIDADES),
+        "casillas": [
+            {"nombre": c, "visitada": c in visitadas} for c in COMUNIDADES
+        ],
+        "otras": sorted(otras),
+    }
+
+
 @dataclass(frozen=True)
 class Lugar:
     """Un sitio del mapa y cuántas veces se ha estado en él."""
@@ -428,6 +526,7 @@ def progreso(notas: list[dict[str, Any]]) -> dict[str, Any]:
             "ultima": None,
             "por_anio": {},
             "mas_visitados": [],
+            "tablero": tablero_regiones([]),
         }
 
     dias = [d for n in notas if (d := _fecha_local(n))]
@@ -470,6 +569,7 @@ def progreso(notas: list[dict[str, Any]]) -> dict[str, Any]:
         "primera": min(n["created_at"] for n in notas),
         "ultima": max(n["created_at"] for n in notas),
         "por_anio": resumen_anios,
+        "tablero": tablero_regiones(regiones),
         # Solo los sitios a los que se ha vuelto: una lista donde todo aparece
         # con "1 visita" no dice nada. Estos son "los sitios a los que voy
         # siempre", que es la pregunta que responde.

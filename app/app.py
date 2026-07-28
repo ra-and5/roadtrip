@@ -99,6 +99,20 @@ def index() -> Any:
     return render_template("index.html")
 
 
+@app.route("/mapa")
+@auth.login_required
+def mapa() -> Any:
+    """El mapa acumulado del viaje.
+
+    La página no lleva ninguna nota incrustada: las pide por `fetch` a
+    `/api/notes`. No es purismo, es lo que hace que el mapa siga sirviendo de
+    algo con mala cobertura: el HTML y el JavaScript los cachea el navegador y
+    las chinchetas salen de nuestro servidor. Lo único que no cargará son los
+    tiles, que vienen de OpenStreetMap.
+    """
+    return render_template("mapa.html")
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------

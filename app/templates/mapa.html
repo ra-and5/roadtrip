@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}El mapa del viaje{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- El progreso va ARRIBA, antes del mapa. Es lo primero que se mira al abrir
+     la página, y es lo que convierte un mapa de chinchetas en algo que se va
+     completando. -->
+<section class="card" id="progreso-card">
+  <div class="progreso-cabecera">
+    <h1>El mapa del viaje</h1>
+    <select id="filtro-anio" aria-label="Filtrar por año"></select>
+  </div>
+
+  <div class="marcadores" id="progreso-cifras"></div>
+
+  <div id="tablero">
+    <p class="muted" id="tablero-resumen"></p>
+    <ul class="casillas" id="tablero-casillas"></ul>
+    <p class="muted" id="tablero-otras" hidden></p>
+  </div>
+</section>
+
+<section class="card">
+  <div id="mapa" role="application" aria-label="Mapa de las notas del viaje"></div>
+  <!-- Sin cobertura los tiles no cargan y el mapa sale gris, pero las
+       chinchetas y el listado siguen ahí porque salen de nuestro servidor.
+       Se dice en vez de disimularlo. -->
+  <p class="muted" id="mapa-aviso" hidden></p>
+</section>
+
+<section class="card" id="visitados-card" hidden>
+  <h2>Sitios a los que vuelves</h2>
+  <ul class="visitados" id="visitados-lista"></ul>
+</section>
+
+<section class="card">
+  <h2>Notas (<span id="notas-total">0</span>)</h2>
+  <p id="notas-estado" class="status" aria-live="polite"></p>
+  <ul class="notas" id="notas-lista"></ul>
+</section>
+
+<p class="muted"><a href="{{ url_for('index') }}">← Volver</a></p>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mapa.js') }}"></script>
+{% endblock %}

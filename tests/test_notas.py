@@ -167,6 +167,14 @@ def test_sin_sesion_la_api_devuelve_401(cliente: Any) -> None:
     assert listado.status_code == 401
 
 
+def test_sin_sesion_la_pagina_del_mapa_redirige_al_login(cliente: Any) -> None:
+    """Una persona con un navegador tiene que ver el login, no un 401 crudo."""
+    respuesta = cliente.get("/mapa")
+
+    assert respuesta.status_code == 302
+    assert "/login" in respuesta.headers["Location"]
+
+
 def test_el_token_de_ingesta_no_abre_las_rutas_de_notas(cliente: Any) -> None:
     """La frontera de esta fase, simétrica a la de la 2d.
 
@@ -389,6 +397,111 @@ def test_el_filtro_por_anio_no_cambia_el_progreso(sesion: Any) -> None:
 
 def test_un_anio_que_no_es_un_numero_da_400(sesion: Any) -> None:
     assert sesion.get(f"{RUTA}?year=el-verano-pasado").status_code == 400
+
+
+def test_la_pagina_del_mapa_carga_y_sirve_las_notas(sesion: Any) -> None:
+    sesion.post(RUTA, json=_nota(text="una nota en el mapa"))
+
+    pagina = sesion.get("/mapa")
+    assert pagina.status_code == 200
+
+    datos = sesion.get(RUTA).get_json()
+    assert [n["text"] for n in datos["notes"]] == ["una nota en el mapa"]
+
+
+def test_leaflet_se_sirve_desde_nuestro_static_y_no_desde_un_cdn(sesion: Any) -> None:
+    """Un CDN es un tercero más que puede caerse.
+
+    Con mala cobertura, el navegador tiene más probabilidades de tener nuestro
+    archivo en caché (ya ha entrado a la app) que de alcanzar unpkg.com desde
+    un camping. Que la página no referencie un CDN es comprobable; que Leaflet
+    pinte bien, no: eso solo se ve en un navegador.
+    """
+    html = sesion.get("/mapa").data
+
+    assert b"/static/vendor/leaflet/leaflet.js" in html
+    assert b"/static/vendor/leaflet/leaflet.css" in html
+    for cdn in (b"unpkg.com", b"cdnjs", b"jsdelivr"):
+        assert cdn not in html
+
+
+def test_los_archivos_de_leaflet_estan_de_verdad_en_el_repositorio() -> None:
+    """Referenciar `/static/vendor/leaflet/leaflet.js` y que el archivo no esté
+    daría un mapa en blanco en producción y ningún error en la suite."""
+    from app.config import BASE_DIR
+
+    vendor = BASE_DIR / "app" / "static" / "vendor" / "leaflet"
+    assert (vendor / "leaflet.js").is_file()
+    assert (vendor / "leaflet.css").is_file()
+    # Leaflet busca los iconos en `images/` relativo al CSS: si esa carpeta se
+    # mueve, las chinchetas desaparecen sin dar ningún error de consola.
+    assert (vendor / "images" / "marker-icon.png").is_file()
+    assert (vendor / "images" / "marker-shadow.png").is_file()
+
+
+# ---------------------------------------------------------------------------
+# El tablero de comunidades: el mapa como algo que se completa
+# ---------------------------------------------------------------------------
+
+def test_el_tablero_enseña_lo_que_falta_y_no_solo_lo_visitado() -> None:
+    """"Llevas 2 de 19" es una frase que se entiende sola; "2 regiones" no.
+
+    Un contador que solo cuenta lo hecho no puede decirte lo que te falta, que
+    es justamente lo que hace que un mapa se quiera completar.
+    """
+    tablero = notes.tablero_regiones(["Galicia", "Asturias"])
+
+    assert tablero["completadas"] == 2
+    assert tablero["total"] == 19
+    assert len(tablero["casillas"]) == 19
+    assert {c["nombre"] for c in tablero["casillas"] if c["visitada"]} == {
+        "Galicia",
+        "Asturias",
+    }
+
+
+@pytest.mark.parametrize(
+    "nombre, esperado",
+    [
+        ("Principado de Asturias", "Asturias"),
+        ("Comunidad de Madrid", "Madrid"),
+        ("Región de Murcia", "Murcia"),
+        ("Comunidad Foral de Navarra", "Navarra"),
+        ("Comunitat Valenciana", "Comunidad Valenciana"),
+        ("Illes Balears", "Islas Baleares"),
+        ("Catalunya", "Cataluña"),
+        ("Euskadi", "País Vasco"),
+        ("  galicia  ", "Galicia"),
+        ("Castilla La Mancha", "Castilla-La Mancha"),
+    ],
+)
+def test_el_nombre_oficial_de_nominatim_encaja_con_la_casilla(
+    nombre: str, esperado: str
+) -> None:
+    """Comparar las cadenas tal cual dejaría la casilla apagada habiendo estado
+    allí: un fallo que no da error, solo un tablero que miente."""
+    tablero = notes.tablero_regiones([nombre])
+
+    visitadas = [c["nombre"] for c in tablero["casillas"] if c["visitada"]]
+    assert visitadas == [esperado]
+    assert tablero["otras"] == []
+
+
+def test_una_region_de_fuera_no_desaparece_del_recuento() -> None:
+    """Una nota de Portugal no puede esfumarse sin que nadie se entere.
+
+    La app enseña lo que no sabe encajar en vez de disimularlo (decisión 9).
+    """
+    tablero = notes.tablero_regiones(["Galicia", "Norte", "Nouvelle-Aquitaine"])
+
+    assert tablero["completadas"] == 1
+    assert tablero["otras"] == ["Norte", "Nouvelle-Aquitaine"]
+
+
+def test_la_misma_comunidad_por_dos_nombres_no_cuenta_dos_veces() -> None:
+    tablero = notes.tablero_regiones(["Asturias", "Principado de Asturias"])
+
+    assert tablero["completadas"] == 1
 
 
 # ---------------------------------------------------------------------------
