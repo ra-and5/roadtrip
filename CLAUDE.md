@@ -114,6 +114,7 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 python tools/token_ingesta.py              # genera el token del iPhone y su hash
 python tools/ver_telemetria.py             # últimas muestras recibidas del móvil
 python tools/ver_telemetria.py 50          # las 50 últimas
+python tools/ver_telemetria.py --coords    # con lat/lon en vez del nombre del sitio
 python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
 python tools/ver_notas.py                  # notas del viaje + progreso del mapa
 python tools/ver_notas.py 50               # las 50 últimas
@@ -1191,6 +1192,10 @@ valor por línea escrita que queda pendiente.
   envíos al día hay que crear una por cada hora.
 
 - **Poner nombre a las coordenadas, y hacerlo al CONSULTAR, no al ingerir.**
+  ✅ **Hecho en `tools/ver_telemetria.py`** (28-07-2026): la tabla enseña
+  "Cudillero, Asturias" en vez de `43.56220, -6.14560`, con `--coords` para ver
+  los números cuando lo que se depura es el GPS. Queda pendiente aplicarlo en el
+  contexto del chatbot, que es el otro consumidor natural.
   Una fila con `38.39064, -0.51648` no dice nada; "Cudillero, Asturias" sí. La
   pieza ya existe: `location_context.reverse_geocode()`, con su caché en SQLite
   por coordenada redondeada a ~110 m.

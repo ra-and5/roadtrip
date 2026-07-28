@@ -3,12 +3,30 @@
 Uso:
     python tools/ver_telemetria.py            # las 20 últimas
     python tools/ver_telemetria.py 50         # las 50 últimas
+    python tools/ver_telemetria.py --coords   # con lat/lon en vez del nombre
     python tools/ver_telemetria.py --borrar 3,4    # borra las muestras 3 y 4
 
 Consola, no web: en la Fase 2d no hay ninguna interfaz para estos datos a
 propósito (ver el alcance de la fase), pero hay que poder comprobar que llegan
 bien. Esto es lo que se abre desde una consola Bash de PythonAnywhere cuando la
 pregunta es "¿está entrando algo, y tiene buena pinta?".
+
+Las coordenadas se enseñan **con nombre** ("Cudillero, Asturias") y no en
+crudo: `38.39064, -0.51648` no dice nada, y esta tabla se lee para responder
+"¿dónde estaba y llegó bien?". Los números siguen guardados y se ven con
+`--coords` cuando lo que se depura es el GPS y no el viaje.
+
+El nombre se resuelve **al consultar y no al ingerir**, y esa es una decisión,
+no una comodidad. Resolverlo al recibir la muestra metería una llamada de red
+dentro de la ruta que tiene que ser rápida y no puede fallar, haría que un
+Nominatim caído impidiera **guardar** datos que están perfectos, y convertiría
+la tubería en análisis. Un dato crudo se guarda siempre; interpretarlo es otro
+trabajo.
+
+Aquí sale casi gratis: en un camper te quedas horas en el mismo sitio, así que
+decenas de muestras caen en la **misma clave de caché** (coordenada redondeada a
+~110 m) y son una sola petición. Y si no hay red, se enseñan las coordenadas y
+ya está: se degrada, no se pierde nada.
 
 La columna que de verdad importa es **retraso**: `recibido_en - medido_en`. En
 régimen normal son minutos. Varias horas significa que el móvil estuvo sin
@@ -27,6 +45,42 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.modules import storage  # noqa: E402  (después del sys.path, a la fuerza)
+from app.modules.location_context import reverse_geocode  # noqa: E402
+
+
+# Ancho de la columna "dónde". "San Vicente del Raspeig, Comunidad Valenciana"
+# son 44 caracteres y no cabe: se recorta, porque una columna que se ensancha
+# sola descuadra la tabla entera en una consola de 80.
+_ANCHO_DONDE = 30
+
+
+def _nombres(filas: list) -> dict[tuple, str]:
+    """Traduce las coordenadas de las muestras a nombres de sitio.
+
+    Se agrupa ANTES de preguntar: se resuelve una vez por coordenada distinta y
+    no una por muestra. Nominatim limita a una petición por segundo, así que la
+    diferencia entre 50 llamadas y 2 no es cosmética — es que la segunda vez
+    esto tarda medio minuto o no tarda nada.
+
+    Nunca lanza: si Nominatim está caído o no hay red, la muestra se queda sin
+    nombre y se enseñan sus coordenadas. Que esta herramienta deje de funcionar
+    por no poder adornar una columna sería absurdo, y encima justo cuando más
+    falta hace (sin cobertura, comprobando si llegaron los datos).
+    """
+    resueltos: dict[tuple, str] = {}
+
+    for fila in filas:
+        if fila["lat"] is None or fila["lon"] is None:
+            continue
+        clave = (round(fila["lat"], 3), round(fila["lon"], 3))
+        if clave in resueltos:
+            continue
+        try:
+            resueltos[clave] = reverse_geocode(fila["lat"], fila["lon"]).short_label()
+        except Exception:  # noqa: BLE001 - adornar una columna no puede romper la herramienta
+            resueltos[clave] = ""
+
+    return resueltos
 
 
 def _retraso(medido_en: str, recibido_en: str) -> str:
@@ -65,6 +119,9 @@ def _borrar(argumento: str) -> None:
 def main() -> None:
     limite = 20
     argumentos = sys.argv[1:]
+
+    crudas = "--coords" in argumentos
+    argumentos = [a for a in argumentos if a != "--coords"]
 
     if "--borrar" in argumentos:
         posicion = argumentos.index("--borrar")
@@ -106,24 +163,56 @@ def main() -> None:
     print(f"\nÚltimas {len(filas)} muestras (la más reciente primero):\n")
     # El id se muestra para poder pasárselo a --borrar. Sin él, la opción de
     # borrar existiría pero no habría forma de saber qué borrar.
-    cabecera = (
-        f"{'id':>5} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
-        f"{'lat':>9} {'lon':>10} {'retraso':>8}"
-    )
+    sitios = {} if crudas else _nombres(filas)
+
+    if crudas:
+        cabecera = (
+            f"{'id':>5} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
+            f"{'lat':>9} {'lon':>10} {'retraso':>8}"
+        )
+    else:
+        cabecera = (
+            f"{'id':>5} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
+            f"{'dónde':<{_ANCHO_DONDE}} {'retraso':>8}"
+        )
     print(cabecera)
     print("-" * len(cabecera))
 
     for f in filas:
         pasos = "-" if f["pasos"] is None else str(f["pasos"])
         bateria = "-" if f["bateria"] is None else f"{f['bateria']}%"
-        lat = "-" if f["lat"] is None else f"{f['lat']:.5f}"
-        lon = "-" if f["lon"] is None else f"{f['lon']:.5f}"
         huso = f["offset_original"] or "UTC"
-        print(
-            f"{f['id']:>5} {f['medido_en']:<26} {huso:>6} {pasos:>7} {bateria:>4} "
-            f"{lat:>9} {lon:>10} {_retraso(f['medido_en'], f['recibido_en']):>8}"
-        )
-    print("\nPara borrar muestras malas:  python tools/ver_telemetria.py --borrar <id>,<id>\n")
+        retraso = _retraso(f["medido_en"], f["recibido_en"])
+        comun = f"{f['id']:>5} {f['medido_en']:<26} {huso:>6} {pasos:>7} {bateria:>4} "
+
+        if crudas:
+            lat = "-" if f["lat"] is None else f"{f['lat']:.5f}"
+            lon = "-" if f["lon"] is None else f"{f['lon']:.5f}"
+            print(f"{comun}{lat:>9} {lon:>10} {retraso:>8}")
+            continue
+
+        # El nombre se recorta a la anchura de la columna. Descuadrarla dejaría
+        # `retraso` bailando de fila en fila, y esa es LA columna que hay que
+        # poder recorrer con la vista buscando una recuperación tras un hueco.
+        if f["lat"] is None or f["lon"] is None:
+            # Sin ubicación NO se escribe nada parecido a un sitio: una muestra
+            # sin GPS y una en el golfo de Guinea tienen que verse distintas.
+            donde = "(sin ubicación)"
+        else:
+            clave = (round(f["lat"], 3), round(f["lon"], 3))
+            # Si Nominatim no contestó, las coordenadas en crudo. Nunca un
+            # nombre inventado ni un hueco mudo.
+            donde = sitios.get(clave) or f"{f['lat']:.4f}, {f['lon']:.4f}"
+
+        if len(donde) > _ANCHO_DONDE:
+            donde = donde[: _ANCHO_DONDE - 1] + "…"
+
+        print(f"{comun}{donde:<{_ANCHO_DONDE}} {retraso:>8}")
+    print("\nPara borrar muestras malas:  python tools/ver_telemetria.py --borrar <id>,<id>")
+    if not crudas:
+        print("Para ver las coordenadas en crudo:  python tools/ver_telemetria.py --coords\n")
+    else:
+        print()
 
 
 if __name__ == "__main__":
