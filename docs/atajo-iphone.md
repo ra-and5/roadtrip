@@ -189,25 +189,55 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 
 ### Bloque C — La muestra de ahora (batería y ubicación)
 
-15. **Obtener el nivel de batería** → *Definir variable* `BATERIA`.
-    ⚠️ **Comprueba qué devuelve tu iOS**: hace falta un entero de 0 a 100. Si
-    ves `0,78` en vez de `78`, mete un **Calcular** → `BATERIA × 100`, y luego
-    **Redondear** → *al entero más cercano*. El servidor rechaza `0,78` con el
-    mensaje `'bateria' tiene que ser un entero`, así que si te equivocas te
-    enteras, no se guarda mal en silencio.
-16. **Obtener la ubicación actual** → *Definir variable* `UBICACION`.
-17. **Obtener detalles de la ubicación** → `Latitud` → *Definir variable* `LAT`.
-18. **Obtener detalles de la ubicación** → `Longitud` → *Definir variable* `LON`.
-19. **Formato de fecha** → `Fecha actual`, **ISO 8601** con hora
-    → *Definir variable* `AHORA_ISO`.
-20. **Diccionario**:
-    | Clave | Tipo | Valor |
-    |---|---|---|
-    | `medido_en` | Texto | `AHORA_ISO` |
-    | `bateria` | Número | `BATERIA` |
-    | `lat` | Número | `LAT` |
-    | `lon` | Número | `LON` |
-21. **Añadir a variable** → `MUESTRAS`.
+**Esta parte está construida y funcionando en un iPhone real (28-07-2026).** Lo
+que sigue es la configuración exacta que envía bien, no una propuesta. Es más
+larga de lo que parecería necesario, y cada rodeo evita una de las trampas de
+más arriba.
+
+15. **Obtener el nivel de batería**. No hace falta guardarla en una variable:
+    se inserta directamente en el texto del paso 21. Cuantos menos
+    `Definir variable` haya, menos cadenas que se rompan al reordenar acciones
+    (que es como se acabó enviando `"bateria":` sin valor y como se envió la
+    fecha vacía).
+    ⚠️ **Comprueba qué devuelve tu iOS**: hace falta un entero de 0 a 100.
+    Verificado que devuelve `20` (no `0,20`), pero si vieras la fracción, mete
+    un **Calcular** ×100 y un **Redondear**. El servidor rechaza `0,20` con el
+    mensaje `'bateria' tiene que ser un entero`: se entera uno, no se guarda mal
+    en silencio.
+16. **Obtener la ubicación actual**.
+17. **Obtener detalles de la ubicación** → detalle `Latitud`, entrada
+    `Ubicación actual` → *Definir variable* `LAT`.
+18. **Obtener detalles de la ubicación** → detalle `Longitud`, entrada
+    `Ubicación actual` → *Definir variable* `LON`.
+    ⚠️ Al añadir el segundo, su salida se llama igual que la del primero
+    (*Detalles de Ubicaciones*). Si el `Definir variable` se engancha al bloque
+    equivocado, **`LON` acaba valiendo lo mismo que `LAT`** — y `43,5` es una
+    longitud perfectamente válida, así que se guarda sin protestar. Pasó.
+19. **Reemplazar texto**: buscar `,`, reemplazar por `.`, en `LAT`
+    → *Definir variable* `LAT` (a *Texto actualizado*).
+20. Lo mismo para `LON`.
+    Los pasos 19 y 20 son la trampa 1: con el iPhone en español, `38.3906` se
+    convierte en texto como `38,3906` y rompe el JSON. El reemplazo se hace
+    sobre **cada número por separado**; sobre el JSON entero se cargaría las
+    comas que separan campos.
+21. **Texto**, con este contenido exacto. Lo que va entre `«»` son variables
+    insertadas desde la barra del teclado, no texto escrito:
+
+    ```
+    {"muestras":[{"medido_en":"«Fecha actual»","bateria":«Nivel de batería»,"lat":«LAT»,"lon":«LON»}]}
+    ```
+
+    - `«Fecha actual»` es la **variable especial** del sistema, no una acción.
+      Tócala una vez insertada y elige **Formato de fecha: ISO 8601** con
+      **Incluir hora** activado. Así el formato vive en el mismo sitio donde se
+      usa y no hay cadena de tres acciones que se rompa.
+    - La fecha va **entre comillas** (es texto); los tres números, **sin**.
+    - Sin tildes en las claves (`bateria`, no `batería`) y sin dos puntos de
+      más dentro de las comillas (`"lat":`, no `"lat:":`).
+
+Con esto el cuerpo es una sola muestra. El bloque B (los pasos de la ventana
+solapada) añade las suyas a la misma lista; mientras no esté montado, este
+bloque C funciona solo y ya cumple para comprobar que la ingesta es fiable.
 
 ### Bloque D — Enviar
 
@@ -218,19 +248,15 @@ Atajos → **+** → nombre: `Enviar telemetría`.
       | Clave | Valor |
       |---|---|
       | `Authorization` | `Bearer eyJ...` (lo que imprimió `token_ingesta.py`) |
-    - **Cuerpo de la petición: JSON**
-      | Clave | Tipo | Valor |
-      |---|---|---|
-      | `fuente` | Texto | `atajos-iphone` |
-      | `muestras` | **Matriz** | variable `MUESTRAS` |
+      | `Content-Type` | `application/json` |
+    - **Cuerpo de la petición: Archivo** → y como archivo, la variable del
+      bloque **Texto** del paso 21.
 
-    Al elegir *JSON*, Atajos pone el `Content-Type` solo.
-
-    > **Si tu versión de Atajos no deja meter una variable en un campo de tipo
-    > Matriz**, la alternativa conocida es construir el cuerpo como **Texto** y
-    > enviarlo con *Cuerpo de la petición: Archivo*, añadiendo a mano la
-    > cabecera `Content-Type: application/json`. Es más engorroso de escribir y
-    > más fácil de depurar, porque ves el JSON literal.
+    Esta combinación (*Archivo* + `Content-Type` a mano) es la verificada
+    funcionando. La alternativa teórica —*Cuerpo: JSON* con un campo `muestras`
+    de tipo **Matriz** apuntando a una variable de lista— no se ha llegado a
+    probar; si algún día se monta el bloque B con su bucle, habrá que
+    comprobarla entonces.
 
 23. **Mostrar alerta** → resultado de *Obtener contenido de la URL*.
     Solo mientras pruebas: en la automatización final se quita (ver §6).
