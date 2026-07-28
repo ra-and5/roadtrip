@@ -5,6 +5,7 @@ Uso:
     python tools/importar_fotos.py ~/Fotos/viaje --importar   # guarda en la BD local
     python tools/importar_fotos.py ~/Fotos/viaje --enviar https://tuapp.pythonanywhere.com
     python tools/importar_fotos.py ~/Fotos/viaje --detalle    # foto a foto
+    python tools/importar_fotos.py --limpiar                  # vacía los puntos locales
 
 **Por defecto no guarda nada.** Solo mira las fotos y te dice qué traen. Es a
 propósito: lo primero que hay que saber es si tus fotos conservan la fecha y el
@@ -266,10 +267,38 @@ def _enviar(puntos: list[dict], base: str) -> None:
     )
 
 
+def _limpiar() -> None:
+    """Borra TODOS los puntos importados de fotos, en la base de datos local.
+
+    Por qué se borra todo de golpe y no punto a punto, al revés que las notas:
+    un punto de foto **se puede volver a generar** leyendo la carpeta otra vez,
+    mientras que una nota escrita en un mirador no existe en ningún otro sitio.
+    Con datos regenerables la operación útil es "vaciar y reimportar", y una
+    lista de ids sería una forma incómoda de hacer lo mismo.
+
+    No toca las notas ni la telemetría: solo la tabla `waypoints`.
+    """
+    storage.init_db()
+    ids = [p["id"] for p in storage.list_waypoints(100000)]
+    if not ids:
+        print("No hay ningún punto que borrar.")
+        return
+    borrados = storage.delete_waypoints(ids)
+    print(
+        f"Borrados {borrados} puntos de la base de datos LOCAL.\n"
+        "Las notas y la telemetría no se han tocado.\n"
+        "Vuelve a importar la carpeta cuando quieras: se regeneran enteros."
+    )
+
+
 def main() -> None:
     argumentos = sys.argv[1:]
     if not argumentos or argumentos[0] in ("-h", "--help"):
         print(__doc__)
+        sys.exit(0)
+
+    if argumentos[0] == "--limpiar":
+        _limpiar()
         sys.exit(0)
 
     carpeta = Path(argumentos[0]).expanduser()

@@ -405,6 +405,7 @@ gratuito tiene 512 MB; sus metadatos son ~100 bytes.
 python tools/importar_fotos.py ~/Fotos/viaje              # solo informa, no guarda nada
 python tools/importar_fotos.py ~/Fotos/viaje --detalle    # foto a foto
 python tools/importar_fotos.py ~/Fotos/viaje --enviar https://TU_USUARIO.pythonanywhere.com
+python tools/importar_fotos.py --limpiar                  # vacía los puntos importados
 ```
 
 Empieza siempre por el primero: te dice cuántas fotos traen fecha, GPS y huso

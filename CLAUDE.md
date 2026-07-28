@@ -84,6 +84,7 @@ python tools/importar_fotos.py CARPETA     # qué EXIF traen tus fotos (no guard
 python tools/importar_fotos.py CARPETA --detalle    # foto a foto
 python tools/importar_fotos.py CARPETA --importar   # a la BD local
 python tools/importar_fotos.py CARPETA --enviar https://tuapp…   # al servidor
+python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran importando)
 ```
 
 ## 5. Estado actual
