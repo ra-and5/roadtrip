@@ -29,10 +29,40 @@ este documento si hay conflicto.
 
 ---
 
-## 1. Antes de escribir código: comprobar qué fases se pueden cerrar
+## 1. LO PRIMERO: montar el atajo de fotos y cerrar la 3b
 
-Las fases 2d, 3 y 3b están **hechas pero no cerradas**, y lo que falta en las
-tres son datos reales, no código. Empieza preguntando y comprobando:
+**Esta es la tarea principal de la sesión y va antes que todo lo demás.** El
+usuario quiere una cosa concreta: que el iPhone mande solo los metadatos de un
+**álbum** de fotos, y que el mapa se dibuje con eso.
+
+Todo el lado servidor está hecho y probado (`/api/waypoints`, idempotente por
+`(fuente, archivo)`, token). El lector de EXIF está probado contra una foto
+real de iPhone. **Lo único que no ha montado nadie es el atajo**, y la receta
+está en [`atajo-fotos.md`](atajo-fotos.md).
+
+Cómo trabajarlo:
+
+1. Pregunta en qué punto está: ¿existe el álbum `Viaje`? ¿existe el atajo?
+   ¿qué devuelve al ejecutarlo?
+2. **Acompáñalo acción por acción.** Al montar el atajo de la Fase 2d salieron
+   cuatro trampas que no se ven venir (decimales con coma, variables que se
+   envían vacías, `"lat:"` con dos puntos, la cabecera con texto de sobra), y
+   están en [`atajo-iphone.md`](atajo-iphone.md). Espera más.
+3. **Corrige la receta con lo que se vea en pantalla.** Los nombres exactos de
+   las acciones de iOS pueden no coincidir; el documento avisa de ello. Lo que
+   se aprenda se escribe ahí, que para eso existe.
+4. La prueba que cierra la fase: ejecutar el atajo **dos veces seguidas** y ver
+   `guardados: N, duplicados: 0` y luego `guardados: 0, duplicados: N`. Eso
+   demuestra que reenviar el álbum entero no duplica el viaje.
+5. Después, abrir `/mapa` y comprobar que el trayecto sale.
+
+**No propongas otros caminos.** Existen un importador por cable
+(`tools/importar_fotos.py`) y unos archivos de systemd para vigilar una carpeta
+(`tools/systemd/`, **desinstalados a propósito**), pero el usuario ya dijo
+claramente que lo que quiere es el atajo. Los otros están ahí como respaldo,
+no como alternativa que haya que vender.
+
+### Y de paso, qué más se puede cerrar
 
 ```bash
 python tools/ver_telemetria.py 50    # ¿llegan muestras sin huecos?

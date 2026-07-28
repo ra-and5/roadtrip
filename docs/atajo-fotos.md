@@ -67,7 +67,10 @@ Tres consecuencias prácticas, todas buenas:
 > aplica el atajo. Si prefieres no dar acceso completo, usa la variante de la
 > **hoja de compartir** (§8): no pide ningún permiso de Fotos.
 
-### Y el cable, ¿para qué queda?
+### Los otros dos caminos, que son respaldo y no alternativa
+
+El atajo es la forma de hacer esto. Existen otras dos y están documentadas por
+si algún día hacen falta, pero **no son el plan**:
 
 |  | Atajo + álbum | Cable + `tools/importar_fotos.py` |
 |---|---|---|
@@ -305,13 +308,13 @@ porque la clave es el nombre del archivo.
 
 ---
 
-## 9. La carpeta vigilada (en el portátil)
+## 9. Respaldo: la carpeta vigilada (en el portátil)
 
-El tercer camino, y el más cómodo si trabajas con las fotos en el ordenador:
-**una carpeta que se lee sola**. Sueltas fotos dentro y el mapa se actualiza,
-sin ejecutar nada.
+**Esto NO está instalado**, y es a propósito: el camino es el atajo. Queda
+escrito por si algún día quieres leer fotos desde el ordenador sin ejecutar
+nada — sueltas fotos en una carpeta y se importan solas.
 
-Ya está montado. La carpeta es **`~/Pictures/viaje`**.
+Los archivos están en `tools/systemd/`. La carpeta sería `~/Pictures/viaje`.
 
 Lo dispara una unidad `.path` de systemd, no un temporizador, y la diferencia
 importa: un temporizador cada 5 minutos son 288 ejecuciones diarias para una
@@ -336,7 +339,7 @@ journalctl --user -u roadtrip-fotos.service -n 30  # qué hizo la última vez
 systemctl --user disable --now roadtrip-fotos.path # pararlo
 ```
 
-### Instalarlo en otra máquina
+### Instalarlo
 
 ```bash
 mkdir -p ~/.config/systemd/user
