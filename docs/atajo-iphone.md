@@ -148,46 +148,51 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 
 ### Bloque A — Preparar
 
-1. **Número** → `6`
-   → *Definir variable* → `VENTANA` (cuántas horas hacia atrás se reenvían).
-2. **Fecha** (acción *Fecha*, valor `Fecha actual`)
-   → *Definir variable* → `AHORA`.
-3. **Lista** (vacía) → *Definir variable* → `MUESTRAS`.
+1. **Obtener nivel de batería.**
+2. **Obtener ubicación actual** → **Obtener `Latitud` de Ubicación actual**
+   → *Definir variable* `LAT`.
+3. **Obtener `Longitud` de Ubicación actual** → *Definir variable* `LON`.
+4. **Reemplazar** `,` por `.` en `LAT` → *Definir variable* `LAT` a *Texto
+   actualizado*. **Y lo mismo con `LON`.**
 
-### Bloque B — Pasos de las últimas horas (la ventana solapada)
+   No es opcional ni cosmético: en un iPhone en español los decimales salen con
+   **coma** (`38,39099`), y eso rompe el JSON. Es la primera trampa de §*Trampas
+   comprobadas* y la que más tiempo costó.
 
-4. **Repetir** `VENTANA` veces. Dentro del bucle (el índice es `Índice de
-   repetición`, que va de 1 a 6, así que 1 = la hora recién terminada):
+### Bloque B — Los pasos del día
 
-   5. **Ajustar fecha** → `AHORA`, *restar* `Índice de repetición` `horas`
-      → *Definir variable* `INICIO_BRUTO`.
-   6. **Ajustar fecha** → `INICIO_BRUTO`, *Obtener el inicio de* `la hora`
-      → *Definir variable* `INICIO`.
-      **Este redondeo a la hora en punto es lo que hace que la deduplicación
-      funcione.** Sin él, cada envío fecha la misma hora de forma distinta.
-   7. **Ajustar fecha** → `INICIO`, *sumar* `1` `hora` → *Definir variable* `FIN`.
-   8. **Buscar muestras de salud**:
-      - Tipo: **Pasos**
-      - Filtro: `Fecha de inicio` **está entre** `INICIO` y `FIN`
-   9. **Obtener detalles de las muestras de salud** → `Valor`.
-   10. **Calcular estadísticas** → `Suma` → *Definir variable* `SUMA_PASOS`.
-       Si no hay muestras esto sale vacío; se arregla en el paso siguiente.
-   11. **Si** `SUMA_PASOS` *no tiene ningún valor* → **Número** `0`
-       → *Definir variable* `SUMA_PASOS`. *Fin del si*.
-   12. **Formato de fecha** → `INICIO`, formato **ISO 8601**, con hora incluida
-       → *Definir variable* `INICIO_ISO`.
-       Comprueba en la vista previa que sale algo como
-       `2026-07-27T09:00:00+02:00`. **Si no lleva el `+02:00` del final, el
-       servidor la rechazará**, y con razón: sin zona horaria no se sabe qué
-       instante es.
-   13. **Diccionario**:
-       | Clave | Tipo | Valor |
-       |---|---|---|
-       | `medido_en` | Texto | `INICIO_ISO` |
-       | `pasos` | Número | `SUMA_PASOS` |
-   14. **Añadir a variable** → `MUESTRAS`.
+> **Esto NO es la ventana solapada, y es a propósito.** El diseño original
+> (decisión 23) pedía un bucle que reenviara las últimas N horas, cada una con
+> su hora en punto. En Atajos eso son unas doce acciones montadas a mano en la
+> pantalla de un móvil, y cada una es un sitio donde equivocarse. Se cambió por
+> una sola consulta de las últimas 24 h (**decisión 25**), y **no pierde la
+> propiedad que importaba**: un acumulado es un contador monótono, así que si
+> falla un envío, el siguiente ya trae el total incluyendo lo que se perdió. Se
+> cura solo por construcción, pero sin bucle y sin estado.
+>
+> Lo que sí se pierde, dicho claro: el desglose por horas. Sabrás cuánto
+> anduviste el día, no a qué hora. Para "¿cuánto he andado hoy?" da igual; para
+> "¿a qué hora camino más?" no. Si algún día hace falta esa granularidad hay que
+> montar el bucle — y entonces hay que decidir qué significa `pasos`, porque
+> mezclar cubos horarios y acumulados en la misma columna daría análisis
+> silenciosamente equivocados.
+
+5. **Buscar muestras de salud** *donde todas las condiciones sean verdaderas*:
+   - Tipo **es** `Steps`
+   - `Fecha de inicio` **está entre los últimos** `1` `día`
+   - Unidad: **contar** · Agrupar por: Ninguno · Ordenar por: Ninguno
+   - **Límite: desactivado.** Con el límite puesto te devuelve solo las primeras
+     muestras y el total sale corto **sin dar ningún error**.
+6. **Obtener `Valor` de Muestras médicas.**
+7. **Calcular `Suma` de Valor.**
+8. **Redondear** la suma a **Número entero** → *Definir variable* `PASOS`.
+
+   Salud devuelve las muestras con decimales y el servidor espera un entero.
 
 ### Bloque C — La muestra de ahora (batería y ubicación)
+
+> La batería y la ubicación ya se han cogido en el bloque A, que es donde las
+> tiene el atajo real. Lo que queda aquí es el montaje del JSON.
 
 **Esta parte está construida y funcionando en un iPhone real (28-07-2026).** Lo
 que sigue es la configuración exacta que envía bien, no una propuesta. Es más
@@ -258,8 +263,13 @@ bloque C funciona solo y ya cumple para comprobar que la ingesta es fiable.
     probar; si algún día se monta el bloque B con su bucle, habrá que
     comprobarla entonces.
 
-23. **Mostrar alerta** → resultado de *Obtener contenido de la URL*.
-    Solo mientras pruebas: en la automatización final se quita (ver §6).
+23. **Mostrar** → *Contenido de URL*.
+    **Solo mientras pruebas.** En cuanto pases a automatización hay que
+    borrarla: una acción que enseña algo por pantalla convierte cada ejecución
+    en una interrupción, y en un envío cada 4 horas eso son seis interrupciones
+    diarias por un dato que no vas a mirar. Para comprobar qué se guardó está
+    `python tools/ver_telemetria.py` desde la consola, que además es la única
+    forma de ver si hay huecos.
 
 ---
 
@@ -346,11 +356,15 @@ Atajos → pestaña **Automatización** → **+** → **Hora del día**.
 > existe "cada hora". Para tener envíos horarios hay que crear **una
 > automatización por cada hora** apuntando al mismo atajo, lo cual es tedioso.
 >
-> La buena noticia es que el diseño lo absorbe: con la ventana solapada, enviar
-> **cada 2 o 3 horas** es perfectamente válido. Solo hay que subir `VENTANA`
-> (paso 1) para mantener el margen: con envíos cada 3 h y `VENTANA = 9`, siguen
-> haciendo falta tres fallos seguidos para perder algo. Ocho automatizaciones
-> en vez de veinticuatro.
+> La buena noticia es que el diseño lo absorbe, aunque **no por la ventana
+> solapada**: esa se abandonó (decisión 25) y aquí no hay ninguna `VENTANA` que
+> subir. Lo que lo absorbe es que **los pasos son un acumulado de 24 h**, así
+> que un envío perdido lo recupera entero el siguiente.
+>
+> Lo que NO se recupera nunca es lo que se mide en el instante: **la batería y
+> la ubicación de ese envío**. Por eso la frecuencia no da igual — no por los
+> pasos, sino por las otras dos. Cada 4 horas (seis automatizaciones) es un
+> punto de equilibrio razonable entre resolución y tedio de montarlas a mano.
 
 En cada automatización:
 
@@ -384,7 +398,7 @@ del atajo. En resumen:
 | **401** | Token. Y el mensaje no dice más **a propósito**: no distingue "falta la cabecera" de "el token es otro". Empieza por `python tools/diagnostico.py` en el servidor |
 | **400** | El cuerpo no tiene la forma esperada. El mensaje dice qué campo |
 | **405** | Se está usando GET en vez de POST |
-| **413** | Cuerpo por encima de `MAX_CONTENT_LENGTH`. Baja `VENTANA` |
+| **413** | Cuerpo por encima de `MAX_CONTENT_LENGTH`. Con una muestra por envío no debería pasar nunca; si pasa, mira qué está metiendo el bloque `Texto` |
 | **`descartadas` > 0** | Las muestras llegan pero se rechazan. `errores` dice cuál y por qué |
 | **`guardadas` siempre 0** | Está funcionando: son duplicadas. Mira `duplicadas` |
 | Nada, se queda colgado | La app está caída o no hay cobertura. No pasa nada: el próximo envío recupera estas muestras |
