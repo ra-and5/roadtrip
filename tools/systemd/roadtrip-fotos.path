@@ -1,0 +1,29 @@
+# Vigila la carpeta de fotos del viaje y dispara la importación al cambiar.
+#
+# Se usa una unidad `.path` y no un temporizador a propósito: un temporizador
+# cada 5 minutos son 288 ejecuciones al día para una carpeta que casi siempre
+# está igual, y además tarda hasta 5 minutos en enterarse. Esto reacciona en
+# cuanto sueltas una foto y no consume nada cuando no pasa nada.
+#
+# Instalar (una vez):
+#   mkdir -p ~/.config/systemd/user
+#   cp tools/systemd/roadtrip-fotos.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now roadtrip-fotos.path
+#
+# Ver qué ha hecho:
+#   journalctl --user -u roadtrip-fotos.service -n 30
+#
+# Parar:
+#   systemctl --user disable --now roadtrip-fotos.path
+
+[Unit]
+Description=Vigila la carpeta de fotos del viaje
+
+[Path]
+# %h es la carpeta del usuario. Cambia la ruta si usas otra carpeta, y cámbiala
+# también en el .service.
+PathModified=%h/Pictures/viaje
+
+[Install]
+WantedBy=paths.target

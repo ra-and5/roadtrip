@@ -215,11 +215,16 @@ def _enviar(puntos: list[dict], base: str) -> None:
     token = os.environ.get("INGEST_TOKEN", "").strip()
     if not token:
         print(
-            "\nFalta INGEST_TOKEN (el token EN CLARO, el mismo del atajo del iPhone).\n"
-            "Ponlo en el .env de tu portátil, NO en el del servidor: allí solo\n"
-            "debe vivir el hash. Si lo has perdido, genera uno nuevo con\n"
-            "  python tools/token_ingesta.py\n"
-            "y actualiza el hash en el servidor y el token en el atajo."
+            "\nFalta INGEST_TOKEN: el token EN CLARO, el mismo que usa el atajo del\n"
+            "iPhone (lo que va después de 'Bearer ' en su cabecera Authorization).\n"
+            "\n"
+            "  A mano:            ponlo en el .env de este portátil\n"
+            "  Carpeta vigilada:  ~/.config/roadtrip/fotos.env\n"
+            "\n"
+            "En el SERVIDOR no: allí vive solo el hash (INGEST_TOKEN_HASH), y esa\n"
+            "asimetría es lo que hace que un .env filtrado no entregue el token.\n"
+            "Si lo has perdido, `python tools/token_ingesta.py` genera otro, y hay\n"
+            "que actualizar el hash en el servidor Y el token en el atajo."
         )
         sys.exit(1)
 

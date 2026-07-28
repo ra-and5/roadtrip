@@ -419,9 +419,10 @@ reales que conviene saber:
 - El huso horario es opcional en el EXIF. Sin él se guarda la hora local tal
   cual y **no se inventa ninguna zona**.
 
-Y se puede automatizar: el mismo endpoint lo puede llamar un atajo del iPhone
-cada día, sin cable y sin tocar nada. La receta está en
-[`docs/atajo-fotos.md`](docs/atajo-fotos.md).
+Y se puede automatizar de dos formas, las dos en
+[`docs/atajo-fotos.md`](docs/atajo-fotos.md): un **atajo del iPhone** que manda
+cada día los metadatos de un álbum concreto, y una **carpeta vigilada** en el
+portátil (`~/Pictures/viaje`) que se lee sola en cuanto sueltas fotos dentro.
 
 Para `--enviar` hace falta `INGEST_TOKEN` (el token **en claro**, el mismo del
 atajo del iPhone) en el `.env` de tu portátil. En el servidor vive solo el

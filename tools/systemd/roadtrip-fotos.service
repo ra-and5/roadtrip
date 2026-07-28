@@ -1,0 +1,34 @@
+# Lee los metadatos de la carpeta de fotos y los manda al servidor.
+#
+# Lo dispara roadtrip-fotos.path cuando la carpeta cambia. Ver ese archivo para
+# las instrucciones de instalación.
+#
+# La configuración (URL y token) va en ~/.config/roadtrip/fotos.env, FUERA del
+# repositorio: ahí vive el token de ingesta en claro y no puede acabar en git
+# por accidente.
+
+[Unit]
+Description=Importa los metadatos de las fotos del viaje
+
+[Service]
+Type=oneshot
+
+# El token en claro y la URL. `-` delante: si el archivo no existe, el servicio
+# arranca igual y la herramienta explica qué falta, en vez de fallar con un
+# error de systemd que no dice nada.
+EnvironmentFile=-%h/.config/roadtrip/fotos.env
+
+# Da tiempo a que termine de copiarse la foto que acaba de disparar esto. Sin
+# esto se leería un archivo a medias; no sería grave (el EXIF va al principio,
+# y de todas formas se reintenta al siguiente cambio), pero por cinco segundos
+# no merece la pena arriesgarse.
+ExecStartPre=/bin/sleep 5
+
+ExecStart=/home/ra/roadtrip/.venv/bin/python \
+    /home/ra/roadtrip/tools/importar_fotos.py \
+    %h/Pictures/viaje \
+    --enviar ${ROADTRIP_URL}
+
+# No reintentar en bucle: si falla por token o por red, el siguiente cambio en
+# la carpeta lo vuelve a intentar, y reenviar no duplica nada.
+Restart=no

@@ -869,6 +869,14 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
   [`docs/atajo-fotos.md`](docs/atajo-fotos.md), con una variante por hoja de
   compartir que no pide ningún permiso de Fotos.
 
+  Y un tercer camino para el portátil: **una carpeta vigilada**
+  (`~/Pictures/viaje`) que se lee sola al soltar fotos dentro. Lo dispara una
+  unidad `.path` de systemd y no un temporizador, y la diferencia no es
+  cosmética: un temporizador cada 5 minutos son 288 ejecuciones diarias para
+  una carpeta que casi siempre está igual, y además tarda hasta 5 minutos en
+  enterarse. La configuración vive en `~/.config/roadtrip/fotos.env`, fuera del
+  repositorio, porque ahí está el token en claro.
+
 - **Enseñar la foto, no solo el punto.** Hoy el mapa dice "📷 IMG_4213.JPG" y
   no puede enseñarla, porque la foto vive en tu disco y no se sube (decisión
   30). Lo que falta no es subirlas: es una miniatura. Una de 200×150 a JPEG

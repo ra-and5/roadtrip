@@ -302,3 +302,55 @@ fotos del viaje`. Se puede hacer con 30 de golpe.
 Las dos escriben en el mismo sitio y no se estorban: puedes tener las dos
 montadas. Y no duplican nada aunque una foto se mande por los dos caminos,
 porque la clave es el nombre del archivo.
+
+---
+
+## 9. La carpeta vigilada (en el portátil)
+
+El tercer camino, y el más cómodo si trabajas con las fotos en el ordenador:
+**una carpeta que se lee sola**. Sueltas fotos dentro y el mapa se actualiza,
+sin ejecutar nada.
+
+Ya está montado. La carpeta es **`~/Pictures/viaje`**.
+
+Lo dispara una unidad `.path` de systemd, no un temporizador, y la diferencia
+importa: un temporizador cada 5 minutos son 288 ejecuciones diarias para una
+carpeta que casi siempre está igual, **y tarda hasta 5 minutos en enterarse**.
+Esto reacciona al soltar la foto y no consume nada cuando no pasa nada.
+
+### Lo único que falta: el token
+
+```bash
+# El token en claro, el mismo del atajo del iPhone
+nano ~/.config/roadtrip/fotos.env      # rellena INGEST_TOKEN=
+```
+
+Ese archivo vive **fuera del repositorio** a propósito y con permisos `600`:
+contiene el token en claro y no puede acabar en git por accidente.
+
+### Comprobar y manejar
+
+```bash
+systemctl --user status roadtrip-fotos.path        # ¿está vigilando?
+journalctl --user -u roadtrip-fotos.service -n 30  # qué hizo la última vez
+systemctl --user disable --now roadtrip-fotos.path # pararlo
+```
+
+### Instalarlo en otra máquina
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp tools/systemd/roadtrip-fotos.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now roadtrip-fotos.path
+```
+
+Las rutas están escritas dentro de los dos archivos (`%h/Pictures/viaje` y la
+ruta del repo); cámbialas si tu carpeta es otra.
+
+> **Ojo con cómo llegan las fotos a esa carpeta.** Da igual el formato —JPEG o
+> HEIC—, pero **no pueden haber pasado por WhatsApp ni Telegram**: esas apps
+> borran el EXIF al comprimir y la foto llega muda. Comprobado con archivos
+> reales: una foto original del iPhone trae fecha, GPS, altitud y cámara; la
+> misma foto reenviada por WhatsApp no trae **nada**. Cable, AirDrop o
+> exportar desde Fotos con *Todos los datos de las fotos* activado.
