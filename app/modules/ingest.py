@@ -70,6 +70,11 @@ MAX_PASADO = timedelta(days=30)
 # malas no debe generar una respuesta de 500 líneas; el recuento sí es exacto.
 MAX_ERRORES_REPORTADOS = 20
 
+# Cuántas muestras se resumen en la respuesta. Pocas a propósito: quien lee esto
+# es una persona mirando la alerta de un atajo en la pantalla del móvil, no un
+# programa. En régimen normal el lote son ~6 muestras y caben casi todas.
+MAX_DETALLE = 5
+
 _PREFIJO_BEARER = "bearer"
 
 
@@ -137,6 +142,25 @@ class Muestra:
     lat: float | None = None
     lon: float | None = None
 
+    def resumen(self) -> str:
+        """Una línea con lo que trae esta muestra. Se devuelve al cliente.
+
+        Solo aparecen los campos que llegaron con valor. Esa omisión ES la
+        información: `guardadas: 1` a secas no distingue una muestra completa de
+        una a la que se le perdió la ubicación por una clave mal escrita
+        (`"lat:"` en vez de `"lat"` es JSON válido y se guarda como NULL sin
+        que nadie proteste). Con el resumen, que falte `lat=` se ve al instante
+        desde el móvil, sin abrir una consola en el servidor.
+        """
+        partes = [self.medido_en]
+        if self.pasos is not None:
+            partes.append(f"pasos={self.pasos}")
+        if self.bateria is not None:
+            partes.append(f"bat={self.bateria}%")
+        if self.lat is not None and self.lon is not None:
+            partes.append(f"lat={self.lat:.5f} lon={self.lon:.5f}")
+        return " ".join(partes)
+
     def to_row(self, recibido_en: str) -> dict[str, Any]:
         """Fila lista para `storage.insert_telemetry`."""
         return {
@@ -166,6 +190,7 @@ class ResultadoIngesta:
     duplicadas: int = 0
     descartadas: int = 0
     errores: list[str] = field(default_factory=list)
+    detalle: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -173,6 +198,7 @@ class ResultadoIngesta:
             "duplicadas": self.duplicadas,
             "descartadas": self.descartadas,
             "errores": self.errores,
+            "detalle": self.detalle,
         }
 
 
@@ -395,6 +421,14 @@ def ingest(payload: Any) -> ResultadoIngesta:
         resultado.errores.append(
             f"...y {resultado.descartadas - len(resultado.errores)} descartes más"
         )
+
+    # El resumen se construye sobre las muestras VÁLIDAS, no sobre las
+    # guardadas: una muestra duplicada también hay que poder verla, porque en
+    # régimen normal la mayoría del lote lo son y el cliente necesita
+    # comprobar que lo que reenvía es lo que cree.
+    resultado.detalle = [m.resumen() for m in validas[:MAX_DETALLE]]
+    if len(validas) > MAX_DETALLE:
+        resultado.detalle.append(f"...y {len(validas) - MAX_DETALLE} muestras más")
 
     if validas:
         # Un solo instante de recepción para todo el lote: además de ser el

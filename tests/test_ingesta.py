@@ -287,10 +287,14 @@ def test_el_mismo_lote_dos_veces_se_guarda_una_sola_vez(cliente: Any) -> None:
     primera = cliente.post(RUTA, json=lote, headers=_auth())
     segunda = cliente.post(RUTA, json=lote, headers=_auth())
 
-    assert primera.get_json() == {
+    def _recuentos(respuesta: Any) -> dict[str, Any]:
+        cuerpo = respuesta.get_json()
+        return {k: cuerpo[k] for k in ("guardadas", "duplicadas", "descartadas", "errores")}
+
+    assert _recuentos(primera) == {
         "guardadas": 3, "duplicadas": 0, "descartadas": 0, "errores": []
     }
-    assert segunda.get_json() == {
+    assert _recuentos(segunda) == {
         "guardadas": 0, "duplicadas": 3, "descartadas": 0, "errores": []
     }
     assert len(_guardadas()) == 3
@@ -374,6 +378,71 @@ def test_un_json_ilegible_da_400_y_no_500(cliente: Any) -> None:
     )
 
     assert respuesta.status_code == 400
+
+
+def test_la_respuesta_dice_que_se_ha_guardado_no_solo_cuanto(cliente: Any) -> None:
+    """`guardadas: 1` no distingue una muestra completa de una a medias.
+
+    Si una clave viene mal escrita (`"lat:"` en vez de `"lat"`, que es JSON
+    perfectamente válido), la ubicación se guarda como NULL y la respuesta sale
+    idéntica. El resumen hace visible esa pérdida desde el móvil.
+    """
+    momento = _iso(-timedelta(hours=1))
+
+    cuerpo = cliente.post(
+        RUTA,
+        json=_cuerpo(
+            {"medido_en": momento, "pasos": 4213, "bateria": 77,
+             "lat": 38.39064, "lon": -0.51648}
+        ),
+        headers=_auth(),
+    ).get_json()
+
+    assert cuerpo["detalle"] == [
+        f"{momento} pasos=4213 bat=77% lat=38.39064 lon=-0.51648"
+    ]
+
+
+def test_el_resumen_omite_lo_que_no_llego(cliente: Any) -> None:
+    """La omisión ES la información: si falta `lat=`, la ubicación se perdió."""
+    momento = _iso(-timedelta(hours=1))
+
+    cuerpo = cliente.post(
+        RUTA,
+        # `lat:` y `lon:` con dos puntos dentro: JSON válido, claves
+        # equivocadas. Es la errata exacta que se comió una ubicación montando
+        # el atajo del iPhone. (Si solo se estropeara UNA, la validación lo
+        # cazaría: lat y lon van juntas. Con las dos mal, la muestra es
+        # legítima -- solo que sin ubicación.)
+        json=_cuerpo(
+            {"medido_en": momento, "bateria": 77, "lat:": 38.4, "lon:": -0.5}
+        ),
+        headers=_auth(),
+    ).get_json()
+
+    assert cuerpo["guardadas"] == 1          # se guarda: la muestra es válida
+    assert cuerpo["detalle"] == [f"{momento} bat=77%"]   # pero sin ubicación, y se ve
+
+
+def test_el_resumen_tambien_cubre_las_duplicadas(cliente: Any) -> None:
+    """En régimen normal casi todo el lote son duplicadas: hay que poder verlas."""
+    lote = _cuerpo(_muestra(medido_en=_iso(-timedelta(hours=1))))
+    cliente.post(RUTA, json=lote, headers=_auth())
+
+    cuerpo = cliente.post(RUTA, json=lote, headers=_auth()).get_json()
+
+    assert cuerpo["duplicadas"] == 1
+    assert len(cuerpo["detalle"]) == 1
+
+
+def test_el_resumen_esta_acotado(cliente: Any) -> None:
+    """Quien lo lee es una persona mirando una alerta en un móvil."""
+    muestras = [_muestra(medido_en=_iso(-timedelta(minutes=i))) for i in range(20)]
+
+    cuerpo = cliente.post(RUTA, json=_cuerpo(*muestras), headers=_auth()).get_json()
+
+    assert len(cuerpo["detalle"]) == ingest.MAX_DETALLE + 1
+    assert cuerpo["detalle"][-1] == "...y 15 muestras más"
 
 
 def test_un_cuerpo_que_no_es_json_se_devuelve_en_el_error(cliente: Any) -> None:
@@ -628,16 +697,14 @@ def test_una_muestra_que_no_es_un_objeto_se_descarta(cliente: Any) -> None:
         RUTA, json=_cuerpo(_muestra(), "una cadena", 42, None), headers=_auth()  # type: ignore[arg-type]
     )
 
-    assert respuesta.get_json() == {
-        "guardadas": 1,
-        "duplicadas": 0,
-        "descartadas": 3,
-        "errores": [
-            "muestra 1: no es un objeto JSON",
-            "muestra 2: no es un objeto JSON",
-            "muestra 3: no es un objeto JSON",
-        ],
-    }
+    cuerpo = respuesta.get_json()
+
+    assert (cuerpo["guardadas"], cuerpo["duplicadas"], cuerpo["descartadas"]) == (1, 0, 3)
+    assert cuerpo["errores"] == [
+        "muestra 1: no es un objeto JSON",
+        "muestra 2: no es un objeto JSON",
+        "muestra 3: no es un objeto JSON",
+    ]
 
 
 # ---------------------------------------------------------------------------
