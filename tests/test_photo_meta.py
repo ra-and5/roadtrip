@@ -317,3 +317,36 @@ def test_en_un_heic_si_se_busca_el_bloque_exif(tmp_path: Path) -> None:
     )
 
     assert read_metadata(ruta).capturado_en == "2026-08-01T09:15:00"
+
+
+def test_en_un_heic_el_exif_se_encuentra_aunque_esté_detrás_de_la_imagen(
+    tmp_path: Path,
+) -> None:
+    """Es el caso REAL del iPhone, y el que más caro salía.
+
+    En un HEIC la cabecera dice dónde está el EXIF, pero el bloque vive en el
+    `mdat`, detrás de los datos de imagen: en una foto de 3 MB puede estar en
+    el megabyte 2. Leyendo solo los primeros 512 KB, esas fotos saldrían "sin
+    metadatos" y no fallaría nada — parecería que el iPhone no guardó la
+    ubicación, cuando sí lo hizo.
+    """
+    tiff = _tiff(
+        {},
+        {photo_meta._DATETIME_ORIGINAL: _ascii("2026:08:02 20:45:10")},
+        {
+            photo_meta._GPS_LAT_REF: _ascii("N"),
+            photo_meta._GPS_LAT: _rational([(43, 1), (33, 1), (4284, 100)]),
+            photo_meta._GPS_LON_REF: _ascii("W"),
+            photo_meta._GPS_LON: _rational([(6, 1), (8, 1), (4812, 100)]),
+        },
+    )
+    relleno = b"\x00" * (photo_meta.MAX_CABECERA + 1000)
+    ruta = tmp_path / "IMG_0003.HEIC"
+    ruta.write_bytes(
+        struct.pack(">I", 24) + b"ftypheic" + relleno + b"Exif\x00\x00" + tiff
+    )
+
+    meta = read_metadata(ruta)
+    assert meta.formato == "HEIC"
+    assert meta.capturado_en == "2026-08-02T20:45:10"
+    assert meta.lat == pytest.approx(43.5619, abs=1e-4)

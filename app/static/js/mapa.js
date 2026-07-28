@@ -18,11 +18,25 @@
 (function () {
   "use strict";
 
-  const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-  /* La atribución es obligatoria por la política de uso de OSM, no un adorno
-   * que se pueda quitar para ganar sitio. */
-  const ATRIBUCION =
+  /* Dos fondos, y ninguno sobra:
+   *
+   *   Mapa      lee mejor. Los nombres de los pueblos, las carreteras y los
+   *             senderos están escritos, que es lo que hace falta para saber
+   *             POR DÓNDE fuiste.
+   *   Satélite  se reconoce. Ves la playa, el bosque y el mirador de verdad,
+   *             que es lo que hace falta para RECORDAR dónde estuviste.
+   *
+   * El satélite va con una capa de etiquetas encima: sin nombres es bonito y
+   * no se sabe dónde estás. La elección se guarda, porque cambiarla en cada
+   * visita sería un peaje por una preferencia que no cambia.
+   *
+   * La atribución de cada uno es obligatoria por sus condiciones de uso, no un
+   * adorno que se pueda quitar para ganar sitio. */
+  const ATRIB_OSM =
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const ATRIB_ESRI = "Imágenes &copy; Esri, Maxar, Earthstar Geographics";
+
+  const CLAVE_CAPA = "roadtrip-capa";
 
   /* Centro y zoom de partida cuando todavía no hay nada: el norte de España.
    * Un mapa vacío centrado en la isla Null a zoom 2 parece roto. */
@@ -46,8 +60,41 @@
   const pieRevivir = document.getElementById("revivir-pie");
 
   const mapa = L.map("mapa").setView(INICIO, ZOOM_INICIAL);
-  const capaTiles = L.tileLayer(TILES, { attribution: ATRIBUCION, maxZoom: 19 });
-  capaTiles.addTo(mapa);
+
+  const capaMapa = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: ATRIB_OSM,
+    maxZoom: 19,
+  });
+
+  /* `maxNativeZoom` es lo que evita el fallo que parece un bug: por encima del
+   * zoom que Esri sirve de verdad, pedir más tiles devuelve cuadros en blanco.
+   * Con esto Leaflet amplía el último tile bueno, que se ve borroso pero se
+   * ve. Borroso es peor que nítido; blanco es peor que las dos cosas. */
+  const capaSatelite = L.layerGroup([
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { attribution: ATRIB_ESRI, maxZoom: 19, maxNativeZoom: 18 }
+    ),
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, maxNativeZoom: 18 }
+    ),
+  ]);
+
+  const capasBase = { "Mapa": capaMapa, "Satélite": capaSatelite };
+  const guardada = window.localStorage.getItem(CLAVE_CAPA);
+  const capaInicial = capasBase[guardada] || capaMapa;
+  capaInicial.addTo(mapa);
+  L.control.layers(capasBase, null, { position: "topright" }).addTo(mapa);
+
+  mapa.on("baselayerchange", function (evento) {
+    window.localStorage.setItem(CLAVE_CAPA, evento.name);
+    /* El contador de tiles fallidos se reinicia al cambiar de fondo: los que
+     * fallaron con el anterior no dicen nada del nuevo, y sin esto el aviso de
+     * "sin conexión" saltaría al tercer cambio de capa con la red perfecta. */
+    tilesFallidos = 0;
+    avisoEl.hidden = true;
+  });
 
   const capaTrayecto = L.layerGroup().addTo(mapa);
   const capaChinchetas = L.layerGroup().addTo(mapa);
@@ -62,18 +109,24 @@
    * varios seguidos sí. Se avisa a partir del tercero para no dar una alarma
    * falsa en cada gesto. */
   let tilesFallidos = 0;
-  capaTiles.on("tileerror", function () {
-    tilesFallidos += 1;
-    if (tilesFallidos === 3) {
-      avisoEl.textContent =
-        "El fondo del mapa no carga: no hay conexión con OpenStreetMap. " +
-        "El trayecto y los momentos sí están, porque vienen del servidor.";
-      avisoEl.hidden = false;
-    }
-  });
-  capaTiles.on("load", function () {
-    tilesFallidos = 0;
-    avisoEl.hidden = true;
+
+  /* Se enganchan los dos fondos, no solo el activo: en Leaflet los eventos de
+   * una capa no llegan solos al mapa, así que vigilar únicamente el de arranque
+   * dejaría el aviso mudo en cuanto cambiaras a satélite. */
+  [capaMapa].concat(capaSatelite.getLayers()).forEach(function (capa) {
+    capa.on("tileerror", function () {
+      tilesFallidos += 1;
+      if (tilesFallidos === 3) {
+        avisoEl.textContent =
+          "El fondo del mapa no carga: no hay conexión con el servidor de mapas. " +
+          "El trayecto y los momentos sí están, porque vienen del nuestro.";
+        avisoEl.hidden = false;
+      }
+    });
+    capa.on("load", function () {
+      tilesFallidos = 0;
+      avisoEl.hidden = true;
+    });
   });
 
   // --- Utilidades -----------------------------------------------------------

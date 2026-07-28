@@ -545,6 +545,10 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   a consultar hacia atrás, pero una nota escrita en un mirador no está en
   ningún otro sitio. La interfaz enseña cuántas quedan por enviar, porque una
   cola invisible es una cola en la que no confías.
+- **Dos fondos de mapa:** *Mapa* (OpenStreetMap), que lleva los nombres
+  escritos y sirve para saber por dónde fuiste, y *Satélite* (Esri World
+  Imagery con etiquetas encima), que sirve para reconocer el sitio. La
+  elección se guarda en el navegador.
 - **Leaflet se sirve desde `app/static/vendor/`, no desde un CDN,** con la
   versión fijada (ver `app/static/vendor/leaflet/VERSION.md`). Los **tiles** sí
   los pide el navegador a OpenStreetMap: la lista blanca del proxy de

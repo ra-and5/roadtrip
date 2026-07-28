@@ -28,11 +28,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Cuánto se lee del archivo. El EXIF vive al principio (en un JPEG es el
-# segundo segmento; en un HEIC va en la cabecera de metadatos), así que no hace
-# falta cargar 3 MB en memoria para leer cuatro etiquetas. Un millar de fotos
-# leyéndose enteras sería un minuto de disco por nada.
+# Cuánto se lee de entrada. En un JPEG el EXIF es el segundo segmento, así que
+# con esto sobra siempre y no hace falta cargar 3 MB para leer cuatro etiquetas:
+# un millar de fotos leyéndose enteras sería un minuto de disco por nada.
 MAX_CABECERA = 512 * 1024
+
+# Pero en un HEIC no basta, y es justo el formato por defecto del iPhone. La
+# cabecera declara DÓNDE está el EXIF, y el bloque en sí vive en el `mdat`, que
+# va detrás de la imagen: en una foto de 3 MB puede estar en el megabyte 2. Con
+# solo la cabecera, esas fotos darían "sin metadatos" y **no fallaría nada**:
+# saldrían como si el iPhone no hubiera guardado la ubicación.
+#
+# Así que si el primer intento no encuentra nada en un contenedor, se lee el
+# archivo entero. Es el caso raro (un JPEG nunca llega aquí), y a cambio la
+# función no miente. El tope existe para que un vídeo de 4 GB mal nombrado no
+# se cargue en memoria.
+MAX_ARCHIVO_COMPLETO = 64 * 1024 * 1024
 
 
 class PhotoMetaError(Exception):
@@ -296,14 +307,25 @@ def read_metadata(ruta: str | Path) -> PhotoMeta:
     try:
         with camino.open("rb") as f:
             datos = f.read(MAX_CABECERA)
+            if not datos:
+                raise PhotoMetaError(f"{camino.name} está vacío")
+
+            formato = _formato_de(datos)
+            if formato == "JPEG":
+                tiff = _exif_de_jpeg(datos)
+            else:
+                tiff = _exif_de_contenedor(datos)
+                # Segundo intento solo para contenedores (HEIC y compañía): el
+                # bloque EXIF puede estar detrás de la imagen. Ver
+                # MAX_ARCHIVO_COMPLETO.
+                if tiff is None and camino.stat().st_size > len(datos):
+                    f.seek(0)
+                    tiff = _exif_de_contenedor(f.read(MAX_ARCHIVO_COMPLETO))
+    except PhotoMetaError:
+        raise
     except OSError as exc:
         raise PhotoMetaError(f"no se puede leer {camino.name}: {exc}") from exc
 
-    if not datos:
-        raise PhotoMetaError(f"{camino.name} está vacío")
-
-    formato = _formato_de(datos)
-    tiff = _exif_de_jpeg(datos) if formato == "JPEG" else _exif_de_contenedor(datos)
     vacia = PhotoMeta(archivo=camino.name, formato=formato)
     if not tiff or len(tiff) < 8:
         return vacia

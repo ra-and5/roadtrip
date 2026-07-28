@@ -640,6 +640,21 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     así que no interviene aquí para nada, y vendorizar Leaflet no es una forma
     de esquivarla. Que `tile.openstreetmap.org` no esté en esa lista da igual.
 
+    **Dos fondos, y ninguno sobra.** *Mapa* (OSM) lleva escritos los nombres
+    de los pueblos, las carreteras y los senderos: es lo que hace falta para
+    saber **por dónde** fuiste. *Satélite* (Esri World Imagery) enseña la playa
+    y el bosque de verdad: es lo que hace falta para **recordar** dónde
+    estuviste. El satélite va con una capa de etiquetas encima porque sin
+    nombres es bonito y no se sabe dónde estás, y la elección se guarda en
+    `localStorage` para no cobrar un peaje en cada visita por una preferencia
+    que no cambia. Cada fondo lleva su atribución, que es obligatoria por sus
+    condiciones de uso.
+
+    Detalle que parece un bug y no lo es: el satélite se sirve con
+    `maxNativeZoom: 18`. Por encima del zoom que Esri tiene de verdad, pedir
+    tiles devuelve **cuadros en blanco**; con esto Leaflet amplía el último
+    bueno. Borroso es peor que nítido, pero blanco es peor que las dos cosas.
+
     Consecuencia sin cobertura, que se documenta en vez de disimularse
     (decisión 9): **los tiles no cargan y el mapa sale gris, pero las
     chinchetas y el listado siguen ahí**, porque salen de nuestro servidor. La
