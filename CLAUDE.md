@@ -917,11 +917,18 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Para verlos sobre un mapa está el enlace, que los abre en el que ya llevas
     en el bolsillo.
 
-    Se usa el enlace universal de Apple (`maps.apple.com/?daddr=`) y no el
-    esquema estándar `geo:`, que **Safari en iOS no entiende**. El único cliente
-    real de esta app es un iPhone, así que se elige el que funciona donde se
-    usa; el día que haya Android, `geo:lat,lon` es el cambio y está anotado en
-    el código.
+    Se usa el enlace **universal** de Google (`google.com/maps/dir/?api=1`) y
+    no un esquema propio (`comgooglemaps://`, `maps.apple.com`). El esquema
+    abre la app algo más directo, pero si esa app no está instalada **pulsar no
+    hace nada**: ni abre, ni avisa, ni da error. Un enlace que no reacciona es
+    el fallo mudo de siempre, y en marcha es de los que más desesperan. El
+    universal abre la app si está y la web si no. De regalo, funciona igual en
+    Android y en un escritorio, así que aquí ya no queda nada atado a iOS.
+
+    Y `destination` lleva las **coordenadas, no el nombre**: con el nombre,
+    Google buscaría y podría llevarte a otro sitio que se llame parecido —una
+    ruta convincente hacia el lugar equivocado, que es peor que no tener
+    enlace—. El nombre ya se está leyendo en la lista.
 
     Los POIs **no** entran en el contexto. Son la fuente cara y poco fiable
     (Overpass, decisión 22), así que van aparte y quien llama decide si los

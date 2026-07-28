@@ -300,26 +300,27 @@
       const km = poi.distance_m / 1000;
       const li = document.createElement("li");
 
-      /* Cada punto es un enlace que abre Mapas con la ruta puesta. Una lista de
-       * nombres y distancias a la que no puedes ir es media función: lo que se
-       * quiere saber al leerla es "¿cómo llego?".
+      /* Cada punto es un enlace que abre Google Maps con la ruta puesta. Una
+       * lista de nombres y distancias a la que no puedes ir es media función:
+       * lo que se quiere saber al leerla es "¿cómo llego?".
        *
-       * Se usa el enlace universal de Apple (`maps.apple.com`) y no el esquema
-       * `geo:`, que es el estándar y NO lo entiende Safari en iOS. El único
-       * cliente real de esta app es un iPhone, así que se elige el que funciona
-       * donde se usa; el día que haya Android, `geo:lat,lon` es el cambio.
+       * Se usa el enlace UNIVERSAL (`https://www.google.com/maps/dir/?api=1`) y
+       * no el esquema propio `comgooglemaps://`, y esa es la decisión. El
+       * esquema abre la app un poco más directo, pero si Google Maps no está
+       * instalado **no pasa nada al pulsar**: ni abre, ni avisa, ni da error.
+       * Un enlace que no hace nada es el fallo mudo de siempre. El universal
+       * abre la app si está y la web si no, así que nunca deja al usuario
+       * mirando una pantalla que no reacciona. De paso funciona igual en
+       * Android y en un escritorio, así que ya no hay nada específico de iOS.
        *
-       * `daddr` abre la ruta desde donde estés. `q` pone el nombre en la
-       * chincheta, porque llegar a unas coordenadas sin saber a qué has llegado
-       * es peor que no ir.
-       *
-       * El nombre va por encodeURIComponent: hay POIs con comillas, comas y
-       * acentos (aquí mismo hay uno que se llama "Dibuixar l'espai"), y sin
-       * escapar romperían la URL en silencio. */
+       * `destination` lleva las COORDENADAS y no el nombre, a propósito: con
+       * el nombre, Google buscaría y podría llevarte a otro sitio que se llame
+       * parecido — una ruta convincente hacia el lugar equivocado, que es peor
+       * que no tener enlace. El nombre ya lo estás leyendo en esta lista. */
       const enlace = document.createElement("a");
       enlace.href =
-        "https://maps.apple.com/?daddr=" + poi.lat + "," + poi.lon +
-        "&q=" + encodeURIComponent(poi.name);
+        "https://www.google.com/maps/dir/?api=1&destination=" +
+        poi.lat + "," + poi.lon;
       enlace.rel = "noopener";
       enlace.textContent =
         (km < 1 ? poi.distance_m + " m" : km.toFixed(1) + " km") +
