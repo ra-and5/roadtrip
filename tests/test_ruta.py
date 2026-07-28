@@ -192,7 +192,6 @@ def test_la_ruta_del_mapa_si_necesita_sesion(cliente: Any) -> None:
         ({"lat": "43.5"}, "latitud como texto"),
         ({"altitud": 99999}, "altitud imposible"),
         ({"capturado_en": "28/07/2026"}, "fecha que no es ISO"),
-        ({"capturado_en": "2026-07-28T14:32:05+02:00"}, "fecha CON huso"),
         ({"capturado_en": "2099-01-01T00:00:00"}, "fecha en el futuro"),
         ({"capturado_en": None, "lat": None, "lon": None}, "ni fecha ni sitio"),
     ],
@@ -215,6 +214,56 @@ def test_una_foto_sin_gps_se_guarda_igual(cliente: Any) -> None:
 
     assert respuesta.get_json()["guardados"] == 1
     assert _guardados()[0]["lat"] is None
+
+
+def test_una_fecha_con_huso_se_separa_en_vez_de_rechazarse(cliente: Any) -> None:
+    """Es lo que devuelve Atajos: `...T14:23:37+02:00`.
+
+    Rechazarlo obligaría a montar un *Reemplazar texto* en el móvil para tirar
+    información que aquí sí se sabe guardar. Y lo que NO puede pasar es que se
+    recorte la cadena y el huso se pierda en silencio: la hora quedaría
+    guardada como local estando desplazada dos horas.
+    """
+    cliente.post(
+        RUTA,
+        json=_cuerpo(
+            _punto(capturado_en="2026-07-26T14:23:37+02:00", offset_original=None)
+        ),
+        headers=_auth(),
+    )
+
+    punto = _guardados()[0]
+    # La hora que se lee es la de la cámara, no la de UTC.
+    assert punto["capturado_en"] == "2026-07-26T14:23:37"
+    assert punto["offset_original"] == "+02:00"
+
+
+def test_el_desfase_explicito_manda_sobre_el_de_la_fecha(cliente: Any) -> None:
+    """Quien se molesta en mandarlo aparte lo ha sacado del EXIF, que es la
+    fuente buena; el de la fecha puede venir del reloj del móvil que exporta."""
+    cliente.post(
+        RUTA,
+        json=_cuerpo(
+            _punto(capturado_en="2026-07-26T14:23:37+05:00", offset_original="+02:00")
+        ),
+        headers=_auth(),
+    )
+
+    assert _guardados()[0]["offset_original"] == "+02:00"
+
+
+def test_una_fecha_en_utc_no_guarda_desfase(cliente: Any) -> None:
+    """"+00:00" no aporta nada como desfase original: o la cámara iba en UTC o
+    no lo escribió."""
+    cliente.post(
+        RUTA,
+        json=_cuerpo(
+            _punto(capturado_en="2026-07-26T14:23:37+00:00", offset_original=None)
+        ),
+        headers=_auth(),
+    )
+
+    assert _guardados()[0]["offset_original"] is None
 
 
 def test_una_foto_vieja_se_acepta(cliente: Any) -> None:

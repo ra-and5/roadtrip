@@ -95,13 +95,26 @@ def _es_numero(valor: Any) -> bool:
     return isinstance(valor, (int, float)) and not isinstance(valor, bool)
 
 
-def _fecha_local(valor: Any) -> str | None:
-    """Valida la hora de la cámara: local, sin huso, y creíble.
+def _fecha_local(valor: Any) -> tuple[str | None, str | None]:
+    """Valida la hora de la cámara. Devuelve (hora local sin huso, desfase).
 
-    No se canoniza a UTC ni se le pone zona, y eso es la decisión: el EXIF no
-    lleva huso en esta etiqueta. Ponerle uno "porque el viaje es por España"
-    sería inventarse el instante, y la misma foto hecha en Canarias quedaría
-    una hora corrida sin que nadie se entere.
+    La hora **no** se canoniza a UTC, y eso es la decisión: el EXIF guarda la
+    que marcaba el reloj de la cámara. Convertirla exigiría saber la zona, y
+    ponerle una "porque el viaje es por España" sería inventarse el instante:
+    la misma foto hecha en Canarias quedaría una hora corrida sin que nadie se
+    entere.
+
+    Pero si la fecha **viene** con huso, tampoco se rechaza: se separa. La
+    parte local va a `capturado_en` y el desfase a `offset_original`, que es su
+    sitio. Aceptarlo importa porque el iPhone lo escribe así: la acción *Formato
+    de fecha → ISO 8601* de Atajos devuelve `...T14:23:37+02:00`, y rechazarlo
+    obligaría a montar un *Reemplazar texto* en el móvil para tirar información
+    que aquí sí se sabe guardar.
+
+    Lo que **no** se hace nunca es recortar la cadena antes de mirarla. Esa fue
+    la primera versión y era un fallo silencioso: se comía el "+02:00" sin
+    verlo, y la fecha quedaba guardada como local estando desplazada dos horas.
+    Separar es lo contrario de descartar.
 
     No se acota la fecha hacia el pasado, al revés que en la telemetría y las
     notas: aquí importar fotos de hace tres años es justo lo que se quiere para
@@ -109,25 +122,25 @@ def _fecha_local(valor: Any) -> str | None:
     fechada en 2040 es un reloj mal puesto y desplazaría el final del viaje.
     """
     if valor is None:
-        return None
+        return None, None
     if not isinstance(valor, str) or len(valor) < 19:
         raise _PuntoInvalido("'capturado_en' tiene que ser 'AAAA-MM-DDTHH:MM:SS'")
 
-    # Se parsea la cadena ENTERA antes de recortarla. Recortar a 19 caracteres
-    # primero parecía inofensivo y no lo era: se comía el "+02:00" antes de
-    # mirarlo, así que una fecha con huso se aceptaba **tirando el huso en
-    # silencio** y quedaba guardada como si fuera hora local. El dato no daba
-    # ningún error: solo estaba desplazado dos horas para siempre.
     texto = valor.strip()
     try:
         instante = datetime.fromisoformat(texto)
     except ValueError:
         raise _PuntoInvalido(f"'capturado_en' no es una fecha válida: {valor!r}") from None
+
+    desfase = None
     if instante.tzinfo is not None:
-        raise _PuntoInvalido(
-            "'capturado_en' es la hora local de la cámara y va sin huso; "
-            "el desfase, si lo hay, va en 'offset_original'"
-        )
+        offset = instante.strftime("%z")[:5]
+        if offset and offset != "+0000":
+            desfase = f"{offset[:3]}:{offset[3:]}"
+        # Se quita la zona conservando la hora que se lee: son las 14:23 de la
+        # cámara, no las 12:23 de UTC.
+        instante = instante.replace(tzinfo=None)
+
     instante = instante.replace(microsecond=0)
 
     # Comparación ingenua contra la hora local del servidor, con un día de
@@ -136,7 +149,7 @@ def _fecha_local(valor: Any) -> str | None:
     if (instante - datetime.now()).days > 1:
         raise _PuntoInvalido(f"'capturado_en' está en el futuro: {valor!r}")
 
-    return instante.isoformat(timespec="seconds")
+    return instante.isoformat(timespec="seconds"), desfase
 
 
 def _parse_punto(datos: Any, fuente: str) -> Waypoint:
@@ -178,7 +191,7 @@ def _parse_punto(datos: Any, fuente: str) -> Waypoint:
             raise _PuntoInvalido(f"'altitud' fuera de lo posible: {altitud}")
         altitud = round(float(altitud), 1)
 
-    capturado_en = _fecha_local(datos.get("capturado_en"))
+    capturado_en, desfase_en_la_fecha = _fecha_local(datos.get("capturado_en"))
 
     # Un punto sin fecha y sin coordenadas no aporta nada al viaje: sería una
     # fila que solo dice que existe un archivo.
@@ -192,6 +205,9 @@ def _parse_punto(datos: Any, fuente: str) -> Waypoint:
     offset = datos.get("offset_original")
     if offset is not None and not isinstance(offset, str):
         raise _PuntoInvalido("'offset_original' tiene que ser texto")
+    # El campo explícito manda sobre el que venía pegado a la fecha: quien se
+    # molesta en mandarlo aparte lo ha sacado del EXIF, que es la fuente buena.
+    offset = (offset or "").strip() or desfase_en_la_fecha
 
     return Waypoint(
         fuente=fuente,

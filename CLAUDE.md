@@ -192,6 +192,7 @@ sistema no fingió haber verificado nada.
 - Las seis comprobaciones en el móvil: [`docs/validacion-movil.md`](docs/validacion-movil.md).
 - Cuando algo falle: [`docs/troubleshooting.md`](docs/troubleshooting.md).
 - Montar el atajo del iPhone: [`docs/atajo-iphone.md`](docs/atajo-iphone.md).
+- Montar el atajo de las fotos: [`docs/atajo-fotos.md`](docs/atajo-fotos.md).
 
 **Los encargos de cada fase viven en `docs/prompt-*.md`.** No son tareas
 pendientes: son el registro de **qué se pidió**, que es lo que permite luego
