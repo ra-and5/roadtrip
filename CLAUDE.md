@@ -99,12 +99,26 @@ Leaflet servido por nosotros, y progreso del viaje (sitios, días, racha,
 tablero de 19 comunidades, comparación entre años). Las fotos se aplazaron a
 propósito (decisión 27) y su diseño queda escrito para cuando toquen.
 
-Lo que falta para cerrarla es exactamente lo que no se puede probar desde aquí:
-**escribir una nota de verdad en un sitio sin cobertura y comprobar que aparece
-en el mapa al volver la señal, sin duplicarse.** El servidor está probado (287
-tests, incluida la idempotencia del reintento); IndexedDB, el evento `online` y
-el GPS del iPhone no los ha ejecutado nadie todavía. En la 2d, esa misma
-distancia entre "escrito" y "probado en el móvil" escondía cuatro trampas
+Lo que **sí** está probado, y no solo por la suite (287 tests): la cola offline
+se ejecutó entera en un Chrome de escritorio, cortando la red a mano, y los
+cuatro caminos se comportaron como debían. Con `fetch` fallando, la nota se
+guardó en IndexedDB y la interfaz enseñó "1 nota por enviar"; al disparar
+`online` se envió sola y el servidor pasó de 5 notas a 6; un reintento con un
+`client_id` que ya existía devolvió *duplicada*, se borró de la cola y el total
+del servidor **no subió**; y una nota con `lat: 999` quedó marcada como
+rechazada con su motivo a la vista, **sin volver a intentarse** al recargar la
+app. El mapa pinta con Leaflet servido por nosotros, con sus tiles y su
+atribución.
+
+Lo que falta para cerrarla es lo que no se puede probar desde un escritorio:
+**escribir una nota en un sitio sin cobertura de verdad, desde el iPhone, y
+verla aparecer en el mapa al volver la señal.** Concretamente siguen sin
+ejecutarse nunca el GPS real de Safari en iOS (aquí se sustituyó por un doble
+que devolvía coordenadas fijas), el IndexedDB de iOS —que Apple purga tras
+siete días sin abrir la app, y eso importa en un viaje— y el comportamiento del
+evento `online` en una red móvil que va y viene, que no es lo mismo que
+desenchufar un cable. En la 2d, esa misma distancia entre "probado en
+escritorio" y "probado en el móvil" escondía cuatro trampas
 ([`docs/atajo-iphone.md`](docs/atajo-iphone.md)).
 
 **La Fase 2d está APARCADA como MVP, no cerrada,** y la diferencia importa.
