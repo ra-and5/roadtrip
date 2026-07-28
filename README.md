@@ -14,7 +14,7 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | 2 | Open-Meteo + Overpass + recomendaciones con LLM | ✅ Hecho |
 | 2b | Proveedor intercambiable: Anthropic / Gemini / Kimi | ✅ Hecho |
 | — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
-| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Código hecho, sin validar con el móvil |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Atajo enviando; falta la prueba de varios días |
 | 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
@@ -65,7 +65,7 @@ roadtrip/
 │   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
 │   ├── token_ingesta.py    Genera el token del iPhone y su hash
 │   ├── diagnostico.py      Estado de cada dependencia externa
-│   ├── ver_telemetria.py   Últimas muestras recibidas del móvil (consola)
+│   ├── ver_telemetria.py   Últimas muestras del móvil, y borrado de las malas
 │   └── listar_modelos.py   Qué modelos de Gemini funcionan con tu key
 ├── tests/                  pytest
 └── data/                   BD e imágenes. NO va a git.
@@ -363,7 +363,8 @@ paso para montarla está en [`docs/atajo-iphone.md`](docs/atajo-iphone.md).
 
 ```jsonc
 // 200
-{ "guardadas": 1, "duplicadas": 5, "descartadas": 0, "errores": [] }
+{ "guardadas": 1, "duplicadas": 5, "descartadas": 0, "errores": [],
+  "detalle": ["2026-07-28T01:29:29+00:00 pasos=4213 bat=16% lat=38.39064 lon=-0.51648"] }
 ```
 
 **Que la mayoría salgan como `duplicadas` es lo normal y lo bueno.** Cada envío
@@ -374,6 +375,14 @@ cuerpo lleva un array.
 
 Una muestra inválida se descarta con su motivo en `errores` y **no** tumba las
 buenas del mismo lote.
+
+**`detalle` dice qué se guardó, no solo cuánto**, y solo lista los campos que
+llegaron con valor. Esa omisión es la información: `guardadas: 1` sale idéntico
+tanto si la muestra iba completa como si perdió la ubicación por una clave mal
+escrita (`"lat:"` con dos puntos dentro es JSON válido y se guarda como `NULL`
+sin que nada proteste). Si el JSON no llega a parsearse, el `400` incluye
+`recibido` con el principio del cuerpo tal cual llegó — depurar un atajo del
+iPhone sin ver lo que se está enviando es adivinar.
 
 **`/api/recommendations` devuelve 200 aunque fallen fuentes opcionales.** Ver
 "Degradación en cascada" más abajo. La respuesta tiene esta forma:

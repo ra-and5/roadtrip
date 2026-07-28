@@ -845,6 +845,29 @@ def test_el_lote_entero_malo_lanza_ingesterror() -> None:
         ingest.ingest({"muestras": None})
 
 
+def test_se_pueden_borrar_muestras_por_id(cliente: Any) -> None:
+    """Los datos reales se ensucian: pruebas, fechas a mano, métricas mal.
+
+    Borrarlas es más honesto que dejarlas y acordarse de filtrarlas al
+    analizar; ese "acordarse" no sobrevive a un mes de viaje.
+    """
+    cliente.post(
+        RUTA,
+        json=_cuerpo(*(_muestra(medido_en=_iso(-timedelta(hours=h))) for h in (1, 2, 3))),
+        headers=_auth(),
+    )
+    ids = [f["id"] for f in _guardadas()]
+
+    assert storage.delete_telemetry(ids[:2]) == 2
+    assert [f["id"] for f in _guardadas()] == ids[2:]
+
+
+def test_borrar_un_id_que_no_existe_lo_dice(cliente: Any) -> None:
+    """Devolver el recuento REAL distingue "borrado" de "creía haberlo borrado"."""
+    assert storage.delete_telemetry([9999]) == 0
+    assert storage.delete_telemetry([]) == 0
+
+
 def test_los_recuentos_siempre_suman_lo_enviado(cliente: Any) -> None:
     """Invariante de la respuesta: nada se pierde por el camino sin contarse."""
     muestras = [

@@ -72,6 +72,7 @@ python tools/hash_password.py              # genera SECRET_KEY y APP_PASSWORD_HA
 python tools/token_ingesta.py              # genera el token del iPhone y su hash
 python tools/ver_telemetria.py             # últimas muestras recibidas del móvil
 python tools/ver_telemetria.py 50          # las 50 últimas
+python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
 ```
 
 ## 5. Estado actual
@@ -84,19 +85,30 @@ python tools/ver_telemetria.py 50          # las 50 últimas
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
-| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Código hecho, **sin validar con el móvil** |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 Atajo enviando a mano; **falta la prueba de varios días** |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | ⬜ Pendiente |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
 **La Fase 2d no está cerrada, y su criterio de cierre es uno solo: ¿llegan los
-datos de forma fiable durante varios días?** El endpoint, la validación y la
-idempotencia están probados con la suite, pero *nada* del lado del iPhone se ha
-ejecutado nunca: el atajo de [`docs/atajo-iphone.md`](docs/atajo-iphone.md) está
-escrito, no probado. Hasta que haya varios días de muestras reales no se
-construye análisis encima: hacerlo sobre una fuente que aún no se ha demostrado
-fiable es trabajo que hay que tirar. Por eso esta fase **no** tiene pantalla,
-gráfica ni resumen; lo que hay para mirar los datos es
+datos de forma fiable durante varios días?** Lo que sí está probado, contra el
+servidor desplegado y desde un iPhone real (28-07-2026): el token, la
+idempotencia (un reenvío devolvió `duplicadas: 1`, que es lo correcto) y una
+muestra completa con hora ISO, batería, coordenadas y pasos. Lo que falta es
+**tiempo**: el atajo se ha ejecutado a mano, no solo. Hasta que no haya varios
+días de muestras sin huecos no se construye análisis encima — hacerlo sobre una
+fuente que aún no se ha demostrado fiable es trabajo que hay que tirar. Por eso
+esta fase **no** tiene pantalla, gráfica ni resumen; para mirar los datos está
 `python tools/ver_telemetria.py`, desde una consola.
+
+Montar el atajo dejó cuatro trampas documentadas en
+[`docs/atajo-iphone.md`](docs/atajo-iphone.md) que no se ven venir: los
+decimales salen con coma en un iPhone en español y rompen el JSON, una variable
+rota se envía **vacía** sin que Atajos avise, `"lat:"` con dos puntos dentro es
+JSON válido y guarda la ubicación como `NULL` sin protestar, y una cabecera
+`Authorization` con texto de sobra pegado la corta el proxy con un 400 que ni
+llega a la app. De ahí salieron dos cambios en el endpoint: el 400 devuelve
+ahora el cuerpo que recibió, y la respuesta correcta devuelve **qué** se guardó
+y no solo cuánto.
 
 **Desplegado y validado.** `https://d10sdrebrasov.pythonanywhere.com` (plan
 gratuito). Las seis comprobaciones del móvil en verde desde un iPhone con datos
@@ -417,14 +429,83 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       servidor solo vive su hash. Por eso se le añadió un patrón explícito de
       cabecera `Bearer`.
 
+25. **Los pasos se envían como acumulado de 24 h, no en cubos por hora.** El
+    diseño de la decisión 23 pedía que cada envío trajera las últimas N horas
+    de pasos, cada una con su hora en punto. En Atajos eso significa un bucle
+    con aritmética de fechas: unas doce acciones, redondeo al inicio de la hora,
+    consulta a Salud por rango y suma. Montado a mano en la pantalla de un
+    móvil, cada una de esas acciones es un sitio donde equivocarse — y ya se
+    perdieron horas con erratas mucho más simples (ver
+    [`docs/atajo-iphone.md`](docs/atajo-iphone.md)).
+
+    Lo que se hace en su lugar: una sola consulta a Salud por los pasos de las
+    **últimas 24 h**, enviada en la misma muestra que la batería y la ubicación.
+    Cuatro acciones en vez de doce.
+
+    **Y no pierde la propiedad que importaba.** El objetivo de la ventana
+    solapada era que un envío fallido no perdiera datos. Un acumulado es un
+    contador monótono: si falla un envío, el siguiente ya trae el total
+    *incluyendo* lo que se perdió. Se cura solo por construcción, igual que la
+    ventana, pero sin estado ni bucle. La ventana solapada sigue siendo la
+    decisión correcta para métricas puntuales (una lectura de batería perdida
+    no se recupera nunca); para un contador acumulado es innecesaria.
+
+    **Lo que sí se pierde, dicho claramente:** el desglose por horas de los
+    envíos fallidos. Si el móvil está sin cobertura de 10:00 a 14:00, sabrás el
+    total al recuperarla pero no cuánto se anduvo en cada una de esas cuatro
+    horas. Para "cuánto anduve este día" es irrelevante; para "¿a qué hora del
+    día camino más?" no lo sería. Si algún día hace falta esa granularidad, hay
+    que montar el bucle — y entonces habrá que decidir qué significa `pasos`,
+    porque **mezclar cubos horarios y acumulados en la misma columna daría
+    análisis silenciosamente equivocados** (decisión 11 otra vez). La salida
+    limpia sería una tabla estrecha con nombre de métrica; está en el roadmap.
+
 ## 7. Roadmap
 
-- **Cerrar la Fase 2d.** Montar el atajo del iPhone siguiendo
-  [`docs/atajo-iphone.md`](docs/atajo-iphone.md) y dejarlo corriendo varios
-  días. Comprobar con `python tools/ver_telemetria.py` que el total crece, que
-  no hay huecos, y sobre todo que la columna *retraso* enseña recuperaciones
-  reales tras pasar por una zona sin cobertura. Hasta entonces, nada de
-  análisis encima de estos datos.
+- **Cerrar la Fase 2d.** El atajo ya está montado y envía bien a mano. Falta lo
+  único que cierra la fase: **dejarlo corriendo solo varios días** con una
+  automatización de *Hora del día*, y comprobar con
+  `python tools/ver_telemetria.py` que el total crece sin huecos y que la
+  columna *retraso* enseña recuperaciones reales tras pasar por una zona sin
+  cobertura. Hasta entonces, nada de análisis encima de estos datos.
+  Ojo: las automatizaciones de iOS son **diarias**, no horarias; para varios
+  envíos al día hay que crear una por cada hora.
+
+- **Decidir la forma de la tabla ANTES de la cuarta métrica.** Hoy `telemetria`
+  tiene una columna por métrica (`pasos`, `bateria`, `lat`, `lon`). Con tres va
+  bien; con quince serían quince columnas casi siempre `NULL` y cada métrica
+  nueva un cambio de esquema. La alternativa es una tabla **estrecha**
+  (`fuente, medido_en, metrica, valor, unidad`), donde añadir una métrica es
+  cero cambios de esquema, a cambio de consultas más incómodas y de perder la
+  validación por tipo que hoy da cada columna.
+
+  Es la decisión 4 a lo grande: **con la tabla casi vacía la migración es
+  gratis; con un mes de viaje dentro cuesta un fin de semana.** Por eso la
+  decisión toca ahora, no cuando duela.
+
+  Métricas candidatas, por orden de utilidad real (el criterio: un dato solo
+  merece un bloque en el atajo si **cambia una recomendación**):
+  *altitud* (un bloque más, ya se pide la ubicación), *sueño* y *frecuencia
+  cardíaca en reposo* (las que distinguen "hoy toca ruta" de "hoy toca playa"),
+  *energía activa*. Peso, ruido ambiental y pisos subidos no cambian nada.
+
+- **Datos de Hevy (entrenamientos).** Es un caso distinto al del iPhone y
+  conviene tenerlo claro antes de empezar: **es *pull* desde el servidor, no
+  *push* desde el móvil**, así que necesita una tarea programada, y el plan
+  gratuito de PythonAnywhere da **una sola al día** — ese es el techo real, no
+  la API. Antes de escribir nada hay que verificar dos cosas contra la
+  realidad, como con Kimi (decisión 21): que la API existe y qué plan exige, y
+  que su dominio está en la **lista blanca del proxy**. Si no lo está, no
+  funciona en producción y no te enterarías hasta desplegar. La columna
+  `fuente` ya está preparada para esto desde el primer día.
+
+- **Análisis en segundo plano (el "agente").** Un resumen diario generado de
+  madrugada a partir de la telemetría. Cambia una regla que hoy es correcta:
+  **la decisión 12 (sin reintento ante un 429) deja de aplicar** cuando nadie
+  está esperando — ahí sí conviene esperar un minuto y reintentar, justo al
+  revés que en una petición móvil. `llm_providers` ya permite elegir proveedor;
+  con `kimi-k3` a ~0,03 $ por análisis, un resumen diario sale por unos 11 $ al
+  año.
 - **Espejos de Overpass** (ver decisión 22). Hoy solo hay uno vivo y saturado,
   así que los POIs son intermitentes en producción. Hay que buscar espejos y
   validarlos con datos españoles reales, no con que devuelvan `200`.

@@ -250,6 +250,28 @@ def telemetry_stats() -> dict[str, Any]:
     }
 
 
+def delete_telemetry(ids: Sequence[int]) -> int:
+    """Borra muestras por id. Devuelve cuántas se han borrado de verdad.
+
+    Existe porque los datos reales se ensucian: pruebas del atajo, una fecha
+    escrita a mano, un día en que la métrica venía mal. Borrarlas es más honesto
+    que dejarlas y acordarse de filtrarlas al analizar -- ese "acordarse" no
+    sobrevive a un mes de viaje.
+
+    Devolver el recuento real (y no `len(ids)`) es lo que permite distinguir
+    "borradas" de "esos ids no existían", que desde una consola es la diferencia
+    entre haber hecho el trabajo y creer que lo has hecho.
+    """
+    if not ids:
+        return 0
+    marcadores = ", ".join("?" for _ in ids)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM telemetria WHERE id IN ({marcadores})", tuple(ids)
+        )
+        return cur.rowcount
+
+
 def recent_telemetry(limit: int = 20) -> list[dict[str, Any]]:
     """Las últimas muestras por instante de medida, la más reciente primero.
 
