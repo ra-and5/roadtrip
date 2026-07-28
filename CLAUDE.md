@@ -99,7 +99,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
-| 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | 🟨 Hecho; **falta probarlo con fotos reales** |
+| 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -130,23 +130,43 @@ desenchufar un cable. En la 2d, esa misma distancia entre "probado en
 escritorio" y "probado en el móvil" escondía cuatro trampas
 ([`docs/atajo-iphone.md`](docs/atajo-iphone.md)).
 
-**La Fase 3b (la ruta) también está hecha y sin cerrar, por el mismo motivo:
-todavía no ha pasado por unas fotos de verdad.** Lo que hay: un lector de EXIF
-sin dependencias, `tools/importar_fotos.py`, la tabla `waypoints`, el endpoint
-`/api/waypoints` y el mapa dibujando el trayecto con el modo *revivir el viaje*.
+**La Fase 3b (la ruta) está CERRADA desde el 28-07-2026.** Lo que hay: un lector
+de EXIF sin dependencias, `tools/importar_fotos.py`, la tabla `waypoints`, el
+endpoint `/api/waypoints`, el mapa dibujando el trayecto con el modo *revivir el
+viaje*, y —lo que faltaba— **el atajo del iPhone montado y funcionando**.
 
-Probado de extremo a extremo, no solo con tests: se fabricaron fotos con EXIF
-conocido, se leyeron, se importaron por HTTP real contra un servidor (401 con
-token malo, 10 guardados con el bueno, y 0 nuevos / 10 duplicados al reenviar),
-y en Chrome se recorrió el viaje entero con el reproductor —el mapa se centra
-en cada momento, el halo marca dónde estás y la barra del tiempo sigue—.
+Lo que la cierra: se montó el atajo del álbum `Viaje` en un iPhone real, se
+ejecutó contra el servidor desplegado y devolvió `guardados: 4, duplicados: 0`;
+al reejecutarlo, `guardados: 0, duplicados: 4`. Y la comprobación que no se
+puede leer mal: tras **tres** ejecuciones, `/mapa` sigue diciendo **4 fotos, 4
+días y 41 km**, exactamente lo que predecía el cálculo local (40,5 km). Los
+puntos caen en Albatera, que es donde se hicieron las fotos.
 
-Lo que falta es una sola cosa y no se puede simular: **pasarle la carpeta de
-fotos del viaje de verdad**. De ahí saldrá qué conservan realmente, que es lo
-único que decide si esto sirve. Empieza por
-`python tools/importar_fotos.py <carpeta>`, que no guarda nada y solo informa.
-Ya hay un dato comprobado que ahorra tiempo: **las fotos que pasan por WhatsApp
-llegan sin ningún metadato**, así que hay que partir de los originales.
+Montar el atajo costó **nueve trampas**, todas documentadas ahora en
+[`docs/atajo-fotos.md`](docs/atajo-fotos.md). Tres merecen estar aquí porque
+cambian cómo se razona sobre Atajos:
+
+- **El campo `Número` de la acción `Diccionario` destruye los decimales**, con
+  coma *y* con punto (lee el punto como separador de miles). La receta anterior
+  recomendaba el `Diccionario` precisamente como protección contra eso, y era
+  **falso**. El JSON se construye con una acción `Texto`, igual que en la 2d.
+- **Un chip de variable en rojo no da error: devuelve vacío.** Y un vacío en un
+  campo `Número` se convierte en `0`, así que `lat: 0, lon: 0` —el golfo de
+  Guinea— llegó a enviarse con el servidor respondiendo `guardados: 4` sin una
+  sola queja. Es el fallo mudo de la decisión 11 en su peor forma: una chincheta
+  convincente en un sitio inventado.
+- **`Altura` en *Obtener detalles de imágenes* son píxeles, no altitud.** 3024 px
+  cae dentro del rango válido de altitud (-500 a 9000 m), así que se habría
+  guardado el viaje entero a tres mil metros sin ningún error.
+
+Lo que **no** se ha probado y hay que decirlo: el lector de EXIF nunca ha leído
+un **HEIC del carrete** (sí un JPEG real de iPhone y HEIC fabricados a mano).
+Ya no bloquea nada, porque por la vía del atajo **el servidor no lee la foto**:
+los metadatos los extrae iOS. Solo importa el día que se use
+`tools/importar_fotos.py` con la carpeta volcada por cable.
+
+Dato comprobado que ahorra tiempo: **las fotos que pasan por WhatsApp llegan sin
+ningún metadato**, así que hay que partir de los originales.
 
 **La Fase 2d está APARCADA como MVP, no cerrada,** y la diferencia importa.
 Probado contra el servidor desplegado y desde un iPhone real (28-07-2026): el
@@ -855,12 +875,23 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
 - **Fase 4.** Resumen narrativo del viaje generado por el LLM a partir de todas
   las notas, y `manifest.json` + iconos para instalar como PWA en el iPhone.
 
-- **Cerrar la 3b.** Pasarle `tools/importar_fotos.py` a la carpeta de fotos
-  del viaje de verdad y ver qué conservan. Es lo único que falta, y decide
-  cuánto de esto sirve.
+- **Los dos caminos de las fotos NO deduplican entre sí.** Salió al cerrar la
+  3b y no se arregló ahí para no ampliar el alcance. La clave anti-duplicados
+  es el nombre del archivo, y **Atajos lo devuelve sin extensión** (`IMG_4638`)
+  mientras que `tools/importar_fotos.py` lo manda con ella (`IMG_4638.HEIC`).
+  Para el servidor son dos archivos distintos, así que una foto que entre por
+  los dos caminos aparecería **dos veces en el mapa**. Dentro de cada camino la
+  deduplicación es perfecta, y hoy solo se usa el atajo, así que no molesta.
 
-- **Las fotos se eligen, no se vuelcan.** El atajo mira un álbum concreto
-  (`Viaje`), no el carrete entero. Es privacidad y menos permisos, pero sobre
+  Cuando se toque, la decisión no es obvia y conviene pensarla entera:
+  normalizar quitando la extensión al guardar pierde información y colapsaría
+  `IMG_1.JPG` con `IMG_1.HEIC`, que **son dos fotos distintas** en un carrete
+  de iPhone que ha cambiado de formato. La alternativa es guardar el nombre tal
+  cual y deduplicar por una clave aparte. No hay que elegir a ciegas: mide
+  primero cuántas colisiones reales habría en el carrete.
+
+- **Las fotos se eligen, no se vuelcan.** ✅ **Montado y funcionando**
+  (28-07-2026). El atajo mira un álbum concreto (`Viaje`), no el carrete entero. Es privacidad y menos permisos, pero sobre
   todo es que **la curación es el dato**: el carrete de un mes son cientos de
   fotos y la mitad son capturas de pantalla y tickets. Un álbum es una versión
   del viaje contada por ti. Y el álbum se manda **entero** en cada envío, no

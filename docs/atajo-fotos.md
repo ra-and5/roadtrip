@@ -4,16 +4,18 @@ Cómo hacer que el iPhone mande cada día **dónde y cuándo** se hicieron las
 fotos, sin subir ninguna foto y sin tocar nada.
 
 Es el hermano del atajo de la telemetría ([`atajo-iphone.md`](atajo-iphone.md)):
-mismo endpoint con token, mismo token, misma idea de ventana solapada. Si ya
-montaste aquel, este es más corto.
+mismo endpoint con token, mismo token, misma idea de reenviarlo todo cada vez.
 
-> **Estado honesto de este documento.** El servidor está probado de extremo a
-> extremo por HTTP real, y el lector de EXIF está probado contra una foto real
-> de iPhone (ver §1). **El atajo en sí todavía no lo ha montado nadie**, así
-> que los nombres exactos de algunas acciones pueden variar según la versión de
-> iOS. Cuando lo montes y algo no encaje, corrige aquí lo que veas en pantalla:
-> eso es exactamente lo que pasó con el atajo de la telemetría, y las cuatro
-> trampas que salieron están al final.
+> **Estado: montado y funcionando en un iPhone real (28-07-2026).** Lo que hay
+> aquí abajo no es una propuesta: es la configuración exacta que envía bien,
+> corregida acción por acción contra lo que se veía en la pantalla. La versión
+> anterior de este documento estaba escrita a partir de cómo *debería* funcionar
+> Atajos, y **casi todo lo que decía del bucle y del diccionario era falso**.
+> Las nueve trampas que salieron están en la §6, y ninguna se ve venir.
+>
+> Los nombres de las acciones cambian entre versiones de iOS y entre idiomas.
+> Los de aquí son los de un **iPhone 16 Pro en español**. Lo que no cambia es el
+> JSON que hay que acabar enviando (§3), que es el contrato de verdad.
 
 ---
 
@@ -57,15 +59,14 @@ Tres consecuencias prácticas, todas buenas:
   fotos…* en vez de *Permitir acceso a todas*.
 - **Bucles cortos.** 20 fotos elegidas frente a 600: el atajo tarda segundos.
 - **Se puede corregir.** ¿Metiste una que no querías? La sacas del álbum y
-  borras su punto: `python tools/importar_fotos.py --limpiar` y reimportas, o
-  se queda hasta que limpies. Con el carrete entero no habría nada que decidir.
+  borras su punto con `python tools/importar_fotos.py --limpiar` y reenvías.
 
 > **Nota sobre permisos y automatización.** Con acceso *limitado*, iOS solo deja
 > ver las fotos que autorizaste una vez, así que una automatización diaria
 > acabaría sin ver las nuevas del álbum. Si la quieres desatendida, hace falta
 > acceso completo — y el álbum sigue haciendo su trabajo, porque el filtro lo
-> aplica el atajo. Si prefieres no dar acceso completo, usa la variante de la
-> **hoja de compartir** (§8): no pide ningún permiso de Fotos.
+> aplica el atajo. Al ejecutarlo por primera vez iOS pide además permiso para
+> **acceder a las fotos en segundo plano**; sin él la automatización no lee nada.
 
 ### Los otros dos caminos, que son respaldo y no alternativa
 
@@ -79,8 +80,12 @@ si algún día hacen falta, pero **no son el plan**:
 | Velocidad | Segundos (pocas fotos) | Mil fotos en segundos |
 | Permisos | Fotos | Ninguno |
 
-Los dos escriben en el mismo sitio y ninguno duplica al otro: la clave es el
-nombre del archivo, así que da igual que una foto entre por los dos caminos.
+> ⚠️ **Los dos NO deduplican entre sí, al contrario de lo que decía este
+> documento.** La clave es el nombre del archivo, y resulta que **Atajos lo
+> devuelve sin extensión** (`IMG_4638`) mientras que `importar_fotos.py` lo manda
+> con ella (`IMG_4638.HEIC`). Para el servidor son dos archivos distintos, así
+> que la misma foto entraría **dos veces** si usas los dos caminos. Dentro de
+> cada camino la deduplicación es perfecta. Está apuntado en el roadmap.
 
 ---
 
@@ -89,19 +94,23 @@ nombre del archivo, así que da igual que una foto entre por los dos caminos.
 ```jsonc
 // POST https://TU_USUARIO.pythonanywhere.com/api/waypoints
 // Authorization: Bearer <el MISMO token del atajo de telemetría>
+// Content-Type: application/json
 {
   "fuente": "fotos",
   "puntos": [
-    { "archivo": "IMG_4736.jpeg",             // el nombre. Es la clave anti-duplicados
-      "capturado_en": "2026-07-26T14:23:37",  // hora de la cámara. Con "+02:00" también vale
-      "lat": 38.1764611,
-      "lon": -0.8707361,
-      "altitud": 12.9 }
+    { "archivo": "IMG_4638",                  // el nombre. Es la clave anti-duplicados
+      "capturado_en": "2026-07-20T15:15:39+02:00",  // hora de la cámara, con huso
+      "lat": 38.390445,
+      "lon": -0.516225 }
   ]
 }
 ```
 
-Tres cosas que no son evidentes:
+Este cuerpo exacto está **probado contra el servidor** (`{"guardados": 4}` la
+primera vez, `{"duplicados": 4}` la segunda). Ocupa 475 bytes con cuatro fotos,
+de los 128 KB que acepta el servidor.
+
+Cuatro cosas que no son evidentes:
 
 - **`capturado_en` es la hora que marcaba el reloj de la cámara**, no un
   instante en UTC. Al revés que `medido_en` en la telemetría, aquí no se
@@ -111,9 +120,13 @@ Tres cosas que no son evidentes:
   `offset_original`. No hay que quitarlo a mano.
 - **`lat`/`lon` son opcionales**, pero o van las dos o ninguna. Una foto sin
   ubicación se guarda igual: ordena el relato del viaje aunque no ponga una
-  chincheta.
+  chincheta. Si no las tienes, **omite las claves enteras**; mandarlas vacías
+  (`"lat": ""`) hace que el punto se descarte.
 - **`archivo` tiene que ser un nombre, no una ruta.** Con barras el servidor lo
   rechaza.
+- **`altitud` es opcional y aquí no se manda.** Sacarla obliga a un bloque más
+  y no la usa ninguna pantalla. Si algún día hace falta, se añade
+  `Obtener [Altitud] de SITIO` y su fila en el JSON.
 
 ### Por qué se manda el álbum entero cada vez
 
@@ -132,96 +145,109 @@ ruido: es la señal de que está funcionando.**
 
 ---
 
-## 4. El atajo, bloque a bloque
+## 4. El atajo, acción por acción
 
 Atajos → **+** → nombre: `Enviar fotos del viaje`.
 
 Antes: en la app **Fotos** → pestaña *Álbumes* → **+** → *Álbum nuevo* →
 nómbralo **`Viaje`**. Ahí vas metiendo las que quieras que cuenten.
 
-### Bloque A — Buscar las fotos del álbum
+### La lista completa
 
-1. **Buscar fotos**
-   - Filtro: **Álbum** — *es* — **`Viaje`**
-   - Ordenar por *Fecha de captura*, ascendente
-   - **Límite: 300 elementos.** No es capricho: el cuerpo de la petición no
-     puede pasar de los 128 KB que acepta el servidor, y si te pasas llega un
-     413 y no se guarda nada. Con un álbum curado no lo vas a rozar.
+Esta es la configuración verificada. Compárala línea a línea; el orden importa
+y hay dos sitios donde equivocarse no da ningún error.
 
-   > **Sin segundo filtro por fecha, y es deliberado.** Podrías añadir *"y la
-   > fecha está en los últimos 3 días"* para acortar el bucle, pero entonces
-   > una foto que metas al álbum **una semana después** no entraría nunca:
-   > justo el caso normal cuando ordenas las fotos al volver del viaje. Mandar
-   > el álbum entero cada vez no cuesta nada porque el servidor deduplica por
-   > nombre de archivo, y a cambio el álbum siempre acaba entero en el mapa,
-   > metas lo que metas y cuando lo metas.
+| # | Acción | Campo 1 | Campo 2 | Icono |
+|---|---|---|---|---|
+| 1 | `Buscar Fotos` | Filtro: `Álbum` — *es/está* — `Viaje` | Ordenar por `Fecha de la foto` · Orden `Más antiguo primero` · Límite `300 ítems` | 🌸 Fotos |
+| 2 | `Repetir con cada ítem en` | `Fotos` | — | 🔁 |
+| — | **↓ dentro del bucle ↓** | | | |
+| 3 | `Obtener [ Nombre ] de` | `Ítem de repetición` | — | 🖼️ azul |
+| 4 | `Definir variable` | `NOMBRE` | chip `Nombre` | ✖️ naranja |
+| 5 | `Obtener [ Fecha de la foto ] de` | `Ítem de repetición` | — | 🖼️ azul |
+| 6 | `Definir variable` | `CUANDO` | chip `Fecha de la foto` | ✖️ naranja |
+| 7 | `Obtener [ Ubicación ] de` | `Ítem de repetición` | — | 🖼️ azul |
+| 8 | `Definir variable` | `SITIO` | chip `Ubicación` | ✖️ naranja |
+| 9 | `Obtener [ Latitud ] de` | `SITIO` | — | 📍 verde |
+| 10 | `Definir variable` | `LAT` | chip `Latitud` | ✖️ naranja |
+| 11 | `Obtener [ Longitud ] de` | `SITIO` | — | 📍 verde |
+| 12 | `Definir variable` | `LON` | chip `Longitud` | ✖️ naranja |
+| 13 | `Reemplazar` | `,` por `.` en chip `LAT` | *Expresión regular: NO* | 📝 amarillo |
+| 14 | `Definir variable` | `LAT_OK` | chip `Texto actualizado` | ✖️ naranja |
+| 15 | `Reemplazar` | `,` por `.` en chip `LON` | *Expresión regular: NO* | 📝 amarillo |
+| 16 | `Definir variable` | `LON_OK` | chip `Texto actualizado` | ✖️ naranja |
+| 17 | `Texto` | ver abajo | — | 📝 amarillo |
+| 18 | `Añadir` | chip `Texto` | a `PUNTOS` | ✖️ naranja |
+| 19 | `Terminar repetición` | — | — | 🔁 |
+| — | **↑ fin del bucle ↑** | | | |
+| 20 | `Combinar` | chip `PUNTOS` | con `Personalizar` → `,` | 📝 amarillo |
+| 21 | `Texto` | `{"fuente":"fotos","puntos":[«Texto combinado»]}` | — | 📝 amarillo |
+| 22 | `Obtener contenido de la URL` | ver abajo | — | ⬇️ verde |
+| 23 | `Mostrar aviso` | chip `Contenido de URL` | — | 🟨 |
 
-2. **Definir variable** → `puntos` → dejarla **vacía** (será la lista).
+**El icono es la comprobación rápida.** Los pasos 3-7 llevan el cuadro azul de
+foto (son `Obtener detalles de imágenes`) y los 9-11 llevan la chincheta verde
+(son `Obtener detalles de ubicación`). Si alguno lleva el icono que no toca,
+está usando la acción equivocada.
 
-### Bloque B — Sacar los metadatos de cada una
+### El texto del paso 17
 
-3. **Repetir con cada elemento** de *Fotos*. Dentro del bucle:
+```
+{"archivo":"«NOMBRE»","capturado_en":"«CUANDO»","lat":«LAT_OK»,"lon":«LON_OK»}
+```
 
-4. **Obtener detalles de imágenes** → *Nombre de archivo* → variable `nombre`
-5. **Obtener detalles de imágenes** → *Fecha de captura* → variable `cuando`
-6. **Obtener detalles de imágenes** → *Ubicación* → variable `sitio`
-7. **Obtener detalles de ubicación** (sobre `sitio`) → *Latitud* → `lat`
-8. Igual con *Longitud* → `lon`, y *Altitud* → `alt`
+Lo que va entre `«»` son **chips** insertados desde la barra del teclado; el
+resto se escribe a mano.
 
-> Si tu versión de iOS ofrece *Latitud* directamente en **Obtener detalles de
-> imágenes**, sáltate los pasos 6-8 y úsalo: son tres bloques menos.
+- `NOMBRE` y `CUANDO` van **entre comillas**; `LAT_OK` y `LON_OK` **sin**.
+- Toca el chip `CUANDO` → **Formato de fecha: `ISO 8601`** → **`Incluir hora`
+  ACTIVADO**. Sin la hora, el servidor rechaza el punto (`'capturado_en' tiene
+  que ser 'AAAA-MM-DDTHH:MM:SS'`) y además la línea de tiempo no podría ordenar
+  dos fotos del mismo día.
+- **Antes de escribirlo:** *Ajustes → General → Teclado → `Puntuación
+  inteligente`* **DESACTIVADO**. Si está encendida, el iPhone cambia `"` por
+  comillas tipográficas `"` y `"`, y el JSON deja de ser JSON. Las dos comillas
+  se parecen tanto que no lo ves mirando la pantalla.
 
-9. **Diccionario** con cuatro o cinco claves:
+### El envío del paso 22
 
-   | Clave | Valor |
-   |---|---|
-   | `archivo` | variable `nombre` |
-   | `capturado_en` | variable `cuando`, **con el chip en ISO 8601** (ver trampas) |
-   | `lat` | variable `lat` |
-   | `lon` | variable `lon` |
-   | `altitud` | variable `alt` |
+| Campo | Valor |
+|---|---|
+| URL | `https://TU_USUARIO.pythonanywhere.com/api/waypoints` |
+| Método | **POST** |
+| Cabecera 1 | `Content-Type` → `application/json` |
+| Cabecera 2 | `Authorization` → `Bearer <token>` |
+| Cuerpo de la solicitud | **Archivo** |
+| Archivo | chip **`Texto`** (el del paso 21) |
 
-   **Usa la acción Diccionario, no escribas el JSON en un bloque de Texto.** Es
-   la trampa nº 1 del otro atajo: en un iPhone en español, `38.1764` se escribe
-   como texto `38,1764`, y eso rompe el JSON entero.
-
-10. **Añadir a variable** → el diccionario → a `puntos`
-
-### Bloque C — Enviar
-
-11. **Diccionario**:
-    - `fuente` → texto `fotos`
-    - `puntos` → variable `puntos`
-
-12. **Obtener contenido de la URL**
-    - URL: `https://TU_USUARIO.pythonanywhere.com/api/waypoints`
-    - Método: **POST**
-    - Cabeceras: `Authorization` → `Bearer <token>`
-      *(el mismo del atajo de telemetría; ojo al pegarlo, ver trampas)*
-    - Cuerpo de la solicitud: **JSON**, y dentro el diccionario del paso 11
-
-13. **Mostrar alerta** con el resultado — **solo mientras lo pruebas**. Quítalo
-    antes de automatizarlo o te saltará una alerta cada día.
+**Cuerpo `Archivo`, no `JSON`.** Es la combinación verificada, la misma que usa
+el atajo de telemetría. Con `Cuerpo: JSON` volverías a dejar que Atajos
+reinterprete los números, que es exactamente el problema de la trampa 6.
 
 ---
 
 ## 5. Probarlo
 
-Ejecuta el atajo a mano. La respuesta buena tiene esta forma:
+Ejecuta el atajo a mano. La respuesta buena tiene esta forma (ojo, **Atajos
+saca las claves en orden alfabético**, no en el que las escribió el servidor):
 
 ```json
-{"guardados": 12, "duplicados": 0, "descartados": 0, "errores": []}
+{"errores":[],"descartados":0,"duplicados":0,"guardados":4}
 ```
 
 Y al ejecutarlo **otra vez seguida**, esta:
 
 ```json
-{"guardados": 0, "duplicados": 12, "descartados": 0, "errores": []}
+{"errores":[],"descartados":0,"duplicados":4,"guardados":0}
 ```
 
 **Esa segunda respuesta es la prueba que importa.** Significa que reenviar no
-duplica, que es lo que permite mandar los últimos 3 días cada día sin ensuciar
-el mapa.
+duplica, que es lo que permite mandar el álbum entero cada día sin ensuciar el
+mapa.
+
+> Ese orden de claves ya provocó un susto real: leídas cruzadas parecían
+> `guardados: 3`. La comprobación que no se puede leer mal es **abrir `/mapa`**:
+> tras tres ejecuciones tiene que seguir diciendo el mismo número de fotos.
 
 Si sale `descartados` alto, el campo `errores` dice qué falla y en qué punto.
 Y desde el servidor:
@@ -230,36 +256,163 @@ Y desde el servidor:
 python tools/diagnostico.py     # línea "puntos de las fotos"
 ```
 
+Si algo entró mal, se vacía y se vuelve a enviar:
+
+```bash
+python tools/importar_fotos.py --limpiar   # borra TODOS los puntos, no toca notas
+```
+
+Hay que hacerlo desde una consola **del servidor**, no del portátil. Y hace
+falta porque **arreglar el atajo no arregla los datos ya guardados**: al
+reenviar, el servidor ve que el archivo ya existe y devuelve `duplicado`,
+descartando la versión buena. La fila mala se queda.
+
 ---
 
-## 6. Trampas heredadas del otro atajo
+## 6. Las nueve trampas
 
-Estas cuatro salieron montando el de la telemetría y **aplican igual aquí**.
-Están explicadas a fondo en [`atajo-iphone.md`](atajo-iphone.md); el resumen:
+Todas salieron montándolo el 28-07-2026 y ninguna se ve venir. Las cuatro
+primeras son las heredadas del atajo de telemetría; las cinco siguientes son
+nuevas y **contradicen lo que decía la versión anterior de este documento**.
 
-1. **Los decimales salen con coma.** `38,1764` rompe el JSON. Se evita usando
-   la acción **Diccionario** en vez de escribir el JSON en un **Texto**. Si aun
-   así usas Texto, hace falta un *Reemplazar texto* (`,` → `.`) sobre **cada
-   número por separado**, nunca sobre el JSON entero.
+### 1. Los decimales y la coma — y por qué el `Diccionario` NO te salva
 
-2. **La fecha se formatea en el propio chip.** Inserta la variable, **toca el
-   chip** y elige *Formato de fecha → ISO 8601* con *Incluir hora*. No hacen
-   falta bloques aparte de `Aplicar formato` y `Definir variable`: al reordenar
-   acciones, un `Definir variable` puede quedar apuntando a nada y entonces la
-   fecha **se envía vacía** sin que Atajos avise.
+La versión anterior decía: *"usa la acción **Diccionario**, que no pasa los
+números por texto"*. **Es falso.** El campo de tipo `Número` de un `Diccionario`
+reinterpreta el valor con la configuración regional, y en un iPhone en español:
 
-   Aquí **no** hay que pelearse con el huso: Atajos devuelve
-   `2026-07-26T14:23:37+02:00` y el servidor lo separa solo — la hora local va
-   a `capturado_en` y el `+02:00` a su columna. Mándalo tal cual.
+| Le metes | Manda |
+|---|---|
+| `38,176441` (coma decimal) | `38176441` |
+| `38.176441` (punto decimal) | `38176441` — lee el punto como separador de **miles** |
 
-3. **El teclado mete tildes y dobles puntos.** `"lat:"` con dos puntos dentro es
-   JSON válido, así que el servidor guardaría el punto **sin ubicación** y sin
-   protestar. No se detecta mirando si hubo error: se detecta mirando lo que
-   llegó.
+O sea que **destruye el decimal de las dos maneras** y no hay forma de arreglarlo
+desde dentro del diccionario. Por eso el atajo construye el JSON con una acción
+**`Texto`**: ahí lo que escribes es literalmente lo que se envía y nadie
+reinterpreta nada.
 
-4. **Al pegar el token, que quede una sola línea corta.** Si copias de más, la
-   cabecera se pasa de 8 KB y el proxy de PythonAnywhere devuelve un 400 con
-   HTML de `openresty` que ni llega a la app.
+Al menos falla ruidosamente: el servidor valida `-90 ≤ lat ≤ 90` y devuelve
+`'lat' fuera del rango`. Pero cuidado, no siempre — una longitud `-0,5`
+convertida en `-5` **es válida** y se guardaría mal en silencio.
+
+Los dos `Reemplazar` (pasos 13-15) se dejan puestos aunque **este iPhone ya
+devuelve punto decimal**: hoy no hacen nada, y si algún iOS o idioma devolviera
+coma, la arreglarían.
+
+### 2. La fecha se formatea en el propio chip
+
+Inserta la variable en el `Texto`, **toca el chip** y elige *Formato de fecha →
+ISO 8601* con ***Incluir hora* activado**. Sin `Incluir hora` sale `2026-07-20`
+a secas y el servidor lo rechaza.
+
+No hacen falta bloques aparte de `Aplicar formato` y `Definir variable`: al
+reordenar acciones, un `Definir variable` puede quedar apuntando a nada y
+entonces la fecha **se envía vacía** sin que Atajos avise.
+
+Aquí **no** hay que pelearse con el huso: Atajos devuelve
+`2026-07-20T15:15:39+02:00` y el servidor lo separa solo. Mándalo tal cual.
+
+### 3. El teclado mete tildes y dobles puntos
+
+Pasó, literalmente: la clave salió como **`"capturado en:"`** — con un espacio
+en vez del guion bajo **y** dos puntos de más dentro de las comillas.
+
+Y `{"capturado en:": "..."}` es JSON **válido**: solo que la clave se llama así.
+El servidor no encuentra `capturado_en`, da la foto por *sin fecha*, y si
+además tuviera coordenadas buenas la guardaría **sin fecha ninguna** y
+respondería `guardados` tan tranquilo. No se detecta mirando si hubo error: se
+detecta mirando lo que llegó.
+
+Los dos puntos **no se escriben**: los pone la acción sola.
+
+### 4. Al pegar el token, que quede una sola línea corta
+
+`Bearer` + ~43 caracteres. Si copias de más, la cabecera se pasa de 8 KB y el
+proxy de PythonAnywhere devuelve un **400 con HTML de `openresty`** que ni llega
+a la app.
+
+### 5. `Altura` NO es la altitud: son píxeles
+
+`Obtener detalles de imágenes` ofrece `Anchura` y `Altura`, que son las
+**dimensiones de la imagen**. `Altura` de una foto de iPhone vale `3024`.
+
+Y aquí está el veneno: el servidor valida `altitud` entre **-500 y 9000 metros**
+para cazar EXIF corruptos, así que `3024` **cae dentro**. Habría respondido
+`guardados: 4` sin un solo error y el viaje entero habría quedado registrado a
+tres mil metros de altitud. Fallo mudo de manual.
+
+### 6. `Latitud` y `Longitud` no existen en `Obtener detalles de imágenes`
+
+La versión anterior las daba como opción directa *"si tu iOS las ofrece"*. **No
+las ofrece.** Lo que hay es `Ubicación`, que devuelve un **objeto**, no números.
+Hacen falta dos saltos:
+
+```
+Obtener [Ubicación] de [Ítem de repetición]   ← detalles de IMÁGENES  (🖼️ azul)
+Definir variable SITIO
+Obtener [Latitud] de [SITIO]                  ← detalles de UBICACIÓN (📍 verde)
+```
+
+Si mandas el objeto `Ubicación` a pelo, Atajos lo convierte a texto (`Calle
+Mayor, Albatera, España`) y el servidor responde `'lat' y 'lon' tienen que ser
+números`.
+
+### 7. `Ítem de repetición` contra `Resultado de la repetición`
+
+Los dos nombres aparecen juntos en la barra de variables y se parecen muchísimo:
+
+- **`Ítem de repetición`** — la foto de la vuelta actual. Es el que hace falta.
+- **`Resultado de la repetición`** — la lista entera que devuelve el bucle **al
+  acabar**. Dentro del bucle todavía no existe, y el chip sale en **rojo**.
+
+Relacionado: al añadir acciones nuevas, Atajos las coloca **detrás de
+`Terminar repetición`**, o sea fuera del bucle. Para meterlas dentro se arrastra
+el `Terminar repetición` hacia abajo. Un bucle vacío no da ningún error: el
+atajo se ejecuta, no falla, y manda un envío incompleto.
+
+### 8. Un chip en ROJO es una referencia rota, y no da error
+
+Si borras y vuelves a crear un `Definir variable`, los chips que apuntaban a él
+se quedan colgados y Atajos los pinta en **rojo**. La acción sigue ejecutándose:
+simplemente recibe **vacío**.
+
+Pasó con `SITIO`, y el efecto fue el peor posible: `LAT` y `LON` vacías → el
+campo `Número` del diccionario las convirtió en **`0`** → `lat: 0, lon: 0`, que
+es el **golfo de Guinea**, una coordenada perfectamente válida. El servidor
+respondió `guardados: 4` sin una sola queja.
+
+Regla: **antes de ejecutar, ningún chip en rojo y ningún `Definir variable` con
+el nombre en gris.** Un `Definir variable` sin nombre no hace absolutamente nada
+y tampoco avisa.
+
+### 9. El campo de la URL se corrompe, y no se arregla reescribiéndolo
+
+Síntoma: **`400 Bad Request` con `openresty/1.21.4.2`**, incluso con `GET`, sin
+cuerpo y sin cabecera `Authorization`. Es decir, la petición **no llega a la
+app**: la corta el servidor web de PythonAnywhere por malformada.
+
+La URL se dibujaba partida en tres bloques (`https://` / el dominio / la ruta),
+que es la pinta de un campo con saltos de línea dentro. **Vaciar el campo y
+reescribirlo no lo arregló.** Lo que funcionó:
+
+1. Abrir la URL en **Safari** (tiene que salir `Method Not Allowed`, que además
+   confirma que el móvil llega al servidor).
+2. Copiarla de la barra de direcciones, ya normalizada.
+3. **Borrar la acción `Obtener contenido de la URL` entera** — no basta con
+   vaciar el campo — y añadir una nueva.
+4. Pegar ahí.
+
+Truco de diagnóstico que ahorra mucho tiempo: **quita la cabecera
+`Authorization` y pon `GET`**. Si aun así sale `openresty`, el problema es la
+URL; si sale `{"error":"no_autorizado"}` o un `405`, la petición llega bien y el
+problema está en el token o en el cuerpo.
+
+### Y una de orden, que no es una trampa pero cuesta igual
+
+**El envío tiene que ir DESPUÉS del `Texto` que construye el cuerpo.** Atajos
+deja añadir una acción que referencia la salida de otra que va más abajo, sin
+avisar de nada. Al ejecutarse, el `Archivo` apunta a algo que todavía no existe
+y sale una petición con el cuerpo roto.
 
 ---
 
@@ -268,15 +421,16 @@ Están explicadas a fondo en [`atajo-iphone.md`](atajo-iphone.md); el resumen:
 Atajos → **Automatización** → **+** → **Hora del día**.
 
 - [ ] Una vez al día basta, a una hora en la que el móvil suela tener wifi
-      (por la noche, en el camping). Las fotos no se van a ninguna parte, y la
-      ventana de 3 días cubre los fallos.
+      (por la noche, en el camping). Las fotos no se van a ninguna parte, y como
+      se manda el álbum entero, un día fallido no pierde nada.
 - [ ] Acción: **Ejecutar atajo** → `Enviar fotos del viaje`
 - [ ] **"Preguntar antes de ejecutar": DESACTIVADO**
-- [ ] Quita el *Mostrar alerta* del paso 13
+- [ ] Quita el `Mostrar aviso` del paso 23, o te saltará una alerta cada día
 
-Permiso que hay que conceder una vez: Atajos pedirá acceso a **Fotos**. Sin él
-el bucle sale vacío y el envío da 400 (`'puntos' está vacío`), que es
-justamente lo que tiene que pasar para que te enteres.
+Permisos que hay que conceder una vez: Atajos pide acceso a **Fotos** y, además,
+permiso para **leerlas en segundo plano**. Sin ellos el bucle sale vacío y el
+envío da 400 (`'puntos' está vacío`), que es justamente lo que tiene que pasar
+para que te enteres.
 
 ---
 
@@ -289,8 +443,8 @@ Cambios respecto al de arriba:
 
 - En los ajustes del atajo (botón ⓘ), activa **Mostrar en hoja de compartir** y
   acepta como entrada **Imágenes**.
-- **Borra el Bloque A entero.** El bucle del paso 3 se hace sobre *Entrada del
-  atajo* en vez de sobre *Fotos*.
+- **Borra la acción 1 (`Buscar Fotos`).** El bucle del paso 2 se hace sobre
+  *Entrada del atajo* en vez de sobre *Fotos*.
 - El resto es idéntico.
 
 Cómo se usa: en Fotos seleccionas las que quieras → **Compartir** → `Enviar
@@ -301,10 +455,10 @@ fotos del viaje`. Se puede hacer con 30 de golpe.
 | Permisos de Fotos | Sí (completo si es desatendida) | **Ninguno** |
 | Cuándo se manda | Solo, cada día | Cuando tú lo compartes |
 | Riesgo | Olvidarte de meterlas al álbum | Olvidarte de compartirlas |
+| Estado | ✅ **Probado** | ⬜ Sin probar |
 
-Las dos escriben en el mismo sitio y no se estorban: puedes tener las dos
-montadas. Y no duplican nada aunque una foto se mande por los dos caminos,
-porque la clave es el nombre del archivo.
+Las dos escriben en el mismo sitio y no se estorban, y no duplican nada aunque
+una foto se mande por los dos caminos, porque la clave es el nombre del archivo.
 
 ---
 
