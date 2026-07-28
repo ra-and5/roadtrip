@@ -16,6 +16,7 @@ Lo que se protege aquí:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Iterator
 
 import pytest
@@ -256,6 +257,40 @@ def test_la_validacion_se_puede_probar_sin_flask() -> None:
 # ---------------------------------------------------------------------------
 # La ruta: mezclar notas y fotos
 # ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "url, permitida, motivo",
+    [
+        ("https://d10sdrebrasov.pythonanywhere.com", True, "el caso normal"),
+        ("HTTPS://MAYUSCULAS.COM", True, "el esquema no distingue mayúsculas"),
+        ("http://127.0.0.1:5000", True, "la máquina local no tiene red que espiar"),
+        ("http://localhost:5001/", True, "igual por nombre"),
+        ("http://d10sdrebrasov.pythonanywhere.com", False, "http por internet"),
+        ("http://192.168.1.40:5000", False, "otra máquina de la red local"),
+        ("http://localhost.atacante.com", False, "subdominio que empieza por localhost"),
+        ("ftp://loquesea", False, "otro esquema"),
+        ("d10sdrebrasov.pythonanywhere.com", False, "sin esquema"),
+    ],
+)
+def test_el_token_no_se_manda_por_una_conexion_sin_cifrar(
+    url: str, permitida: bool, motivo: str
+) -> None:
+    """Por `http://` la cabecera `Authorization` viaja en claro y cualquiera en
+    el wifi de un camping se lleva el token.
+
+    Se comprueba aquí y no se confía en escribir bien la URL porque el fallo es
+    **silencioso**: la petición funciona igual, y cuando te enteras el secreto
+    ya está comprometido.
+    """
+    import importlib.util
+
+    ruta_tool = Path(__file__).resolve().parent.parent / "tools" / "importar_fotos.py"
+    spec = importlib.util.spec_from_file_location("importar_fotos", ruta_tool)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+
+    assert modulo.url_segura(url) is permitida, motivo
+
 
 def _nota(cuando: str, lat: float, lon: float, texto: str = "nota") -> dict[str, Any]:
     return {

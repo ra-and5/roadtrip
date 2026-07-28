@@ -742,6 +742,14 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       silencioso de manual (decisión 11). Ahora hay un solo sitio que decide
       qué es un tramo, y cada tramo se le apunta al día en que se **llegó**.
 
+    Y una de seguridad que va con la herramienta: **`--enviar` se niega a
+    mandar el token por `http://`** salvo a `localhost`. La cabecera
+    `Authorization` viaja sin cifrar por http, así que una errata en la URL
+    entregaría el token a cualquiera en la misma red — y sería un fallo
+    **silencioso**, porque la petición funcionaría igual y el secreto ya
+    estaría comprometido cuando te enterases. Se comprueba en vez de confiar
+    en escribir bien la URL.
+
     Y lo que la ruta no puede enseñar se enseña igual: cuántas fotos se
     quedaron sin fecha (no se pueden colocar) y cuántas sin GPS (cuentan en el
     relato, no en el mapa). Esconderlas haría creer que el viaje está entero.

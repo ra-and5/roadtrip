@@ -180,7 +180,37 @@ def _importar_local(puntos: list[dict]) -> None:
         print("Los duplicados son lo esperado al reimportar la misma carpeta.")
 
 
+def url_segura(base: str) -> bool:
+    """¿Se puede mandar el token a esta URL sin que viaje en claro?
+
+    Por `http://` la cabecera `Authorization` va sin cifrar: cualquiera en el
+    wifi de un camping se lleva el token, y con él escribe en tu viaje. Se
+    bloquea aquí en vez de confiar en que nadie se equivoque escribiendo la
+    URL, porque el fallo es silencioso —la petición funciona igual— y el
+    secreto ya estaría comprometido cuando te enteraras.
+
+    La excepción es la máquina local: en `localhost` no hay red que espiar, y
+    sin ella no se podría probar nada sin desplegar.
+    """
+    base = base.strip().lower()
+    if base.startswith("https://"):
+        return True
+    if not base.startswith("http://"):
+        return False
+    host = base[len("http://") :].split("/")[0].split(":")[0]
+    return host in ("localhost", "127.0.0.1", "[::1]", "::1")
+
+
 def _enviar(puntos: list[dict], base: str) -> None:
+    if not url_segura(base):
+        print(
+            f"\nNo se envía nada a {base}\n"
+            "Por http:// la cabecera con el token viaja SIN CIFRAR, y quien esté\n"
+            "en la misma red se lo lleva. Usa https:// (PythonAnywhere lo da), o\n"
+            "http://127.0.0.1 si estás probando en tu propia máquina."
+        )
+        sys.exit(1)
+
     token = os.environ.get("INGEST_TOKEN", "").strip()
     if not token:
         print(
