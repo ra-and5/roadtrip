@@ -187,6 +187,12 @@ button.secondary {
 
 .pois { margin: 0.6rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); }
 .pois li { margin-bottom: 0.25rem; }
+/* Cada punto es un enlace a Mapas. Se le da altura de línea generosa y no se
+   subraya para que la lista siga leyéndose como una lista y no como un muro de
+   enlaces — pero sigue siendo un objetivo cómodo de pulsar con el dedo en
+   marcha, que es cuando se usa esto. */
+.pois a { color: var(--muted); text-decoration: none; display: inline-block; padding: 0.15rem 0; }
+.pois a:hover, .pois a:focus { color: var(--fg); text-decoration: underline; }
 
 /* ---------- Fase 3: notas geolocalizadas y mapa ---------- */
 

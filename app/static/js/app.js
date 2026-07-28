@@ -299,9 +299,33 @@
     pois.forEach(function (poi) {
       const km = poi.distance_m / 1000;
       const li = document.createElement("li");
-      li.textContent =
+
+      /* Cada punto es un enlace que abre Mapas con la ruta puesta. Una lista de
+       * nombres y distancias a la que no puedes ir es media función: lo que se
+       * quiere saber al leerla es "¿cómo llego?".
+       *
+       * Se usa el enlace universal de Apple (`maps.apple.com`) y no el esquema
+       * `geo:`, que es el estándar y NO lo entiende Safari en iOS. El único
+       * cliente real de esta app es un iPhone, así que se elige el que funciona
+       * donde se usa; el día que haya Android, `geo:lat,lon` es el cambio.
+       *
+       * `daddr` abre la ruta desde donde estés. `q` pone el nombre en la
+       * chincheta, porque llegar a unas coordenadas sin saber a qué has llegado
+       * es peor que no ir.
+       *
+       * El nombre va por encodeURIComponent: hay POIs con comillas, comas y
+       * acentos (aquí mismo hay uno que se llama "Dibuixar l'espai"), y sin
+       * escapar romperían la URL en silencio. */
+      const enlace = document.createElement("a");
+      enlace.href =
+        "https://maps.apple.com/?daddr=" + poi.lat + "," + poi.lon +
+        "&q=" + encodeURIComponent(poi.name);
+      enlace.rel = "noopener";
+      enlace.textContent =
         (km < 1 ? poi.distance_m + " m" : km.toFixed(1) + " km") +
         " — " + poi.name + " (" + poi.category + ")";
+
+      li.appendChild(enlace);
       list.appendChild(li);
     });
     detalle.hidden = false;

@@ -260,3 +260,22 @@ def test_buscar_sitios_necesita_sesion() -> None:
 def test_buscar_sitios_valida_las_coordenadas(sesion: Any) -> None:
     assert sesion.post("/api/pois", json={"lat": 999, "lon": 0}).status_code == 400
     assert sesion.post("/api/pois", json={"lat": LAT}).status_code == 400
+
+
+def test_cada_punto_trae_sus_coordenadas(sesion: Any,
+                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sin `lat`/`lon` el frontend no puede montar el enlace a Mapas.
+
+    Es un contrato con la pantalla, no un detalle interno: si alguien recortara
+    el `to_dict()` del POI "porque el mapa no los usa", los enlaces dejarían de
+    funcionar sin que ningún test lo notara.
+    """
+    monkeypatch.setattr(
+        location_context, "_fetch_overpass",
+        lambda query: {"elements": [_elemento("Playa de Aguilar", 43.5580, -6.1200)]},
+    )
+
+    punto = sesion.post("/api/pois", json={"lat": LAT, "lon": LON}).get_json()["pois"][0]
+
+    assert punto["lat"] == pytest.approx(43.5580)
+    assert punto["lon"] == pytest.approx(-6.1200)

@@ -907,6 +907,22 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       inventados sin dar ningún error. Sale casi gratis rearmarlo, porque la
       pantalla acaba de pedirlo y Nominatim y Open-Meteo están cacheados.
 
+    **Cada punto de interés es un enlace que abre Mapas con la ruta puesta**, y
+    los POIs **no** se pintan en `/mapa`. Las dos mitades son la misma decisión:
+    `/mapa` es el registro de **dónde has estado** —notas, fotos, trayecto,
+    kilómetros, comunidades— y los POIs son **dónde podrías ir**: no los has
+    visitado, salen de una consulta que caduca en 7 días y cambian según dónde
+    estés parado. Mezclarlos haría que el mapa del viaje dejara de significar
+    una cosa sola, justo el mapa que dentro de un mes tiene que contar el viaje.
+    Para verlos sobre un mapa está el enlace, que los abre en el que ya llevas
+    en el bolsillo.
+
+    Se usa el enlace universal de Apple (`maps.apple.com/?daddr=`) y no el
+    esquema estándar `geo:`, que **Safari en iOS no entiende**. El único cliente
+    real de esta app es un iPhone, así que se elige el que funciona donde se
+    usa; el día que haya Android, `geo:lat,lon` es el cambio y está anotado en
+    el código.
+
     Los POIs **no** entran en el contexto. Son la fuente cara y poco fiable
     (Overpass, decisión 22), así que van aparte y quien llama decide si los
     paga: la pantalla rápida no los pide.
