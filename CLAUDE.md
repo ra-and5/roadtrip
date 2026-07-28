@@ -1277,6 +1277,43 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       dato inventado por nosotros. Es el corolario de la decisión 22 llegando
       hasta el prompt.
 
+38. **El aviso de disco mide lo NUESTRO contra una cuota declarada, no el
+    espacio libre del volumen.** Es un fallo de la decisión 11 que sobrevivió
+    meses en el peor sitio posible —la herramienta con la que compruebas si el
+    despliegue está sano— y que nadie vio porque **imprimía una línea verde**.
+
+    `shutil.disk_usage()` contesta por el sistema de archivos, y en
+    PythonAnywhere eso son **1,6 TB**: la cuota de 512 MB es un límite de la
+    **cuenta**, impuesto aparte. Con ese número, el aviso de "por debajo de 50
+    MB" no podía saltar jamás, y el presupuesto de las miniaturas —que es lo
+    siguiente que toca— colgaba de él.
+
+    Ahora la cuota se **declara** (`DISCO_CUOTA_MB`, 512 por defecto) porque no
+    se puede preguntar, y se compara contra lo que ocupamos. Tres decisiones
+    dentro:
+
+    - **Se suma `st_blocks * 512`, no `st_size`.** Es lo que mide una cuota y lo
+      mismo que da `du`, que es con lo que se va a contrastar desde la consola
+      del servidor. `st_size` ignora el redondeo a bloques, y un virtualenv son
+      decenas de miles de archivos pequeños: la diferencia no es cosmética.
+    - **Se mide el repositorio y el virtualenv, y el virtualenv solo si cae
+      fuera del repo.** En el servidor vive en `~/.virtualenvs/`; en local suele
+      ser un `.venv/` dentro, que el recorrido del repo ya suma. Contarlo en los
+      dos casos daría el doble justo del mayor inquilino de la cuota y el aviso
+      saltaría con la mitad del disco libre — cambiar un fallo mudo por uno
+      ruidoso *y* falso no es una mejora.
+    - **El hueco se declara.** Contra la misma cuota cuentan los logs de
+      PythonAnywhere y cualquier cosa del `$HOME`, que aquí no se recorren. Así
+      que la cifra es un **suelo** y lo dice; `du -sh ~` sigue siendo la verdad
+      de referencia. Medido en local: 153 MB contra los 157 de `du`, y la
+      diferencia son las entradas de directorio. Un hueco declarado se entiende;
+      lo que se estaba arreglando es justo lo contrario.
+
+    Y `libres_mb()` es una función con nombre y con test en vez de tres líneas
+    dentro del diagnóstico, por la regla de siempre: lo único que **decide** algo
+    aquí es si sale un aviso o no, y eso es exactamente lo que estuvo roto sin
+    dar la cara.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

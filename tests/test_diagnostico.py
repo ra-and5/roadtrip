@@ -1,0 +1,146 @@
+"""Tests de la medida de disco de `tools/diagnostico.py`.
+
+Un diagnóstico sin tests parece lo último que merece pruebas, y aquí es al
+revés: esta comprobación **ya estuvo rota meses sin que nadie lo notara**.
+Preguntaba por el espacio libre del volumen (`shutil.disk_usage`), y en
+PythonAnywhere eso son 1,6 TB, porque la cuota de 512 MB es un límite de la
+cuenta impuesto aparte del sistema de archivos. Resultado: el aviso de "por
+debajo de 50 MB" no podía saltar jamás, y aun así el diagnóstico imprimía una
+línea verde y tranquilizadora en cada ejecución.
+
+Es el fallo silencioso de la decisión 11 en el peor sitio posible —la
+herramienta con la que compruebas si el despliegue está sano— y lo que se fija
+aquí es lo que impide que vuelva:
+
+  - se mide lo que ocupa de verdad (bloques), que es lo que cuenta una cuota;
+  - un enlace duro no se cuenta dos veces;
+  - el aviso salta por debajo del umbral, y no salta por encima.
+
+Sin red, sin API keys y sin tocar la base de datos: todo pasa en un `tmp_path`.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+from pathlib import Path
+
+import pytest
+
+# `tools/` son scripts, no un paquete: se cargan por ruta, igual que en
+# `test_simulador.py`. Convertir tools/ en paquete solo para poder testear una
+# función sería peor.
+_RUTA = Path(__file__).resolve().parent.parent / "tools" / "diagnostico.py"
+_spec = importlib.util.spec_from_file_location("diagnostico", _RUTA)
+assert _spec and _spec.loader
+diagnostico = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(diagnostico)
+
+
+def _escribir(ruta: Path, kib: int) -> None:
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(b"\0" * kib * 1024)
+
+
+def test_mide_lo_que_hay_dentro_y_no_el_volumen(tmp_path: Path) -> None:
+    """Lo que se pregunta es "cuánto ocupo yo", no "cuánto cabe en el disco".
+
+    Un tera libre en la máquina no dice nada cuando el límite que te frena son
+    512 MB de cuota de la cuenta.
+    """
+    _escribir(tmp_path / "a.bin", 400)
+    _escribir(tmp_path / "sub" / "b.bin", 600)
+
+    medido = diagnostico.uso_mb([tmp_path])
+
+    # ~1 MiB de contenido. El margen es por el redondeo a bloques del sistema de
+    # archivos, que es justamente lo que esta función NO ignora.
+    assert 0.9 < medido < 1.2
+
+
+def test_un_enlace_duro_no_se_cuenta_dos_veces(tmp_path: Path) -> None:
+    """Dos nombres, un solo juego de bloques.
+
+    Contarlo dos veces inventaría ocupación, y un aviso de disco que salta sin
+    motivo se aprende a ignorar — con lo que el día que sea de verdad tampoco
+    se mirará.
+    """
+    original = tmp_path / "grande.bin"
+    _escribir(original, 1024)
+    solo_original = diagnostico.uso_mb([tmp_path])
+
+    os.link(original, tmp_path / "copia.bin")
+
+    assert diagnostico.uso_mb([tmp_path]) == pytest.approx(solo_original)
+
+
+def test_una_ruta_que_no_existe_no_revienta(tmp_path: Path) -> None:
+    """`UPLOAD_DIR` no existe hasta la primera foto, y eso no es un error.
+
+    Esta función corre dentro del diagnóstico, que existe para cuando las cosas
+    ya van mal: reventar aquí escondería el resto de las comprobaciones.
+    """
+    assert diagnostico.uso_mb([tmp_path / "no-existe"]) == 0.0
+
+
+def test_el_aviso_salta_por_debajo_del_umbral() -> None:
+    """El umbral existe para avisar ANTES del problema, no a la vez.
+
+    Los MB se calculan contra `MIN_DISCO_MB` y no contra un 50 escrito a mano:
+    si alguien mueve el umbral, este test sigue comprobando lo mismo.
+    """
+    cuota = 512.0
+    usado = cuota - diagnostico.MIN_DISCO_MB + 10  # quedan 40, y el umbral es 50
+
+    with pytest.raises(RuntimeError, match="libera sitio"):
+        diagnostico.libres_mb(usado, cuota)
+
+
+def test_con_margen_no_avisa_y_dice_cuanto_queda() -> None:
+    """Y no avisar es la mitad del contrato: un aviso permanente se ignora."""
+    cuota = 512.0
+    usado = 118.0
+
+    assert diagnostico.libres_mb(usado, cuota) == pytest.approx(394.0)
+
+
+def test_la_cuota_no_se_pregunta_al_sistema_de_archivos() -> None:
+    """El bug original, fijado donde se pueda ver.
+
+    Este test corre en una máquina con cientos de GB libres y aun así el aviso
+    tiene que saltar, porque lo que frena no es el volumen sino la cuota de la
+    cuenta. Volver a `shutil.disk_usage()` lo pondría en rojo.
+    """
+    with pytest.raises(RuntimeError):
+        diagnostico.libres_mb(usado_mb=500.0, cuota_mb=512.0)
+
+
+def test_el_virtualenv_no_se_cuenta_dos_veces_si_esta_dentro_del_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un `.venv/` en la raíz ya lo suma el recorrido del repositorio.
+
+    En el servidor el virtualenv vive fuera (`~/.virtualenvs/`) y hay que
+    sumarlo aparte; en local suele estar dentro. Sumarlo en los dos casos daría
+    el doble justo del mayor inquilino de la cuota —~101 MB de 512— y el aviso
+    saltaría con la mitad del disco libre.
+    """
+    monkeypatch.setattr(diagnostico, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(diagnostico.sys, "prefix", str(tmp_path / ".venv"))
+    monkeypatch.setattr(diagnostico.sys, "base_prefix", "/usr")
+
+    assert diagnostico._raiz_venv() is None
+
+
+def test_sin_virtualenv_no_se_mide_el_python_del_sistema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`sys.prefix == sys.base_prefix` significa que no hay virtualenv.
+
+    Medirlo entonces sería recorrer un miniconda de varios GB que no tiene nada
+    que ver con este proyecto, y dar por ocupada una cuota que está vacía.
+    """
+    monkeypatch.setattr(diagnostico.sys, "prefix", "/usr")
+    monkeypatch.setattr(diagnostico.sys, "base_prefix", "/usr")
+
+    assert diagnostico._raiz_venv() is None

@@ -214,6 +214,14 @@ class Config:
     DB_PATH: Path = DATA_DIR / "roadtrip.db"
     UPLOAD_DIR: Path = DATA_DIR / "uploads"
 
+    # Cuánto disco tenemos EN TOTAL, en MB. No se puede preguntar: en
+    # PythonAnywhere la cuota de 512 MB es un límite de la cuenta, impuesto
+    # aparte del sistema de archivos, y `shutil.disk_usage()` contesta por el
+    # volumen subyacente — 1,6 TB medidos en el servidor. Un número que no es el
+    # que te va a frenar. Por eso se declara aquí en vez de medirse, y por eso
+    # es configurable: el día que el plan cambie, cambia esta línea.
+    DISCO_CUOTA_MB: float = float(_env("DISCO_CUOTA_MB", default="512"))
+
     # --- APIs externas ---
     # La política de uso de Nominatim EXIGE un User-Agent identificable con
     # forma de contacto. Sin esto pueden bloquear tu IP.

@@ -18,10 +18,11 @@ interfaz, no lo que ves tú depurando.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import time
 import traceback
+from pathlib import Path
+from typing import Iterable
 
 # Este script vive en tools/, así que Python pone tools/ en el path, no la
 # raíz del proyecto. Sin esto, `from app.config import Config` falla.
@@ -31,6 +32,76 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # se rompe, es donde todavía da tiempo a hacer algo: el margen existe para que
 # el aviso llegue ANTES del problema, no a la vez.
 MIN_DISCO_MB = 50
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# El virtualenv, que en el servidor son ~101 MB de los 512 y es el mayor
+# inquilino de la cuota. Se cuenta aparte SOLO cuando cae fuera del repositorio
+# (en PythonAnywhere vive en ~/.virtualenvs/), porque si está dentro —un `.venv`
+# en la raíz, que es lo normal en local— el recorrido del repo ya lo ha sumado y
+# volver a contarlo daría el doble.
+#
+# Y `sys.prefix == sys.base_prefix` significa que NO hay virtualenv: se está
+# corriendo con el Python del sistema. Medirlo entonces sería recorrer un
+# miniconda de varios GB que no tiene nada que ver con este proyecto.
+def _raiz_venv() -> Path | None:
+    if sys.prefix == sys.base_prefix:
+        return None
+    prefix = Path(sys.prefix).resolve()
+    return None if prefix.is_relative_to(BASE_DIR) else prefix
+
+
+def uso_mb(rutas: Iterable[Path]) -> float:
+    """Cuánto disco ocupan de verdad esas rutas, en MB.
+
+    Se suma `st_blocks * 512` y no `st_size`, que es la diferencia entre lo que
+    mide una cuota y lo que mide un `ls`: el sistema de archivos reserva bloques
+    enteros, así que diez mil archivos de 100 bytes —un virtualenv -— ocupan
+    mucho más de un mega. Es el mismo número que da `du`, que es con lo que se
+    va a contrastar esto desde una consola del servidor.
+
+    Los inodos ya vistos no se vuelven a sumar: un enlace duro apunta a bloques
+    que ya están contados, y contarlos dos veces inventaría ocupación.
+
+    Un archivo que desaparece a mitad del recorrido (un `.db-wal`, un temporal
+    de pip) se ignora en vez de reventar el diagnóstico entero: esta función
+    existe precisamente para las veces en que algo va mal.
+    """
+    vistos: set[tuple[int, int]] = set()
+    bloques = 0
+    for raiz in rutas:
+        if not raiz.exists():
+            continue
+        for directorio, _, archivos in os.walk(raiz):
+            for nombre in archivos:
+                try:
+                    st = os.lstat(os.path.join(directorio, nombre))
+                except OSError:
+                    continue
+                clave = (st.st_dev, st.st_ino)
+                if clave in vistos:
+                    continue
+                vistos.add(clave)
+                bloques += st.st_blocks
+    return bloques * 512 / (1024 * 1024)
+
+
+def libres_mb(usado_mb: float, cuota_mb: float) -> float:
+    """Cuánto queda de la cuota. Lanza `RuntimeError` si queda poco.
+
+    Es una función y no tres líneas dentro del diagnóstico porque es la única
+    parte de esta comprobación que decide algo, y lo que decide es si sale un
+    aviso o no. Justo lo que estuvo roto: cuando el umbral no puede alcanzarse,
+    nada falla y nadie se entera.
+    """
+    libres = cuota_mb - usado_mb
+    if libres < MIN_DISCO_MB:
+        raise RuntimeError(
+            f"quedan {libres:.0f} MB de la cuota de {cuota_mb:.0f} (menos de "
+            f"{MIN_DISCO_MB}): libera sitio antes de que la app deje de poder "
+            f"escribir. Mira dónde se fue con `du -sh ~/* ~/.virtualenvs/*`"
+        )
+    return libres
 
 
 def check(nombre: str, fn) -> bool:
@@ -162,18 +233,35 @@ def main() -> None:
     # mitad de viaje no puede ser una sorpresa, y en PythonAnywhere un disco
     # lleno no degrada, rompe la app entera (SQLite necesita sitio hasta para
     # leer, porque escribe el WAL).
+    #
+    # Esto MEDÍA el volumen y no la cuota, así que no servía para nada: en
+    # PythonAnywhere `shutil.disk_usage()` contestaba 1,6 TB libres y el aviso
+    # de "por debajo de 50 MB" no podía saltar jamás. Un número tranquilizador
+    # y falso, que es peor que no tener número. Ahora se mide lo que ocupamos
+    # nosotros y se compara contra la cuota declarada en la configuración.
+    #
+    # El hueco, dicho en voz alta en vez de disimulado: esto suma el repositorio
+    # y el virtualenv, y contra la misma cuota cuentan también los logs de
+    # PythonAnywhere y cualquier otra cosa que haya en el $HOME. Así que la
+    # cifra es un suelo, no el total, y `du -sh ~` sigue siendo la verdad de
+    # referencia. Un hueco declarado se entiende; el que estamos arreglando es
+    # justo el contrario.
     def _disco() -> str:
-        libres = shutil.disk_usage(Config.DATA_DIR).free / (1024 * 1024)
-        subidas = sum(
-            f.stat().st_size for f in Config.UPLOAD_DIR.rglob("*") if f.is_file()
-        ) / (1024 * 1024)
-        detalle = f"{libres:.0f} MB libres, uploads {subidas:.1f} MB"
-        if libres < MIN_DISCO_MB:
-            raise RuntimeError(
-                f"quedan {libres:.0f} MB (menos de {MIN_DISCO_MB}): "
-                f"libera sitio antes de que la app deje de poder escribir"
-            )
-        return detalle
+        venv_dir = _raiz_venv()
+        repo = uso_mb([BASE_DIR])
+        venv = uso_mb([venv_dir]) if venv_dir else 0.0
+        subidas = uso_mb([Config.UPLOAD_DIR])
+        usado = repo + venv
+        libres = libres_mb(usado, Config.DISCO_CUOTA_MB)
+        # Un "venv 0" se leería como "no hay virtualenv", que es otra cosa
+        # distinta de "está dentro del repo y ya va contado ahí arriba".
+        desglose = f"repo {repo:.0f}"
+        if venv_dir:
+            desglose += f", venv {venv:.0f}"
+        return (
+            f"{usado:.0f} MB de {Config.DISCO_CUOTA_MB:.0f} usados, "
+            f"quedan {libres:.0f}  ({desglose}, uploads {subidas:.1f})"
+        )
     check("espacio en disco", _disco)
 
     place = None

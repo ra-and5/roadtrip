@@ -191,12 +191,14 @@ Está **hecha y desplegada**, y funciona en el iPhone. Lo que falta:
 - **Las tres acciones sobrantes del atajo** (`Fecha actual`, `Obtener inicio del
   día`, `INICIO_DIA`), que quedaron inútiles al pasar a `es hoy`. Inofensivas,
   pero sobran.
-- **El aviso de disco sigue roto**, y esto viene del §8 del encargo anterior sin
-  hacer: `tools/diagnostico.py` informa `1610543 MB libres` en PythonAnywhere
-  (1,6 TB), o sea que lee el sistema de archivos subyacente y **no la cuota de
-  512 MB** de la cuenta. El aviso de "por debajo de 50 MB" **no va a saltar
-  nunca**, y el plan de miniaturas depende de él. Hay que medir lo que ocupa lo
-  nuestro (`du` sobre el home) en vez de preguntar por el volumen.
+- ~~**El aviso de disco sigue roto**~~ ✅ **Hecho el 29-07-2026.** Ya no pregunta
+  por el volumen (1,6 TB en PythonAnywhere): mide lo que ocupamos —repositorio y
+  virtualenv, con `st_blocks`, que es lo que cuenta una cuota— y lo compara
+  contra `DISCO_CUOTA_MB`, declarada porque esa cuota es un límite de la cuenta y
+  no se puede preguntar. En local dice `153 MB de 512 usados, quedan 359`, contra
+  los 157 que da `du -sm`; la diferencia son las entradas de directorio, y por
+  eso la cifra se documenta como un **suelo**: los logs de PythonAnywhere cuentan
+  contra la misma cuota y no están dentro. Con tests en `tests/test_diagnostico.py`.
 
 ---
 

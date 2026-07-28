@@ -628,9 +628,15 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
   ocupa ~101 MB, el repositorio ~3 MB y la base de datos crece despacio (una
   nota de texto son ~200 bytes; un mes entero escribiendo diez notas al día no
   llega a 1 MB). Con las fotos aplazadas, el disco **no es hoy un problema**, y
-  aun así `python tools/diagnostico.py` avisa por debajo de **50 MB libres**:
-  en PythonAnywhere un disco lleno no degrada, rompe la app entera, porque
-  SQLite necesita sitio hasta para leer (escribe el WAL). Cuando lleguen las
+  aun así `python tools/diagnostico.py` enseña *cuánto ocupamos de la cuota* y
+  avisa por debajo de **50 MB libres**: en PythonAnywhere un disco lleno no
+  degrada, rompe la app entera, porque SQLite necesita sitio hasta para leer
+  (escribe el WAL). Ojo con cómo se mide: la cuota es un límite de la **cuenta**,
+  no del sistema de archivos, así que preguntar por el espacio libre del volumen
+  contesta 1,6 TB y el aviso no salta jamás. Se declara en `DISCO_CUOTA_MB` (512
+  por defecto) y se compara contra lo que ocupan el repositorio y el virtualenv;
+  los logs de PythonAnywhere cuentan aparte, así que `du -sh ~` sigue siendo la
+  referencia. Cuando lleguen las
   fotos: ~355 MB disponibles a ~450 KB por foto son **~780 fotos**, unas 26 al
   día durante un mes.
 - **Fechas siempre en UTC (ISO-8601).** Se convierten a hora local solo al
