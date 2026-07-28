@@ -136,6 +136,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
+| 5 | Contexto único, luna, limpieza de la pantalla | ⬜ **Siguiente** — encargo en [`docs/prompt-fase5.md`](docs/prompt-fase5.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -263,8 +264,10 @@ dominios, y un host no permitido devuelve un **403 del proxy** que la app ve
 como "fuente caída" y degrada en silencio. Por eso el checklist obliga a correr
 `tools/diagnostico.py` **en el servidor** antes de tocar el móvil.
 
-**Proveedor activo: Kimi** (`kimi-k3`), verificado generando recomendaciones
-reales. Es de prepago y queda saldo; el diagnóstico lo consulta al final para
+**Proveedor activo en el servidor: Gemini** (`gemini-3.6-flash`), comprobado en
+el diagnóstico del 28-07-2026 (`LLM_PROVIDER=gemini`, 4 actividades en 11,8 s).
+**Kimi** (`kimi-k3`) está configurado y verificado generando recomendaciones
+reales, pero hoy no es el que corre. Es de prepago y queda saldo; el diagnóstico lo consulta al final para
 que la cifra ya refleje lo que acaba de gastarse. **Anthropic sigue sin saldo**
 (confirmado: la API devuelve 400 con *"Your credit balance is too low"*), y
 **Gemini queda como alternativa gratuita**, también verificada en ~11 s con
