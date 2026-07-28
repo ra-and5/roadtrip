@@ -149,7 +149,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
-| 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Chatbot hecho** (`/chat`, decisión 37) y métricas en el contexto. Falta cerrar la 2d con datos reales |
+| 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -157,7 +157,7 @@ Leaflet servido por nosotros, y progreso del viaje (sitios, días, racha,
 tablero de 19 comunidades, comparación entre años). Las fotos se aplazaron a
 propósito (decisión 27) y su diseño queda escrito para cuando toquen.
 
-Lo que **sí** está probado, y no solo por la suite (340 tests): la cola offline
+Lo que **sí** está probado, y no solo por la suite (481 tests): la cola offline
 se ejecutó entera en un Chrome de escritorio, cortando la red a mano, y los
 cuatro caminos se comportaron como debían. Con `fetch` fallando, la nota se
 guardó en IndexedDB y la interfaz enseñó "1 nota por enviar"; al disparar
@@ -635,6 +635,15 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     filtrando por `Origen` en la propia búsqueda. La comprobación que lo caza, y
     que hay que hacer siempre al montar esto en un móvil nuevo: **ejecutar el
     atajo y comparar con lo que dice la app Salud para hoy.**
+
+    **Cerrado el 29-07-2026.** El filtro `Origen` está puesto en el atajo y el
+    número que envía **coincide con la app Salud**. Se anota la fecha porque la
+    diferencia entre "el arreglo está descrito" y "el arreglo está comprobado"
+    es justamente lo que este proyecto se toma en serio: un doble conteo no da
+    error, así que solo la comparación contra la app que ya enseña el dato
+    demuestra que se acabó. Lo que sigue sin estar cerrado es otra cosa —que
+    lleguen datos **solos y sin huecos** durante días—, y eso no lo arregla
+    ningún filtro.
 
     Consecuencia obligatoria: **la columna `pasos` cambia de significado**, así
     que las muestras anteriores a ese cambio hay que borrarlas. Mezclar ventanas

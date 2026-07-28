@@ -41,7 +41,13 @@ referencia externa (tutiempo.net: salida 20:54).
 
 ---
 
-## 1. LO PRIMERO: los pasos se cuentan dos veces
+## 1. LO PRIMERO: los pasos se cuentan dos veces — ✅ CERRADO (29-07-2026)
+
+El filtro `Origen` está puesto en el atajo y **el número coincide con la app
+Salud**. Esa comparación es la que cierra el apartado, y no otra: un doble
+conteo no da ningún error, así que la única prueba posible es contrastarlo
+contra la app que ya enseña el dato. El texto original queda debajo, porque el
+razonamiento vale para cada métrica nueva que venga.
 
 **Es la tarea principal de la fase y va antes que cualquier otra cosa.** No es
 una mejora: es que el dato que se está guardando **es falso**.
@@ -227,11 +233,11 @@ una serie.
 
 ## 7. Verificación
 
-- **Tests sin red y sin API keys.** La suite son **434** y `tests/conftest.py`
-  **corta los sockets**, así que "sin red" ya no es una promesa sino algo que
-  falla ruidosamente si alguien lo incumple.
-- **Los pasos, contra la app Salud.** Es la única comprobación que cierra el §1,
-  y no la puede hacer la suite: hay que mirar el móvil.
+- **Tests sin red y sin API keys.** La suite son **481** (eran 434 al escribir
+  esto) y `tests/conftest.py` **corta los sockets**, así que "sin red" ya no es
+  una promesa sino algo que falla ruidosamente si alguien lo incumple.
+- **Los pasos, contra la app Salud.** ✅ Hecho el 29-07-2026: coinciden. Era la
+  única comprobación que cerraba el §1, y no la puede hacer la suite.
 - **Los huecos, contra el calendario.** `ver_telemetria.py 50` y contar: seis
   muestras por día, todos los días.
 - **Si se toca el contexto, medir otra vez.** Hoy `/api/contexto` está por debajo
