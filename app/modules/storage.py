@@ -416,6 +416,24 @@ def delete_telemetry(ids: Sequence[int]) -> int:
         return cur.rowcount
 
 
+def delete_telemetry_by_source(fuente: str) -> int:
+    """Borra TODAS las muestras de una fuente. Devuelve cuántas.
+
+    Existe por los datos simulados: si se pueden sembrar, tiene que haber una
+    forma de un solo comando de volver a dejar la tabla con lo que llegó de
+    verdad. Sin ella, quitar la simulación sería una lista de ids copiada a mano
+    desde una consola -- justo el trabajo que nadie hace bien a la tercera vez,
+    y que dejaría muestras falsas mezcladas con las buenas sin dar ningún error.
+
+    Se borra por fuente y no por rango de fechas a propósito: la fuente es lo
+    que separa las dos series, y borrar "desde el día tal" se llevaría por
+    delante muestras reales del mismo periodo.
+    """
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM telemetria WHERE fuente = ?", (fuente,))
+        return cur.rowcount
+
+
 def recent_telemetry(limit: int = 20) -> list[dict[str, Any]]:
     """Las últimas muestras por instante de medida, la más reciente primero.
 

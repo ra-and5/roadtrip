@@ -28,6 +28,13 @@ decenas de muestras caen en la **misma clave de caché** (coordenada redondeada 
 ~110 m) y son una sola petición. Y si no hay red, se enseñan las coordenadas y
 ya está: se degrada, no se pierde nada.
 
+Las filas que NO vienen del móvil salen marcadas con `~` y con un aviso arriba.
+Hoy eso son las de `tools/simular_telemetria.py`, que existen para poder
+construir encima sin esperar semanas. Marcarlas no es cortesía: una tabla en la
+que un dato inventado se lee igual que uno medido es exactamente el fallo
+silencioso de la decisión 11, y encima en la herramienta con la que se decide
+si la fase se puede cerrar.
+
 La columna que de verdad importa es **retraso**: `recibido_en - medido_en`. En
 régimen normal son minutos. Varias horas significa que el móvil estuvo sin
 cobertura y la ventana solapada recuperó esas muestras al volver la señal, que
@@ -52,6 +59,9 @@ from app.modules.location_context import reverse_geocode  # noqa: E402
 # son 44 caracteres y no cabe: se recorta, porque una columna que se ensancha
 # sola descuadra la tabla entera en una consola de 80.
 _ANCHO_DONDE = 30
+
+# La única fuente que llega de un móvil de verdad. Todo lo demás se marca.
+_FUENTE_REAL = "atajos-iphone"
 
 
 def _nombres(filas: list) -> dict[tuple, str]:
@@ -160,19 +170,25 @@ def main() -> None:
         )
         return
 
-    print(f"\nÚltimas {len(filas)} muestras (la más reciente primero):\n")
+    print(f"\nÚltimas {len(filas)} muestras (la más reciente primero):")
+    if any(f["fuente"] != _FUENTE_REAL for f in filas):
+        print(
+            f"\n  ~  = muestra SIMULADA, no llegó del móvil. Para quitarlas:\n"
+            f"     python tools/simular_telemetria.py --limpiar"
+        )
+    print()
     # El id se muestra para poder pasárselo a --borrar. Sin él, la opción de
     # borrar existiría pero no habría forma de saber qué borrar.
     sitios = {} if crudas else _nombres(filas)
 
     if crudas:
         cabecera = (
-            f"{'id':>5} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
+            f"{'id':>6} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
             f"{'lat':>9} {'lon':>10} {'retraso':>8}"
         )
     else:
         cabecera = (
-            f"{'id':>5} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
+            f"{'id':>6} {'medido_en (UTC)':<26} {'huso':>6} {'pasos':>7} {'bat':>4} "
             f"{'dónde':<{_ANCHO_DONDE}} {'retraso':>8}"
         )
     print(cabecera)
@@ -183,7 +199,11 @@ def main() -> None:
         bateria = "-" if f["bateria"] is None else f"{f['bateria']}%"
         huso = f["offset_original"] or "UTC"
         retraso = _retraso(f["medido_en"], f["recibido_en"])
-        comun = f"{f['id']:>5} {f['medido_en']:<26} {huso:>6} {pasos:>7} {bateria:>4} "
+        # El `~` va pegado al id, en la primera columna: es lo primero que se
+        # lee al recorrer la tabla con la vista, y así ninguna fila inventada
+        # se cuela como medida ni de reojo.
+        etiqueta = f["id"] if f["fuente"] == _FUENTE_REAL else f"~{f['id']}"
+        comun = f"{etiqueta:>6} {f['medido_en']:<26} {huso:>6} {pasos:>7} {bateria:>4} "
 
         if crudas:
             lat = "-" if f["lat"] is None else f"{f['lat']:.5f}"

@@ -116,6 +116,10 @@ python tools/ver_telemetria.py             # últimas muestras recibidas del mó
 python tools/ver_telemetria.py 50          # las 50 últimas
 python tools/ver_telemetria.py --coords    # con lat/lon en vez del nombre del sitio
 python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
+python tools/simular_telemetria.py         # siembra 7 días de telemetría SIMULADA
+python tools/simular_telemetria.py 14      # 14 días
+python tools/simular_telemetria.py --ver   # enseña lo que haría, sin guardar nada
+python tools/simular_telemetria.py --limpiar  # borra lo simulado; no toca lo real
 python tools/ver_notas.py                  # notas del viaje + progreso del mapa
 python tools/ver_notas.py 50               # las 50 últimas
 python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
@@ -136,7 +140,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | — | **Verificado de extremo a extremo con Gemini** (`gemini-3.6-flash`) | ✅ |
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
-| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
+| 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando y **formato dado por bueno**; sin cerrar (faltan días de datos reales). El volumen se **simula** para no bloquear lo de encima (decisión 36) |
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
@@ -226,6 +230,15 @@ pantalla, gráfica ni resumen; para mirar los datos está
 construye sobre las **notas**, que son otra fuente; cuando la telemetría lleve
 días demostrando que llega, dibujar el trayecto encima es casi gratis, porque
 `lat`/`lon` ordenados por `medido_en` ya *son* la ruta.
+
+**Cambio del 28-07-2026: el FORMATO se da por bueno, el VOLUMEN se simula.** El
+atajo se pide a mano y la muestra llega completa y bien formada, así que la
+forma del dato ya no es la pregunta abierta. Lo que falta sigue siendo tiempo, y
+esperarlo bloqueaba todo lo que va encima. Desde ahora
+`tools/simular_telemetria.py` siembra la serie que aún no existe para poder
+escribir y probar el dashboard y el chatbot (decisión 36). **Lo que NO cambia:**
+la fase sigue sin cerrar, y si la telemetría es fiable se responde mirando las
+filas `atajos-iphone` y ninguna otra. Una simulación no cierra nada.
 
 Montar el atajo dejó cuatro trampas documentadas en
 [`docs/atajo-iphone.md`](docs/atajo-iphone.md) que no se ven venir: los
@@ -1131,6 +1144,66 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Lo que **no** se ha tocado, a propósito: la presentación del tiempo. El
     usuario lo aplazó ("eso con el tiempo") y el orden es el que manda el
     proyecto: los datos primero, la estética después.
+
+36. **La telemetría se SIMULA para poder construir, y la simulación vive en su
+    propia fuente.** Decidido por el usuario el 28-07-2026, y conviene entender
+    exactamente qué se ha dado por bueno y qué no, porque roza la regla central
+    del proyecto.
+
+    El problema: la 2d estaba esperando "días de datos sin huecos", y esa espera
+    bloqueaba el perfil de actividad, el dashboard y el contexto del chatbot. No
+    es una espera de trabajo, es de calendario.
+
+    Lo que se da por bueno: **el formato**. Se pide una ejecución del atajo a
+    mano y la muestra llega completa —hora ISO con su huso, pasos, batería y
+    coordenadas—, se guarda, y un reenvío devuelve `duplicadas`. Eso ya no es
+    una incógnita. Lo que sigue sin demostrarse es que **llegue sola y sin
+    huecos durante días**, que es otra pregunta y no la responde ningún
+    simulador.
+
+    Lo que se hace: `tools/simular_telemetria.py` siembra la serie que aún no
+    existe, con las horas de las seis automatizaciones reales.
+
+    **La decisión que hace que esto no sea el error del que avisa la decisión
+    11:** las muestras se guardan con `fuente = "simulado"`, nunca como
+    `atajos-iphone`. Sembrarlas bajo la fuente real habría sido fabricar una
+    serie inventada que dentro de un mes se lee como medida —el fallo silencioso
+    en su peor forma, y esta vez con la fuente sobre la que se iba a construir
+    el perfil de actividad—. Con fuente propia:
+
+    - `UNIQUE(fuente, medido_en)` mantiene las dos series **en paralelo**, así
+      que una muestra simulada nunca puede ocupar el hueco de una real ni
+      desplazarla. La invariante la garantiza el esquema, no que alguien se
+      acuerde (igual que la idempotencia de la ingesta, decisión 23);
+    - `ver_telemetria.py` marca las filas simuladas con `~` y avisa arriba;
+    - `--limpiar` las borra todas y deja intacto lo que llegó de verdad.
+
+    Y la regla no se levanta, se **acota**: cuando toque decidir si la
+    telemetría es fiable, eso se mira sobre las filas `atajos-iphone` y ninguna
+    otra.
+
+    Tres decisiones dentro del simulador, y las tres son "parecerse a lo que va
+    a pasar" antes que "quedar bonito":
+
+    - **Todo pasa por `ingest.ingest()`**, el mismo camino que una petición del
+      móvil. Escribir directo en la tabla habría permitido generar muestras que
+      el endpoint real rechaza, y entonces estaríamos probando contra una forma
+      que no existe. Lo fija un test que valida cada muestra generada.
+    - **Un día sin cobertura son muestras que FALTAN, no que llegan tarde.** El
+      atajo no tiene cola ni reintenta (decisión 23): un envío fallido se pierde.
+      Lo que se cura solo es el contador, porque el siguiente ya trae el
+      acumulado (decisión 25). Fabricar filas con `retraso` de horas habría
+      dibujado un comportamiento que este sistema no tiene, y alguien acabaría
+      construyendo encima contando con él.
+    - **`recibido_en` se inyecta** (`ingest(payload, recibido_en=...)`). No es
+      comodidad: se siembran días pasados, y con el reloj real cada muestra de
+      hace cinco días saldría con un `retraso` de cinco días, inutilizando justo
+      la columna que esta fase mira. En producción no se pasa y sale del reloj,
+      y hay un test que lo fija.
+
+    Y el simulador **no envía a producción**: escribe en la base de datos local.
+    Sembrar el servidor desplegado con datos inventados es otra decisión y
+    tendría que tomarse a propósito, no de rebote.
 
 ## 7. Roadmap
 

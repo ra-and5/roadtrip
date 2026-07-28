@@ -49,7 +49,16 @@ class IngestError(Exception):
 # (fuente, medido_en), la deduplicación dejaría de funcionar en silencio. Es la
 # clase de fallo de la decisión 11 —no da error, da datos equivocados— y aquí
 # cuesta una línea convertirlo en un 400 que se ve al primer envío.
-FUENTES_VALIDAS = frozenset({"atajos-iphone"})
+#
+# `simulado` es la segunda fuente, y no es un descuido: son las muestras que
+# genera `tools/simular_telemetria.py` para poder construir encima (dashboard,
+# chatbot, perfil de actividad) sin esperar semanas a que se acumulen datos
+# reales. Que tenga su propia fuente es la única razón por la que sembrarlas es
+# seguro: `UNIQUE(fuente, medido_en)` las mantiene en una serie paralela que no
+# choca con la del iPhone, se ven marcadas en `ver_telemetria.py`, y se borran
+# enteras con `--limpiar`. Mezclarlas bajo `atajos-iphone` habría sido el fallo
+# de la decisión 11 en su peor forma: una serie inventada que se lee como real.
+FUENTES_VALIDAS = frozenset({"atajos-iphone", "simulado"})
 FUENTE_POR_DEFECTO = "atajos-iphone"
 
 # La ventana de fechas aceptable vive en `timeparse`, compartida con las notas
@@ -324,11 +333,20 @@ def _fuente_de(payload: dict[str, Any]) -> str:
     return fuente
 
 
-def ingest(payload: Any) -> ResultadoIngesta:
+def ingest(payload: Any, recibido_en: str | None = None) -> ResultadoIngesta:
     """Valida un lote de muestras y guarda las buenas.
 
     `payload` viene ya deserializado. Devuelve el recuento; lanza `IngestError`
     si el lote entero no sirve.
+
+    `recibido_en` se inyecta, igual que `get_recommendations()` acepta un
+    `provider`: en producción no se pasa y sale del reloj, que es el dato
+    correcto. Lo pasa `tools/simular_telemetria.py`, y no por comodidad: siembra
+    días pasados, así que con el reloj real cada muestra de hace cinco días
+    quedaría con un `retraso` de cinco días. La columna que esta fase existe
+    para mirar es justo esa, y una serie entera con retrasos falsos de días la
+    dejaría inservible para lo único que sirve -- distinguir un envío normal de
+    una recuperación tras quedarse sin cobertura.
 
     El orden de las comprobaciones importa y va de barato a caro: primero la
     forma del cuerpo, luego el número de muestras, y solo después se valida
@@ -390,11 +408,11 @@ def ingest(payload: Any) -> ResultadoIngesta:
         # dato correcto (llegaron en la misma petición), agrupa las muestras
         # por envío, que es como se depura "esto llegó todo junto tras 5 h sin
         # cobertura".
-        recibido_en = datetime.now(timezone.utc).replace(microsecond=0).isoformat(
-            timespec="seconds"
-        )
+        instante = recibido_en or datetime.now(timezone.utc).replace(
+            microsecond=0
+        ).isoformat(timespec="seconds")
         guardadas, duplicadas = storage.insert_telemetry(
-            [m.to_row(recibido_en) for m in validas]
+            [m.to_row(instante) for m in validas]
         )
         resultado.guardadas = guardadas
         resultado.duplicadas = duplicadas

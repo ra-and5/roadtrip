@@ -106,6 +106,30 @@ python tools/ver_telemetria.py 50
 Mientras eso no esté demostrado **y** el §1 no esté arreglado, sigue sin
 construirse ningún análisis encima.
 
+### Actualización del 28-07-2026: el bloqueo se levanta, el criterio no
+
+El usuario da por bueno el **formato** —se pide una ejecución a mano y la muestra
+llega completa y bien formada— y decide no esperar al volumen para seguir
+construyendo. Se añade `tools/simular_telemetria.py`, que siembra la serie que
+todavía no existe con las horas de estas seis automatizaciones (decisión 36 de
+`CLAUDE.md`).
+
+Tres cosas que **no** cambian, y conviene que estén juntas para que nadie las lea
+de otra forma:
+
+- **El criterio de cierre de la 2d es el mismo.** Lo cierra que lleguen datos
+  solos y sin huecos durante días, y eso se mira sobre las filas `atajos-iphone`
+  y ninguna otra. Una simulación no cierra nada.
+- **El §1 sigue siendo un problema real.** El doble conteo de pasos está en el
+  atajo, en el iPhone, y ningún simulador lo arregla: hay que poner el filtro
+  `Origen` y comparar contra la app Salud. Si eso no se hace, el día que lleguen
+  datos reales llegarán al doble.
+- **Lo simulado se ve.** `ver_telemetria.py` marca esas filas con `~`, y
+  `--limpiar` las quita todas.
+
+Lo que sí cambia: ya se puede escribir el dashboard y el chatbot contra datos que
+tienen la forma buena, en vez de esperar dos semanas a tenerlos.
+
 ---
 
 ## 3. El chatbot

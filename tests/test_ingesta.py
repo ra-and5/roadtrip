@@ -880,3 +880,77 @@ def test_los_recuentos_siempre_suman_lo_enviado(cliente: Any) -> None:
     cuerpo = cliente.post(RUTA, json=_cuerpo(*muestras), headers=_auth()).get_json()
 
     assert cuerpo["guardadas"] + cuerpo["duplicadas"] + cuerpo["descartadas"] == 4
+
+
+# ---------------------------------------------------------------------------
+# La serie simulada, y la frontera que la separa de la real
+# ---------------------------------------------------------------------------
+
+def test_lo_simulado_y_lo_real_conviven_sin_taparse(cliente: Any) -> None:
+    """La MISMA hora en las dos fuentes son dos filas, no una duplicada.
+
+    Es lo que hace seguro sembrar datos inventados: el UNIQUE es
+    (fuente, medido_en), así que una muestra simulada nunca puede ocupar el
+    hueco de una real ni desplazarla. Si la clave fuera solo `medido_en`,
+    sembrar borraría en silencio muestras del móvil -- y sin dar ningún error,
+    que es lo que las haría imposibles de echar de menos.
+    """
+    instante = _iso(-timedelta(hours=1))
+
+    real = cliente.post(
+        RUTA, json=_cuerpo(_muestra(medido_en=instante)), headers=_auth()
+    ).get_json()
+    simulada = cliente.post(
+        RUTA,
+        json=_cuerpo(_muestra(medido_en=instante), fuente="simulado"),
+        headers=_auth(),
+    ).get_json()
+
+    assert real["guardadas"] == 1
+    assert simulada["guardadas"] == 1
+    assert simulada["duplicadas"] == 0
+    assert {f["fuente"] for f in _guardadas()} == {"atajos-iphone", "simulado"}
+
+
+def test_el_instante_de_recepcion_se_puede_inyectar() -> None:
+    """El simulador siembra días pasados, y con el reloj real todos saldrían
+    con un `retraso` de días. `retraso` es justo la columna que esta fase mira,
+    así que falsearla dejaría la tabla inservible para lo único que sirve.
+    """
+    recibido = _iso(-timedelta(hours=1))
+
+    ingest.ingest(
+        {"fuente": "simulado", "muestras": [_muestra(medido_en=_iso(-timedelta(hours=2)))]},
+        recibido_en=recibido,
+    )
+
+    assert _guardadas()[0]["recibido_en"] == recibido
+
+
+def test_sin_inyectar_el_instante_sale_del_reloj(cliente: Any) -> None:
+    """Que exista el parámetro no puede cambiar lo que hace producción."""
+    antes = _ahora().replace(microsecond=0)
+
+    cliente.post(RUTA, json=_cuerpo(_muestra()), headers=_auth())
+
+    recibido = datetime.fromisoformat(_guardadas()[0]["recibido_en"])
+    assert antes <= recibido <= _ahora()
+
+
+def test_limpiar_lo_simulado_no_toca_lo_real(cliente: Any) -> None:
+    """Poder deshacer la siembra de un comando es la otra mitad de que sembrar
+    sea seguro: sin ella, quitar los datos falsos sería una lista de ids
+    copiada a mano, y eso no se hace bien a la tercera vez.
+    """
+    cliente.post(RUTA, json=_cuerpo(_muestra()), headers=_auth())
+    cliente.post(
+        RUTA,
+        json=_cuerpo(
+            *(_muestra(medido_en=_iso(-timedelta(hours=h))) for h in (2, 3, 4)),
+            fuente="simulado",
+        ),
+        headers=_auth(),
+    )
+
+    assert storage.delete_telemetry_by_source("simulado") == 3
+    assert [f["fuente"] for f in _guardadas()] == ["atajos-iphone"]
