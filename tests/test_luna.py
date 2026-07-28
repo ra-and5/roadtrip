@@ -108,7 +108,12 @@ def test_la_luna_llena_del_encargo() -> None:
 
 
 def test_la_fase_no_necesita_red() -> None:
-    """Todo el sentido del híbrido: en un camper sin cobertura sigue habiendo luna.
+    """Con met.no caído (o bloqueado por el proxy) sigue habiendo luna.
+
+    OJO con lo que este test NO demuestra: no demuestra que la app sirva sin
+    cobertura. La app corre en el servidor, así que un móvil sin cobertura no
+    llega a pedir nada. Lo que demuestra es que un tercero caído no borra la
+    tarjeta entera.
 
     Si esto dejara de cumplirse, `conftest.py` lo caza — corta los sockets de
     toda la suite.

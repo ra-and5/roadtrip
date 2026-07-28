@@ -954,13 +954,30 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
 34. **La luna es híbrida: la fase se calcula, la salida se consulta.** Y no es
     indecisión, es que las dos mitades tienen costes distintos.
 
-    Fase e iluminación son aritmética determinista (Meeus, cap. 48), así que se
-    calculan en `luna.py` **sin red**: en un camper sin cobertura, seguir
-    sabiendo qué luna hay esta noche es justo cuando más sirve, y depender de
-    una API para eso sería regalar el dato más barato del proyecto. La salida,
-    la puesta y el azimut son bastante más código —dependen de la latitud, del
-    paralaje y de la refracción— y `api.met.no` los da hechos, así que se piden
-    y degradan como cualquier otra fuente (decisión 9).
+    El motivo de calcular la fase está **medido**: `api.met.no` devuelve la fase
+    de las **00:00 del día pedido, no la del momento**. Para el 28-07-2026 da
+    `moonphase: 162.1` (97,6 %), que es la luna a medianoche; a las 17:20 de ese
+    mismo día está al 99,1 %, y cerca de los cuartos la diferencia llega a
+    varios puntos. Una tarjeta que dice "la luna de esta noche" enseñando la de
+    medianoche pasada da un dato de hace diecisiete horas. Sacarlo de la API
+    exigiría pedir dos días e interpolar: más código que las ~25 líneas de
+    aritmética de Meeus que hay ahora.
+
+    El segundo motivo es la degradación: si met.no falla o el proxy lo bloquea,
+    la luna se queda a medias en vez de desaparecer. La salida, la puesta y el
+    azimut son bastante más código —dependen de la latitud, del paralaje y de
+    la refracción— y met.no los da hechos, así que se piden y degradan como
+    cualquier otra fuente (decisión 9).
+
+    **Y una corrección, porque este documento tuvo escrita una razón falsa.**
+    Decía que la fase se calcula para "seguir sabiendo qué luna hay en un
+    camper sin cobertura". Eso **no se sostiene**: la app corre en el servidor,
+    así que un móvil sin cobertura no llega a `/api/contexto` y no ve nada —ni
+    luna, ni tiempo, ni el nombre del pueblo—. El argumento de la cobertura
+    vale para la cola de notas del navegador (decisión 26) y para los tiles ya
+    cacheados, no para nada que resuelva el servidor. Queda escrito el error
+    para que nadie vuelva a deducirlo: la decisión sigue siendo la misma, pero
+    por el motivo de arriba y no por este.
 
     **La precisión está medida, no supuesta.** Contrastado contra `api.met.no`
     en 20 fechas de julio y agosto de 2026: peor error **0,46° de ángulo de
@@ -968,7 +985,7 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     28-07-2026, 97,58 % calculado contra 97,56 % de la referencia.
 
     La consecuencia de partirlo así, que es lo que compra la decisión: **`luna`
-    nunca es `None`**. Sin cobertura sigue habiendo fase, iluminación y
+    nunca es `None`**. Con met.no caído sigue habiendo fase, iluminación y
     veredicto; lo único que falta es la hora de salida, y `fuentes.luna` lo
     dice. Una fuente que degrada a la mitad en vez de desaparecer.
 

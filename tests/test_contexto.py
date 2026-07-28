@@ -313,8 +313,10 @@ def test_el_hueco_reservado_se_declara(sin_red: Any) -> None:
 def test_sin_efemerides_la_luna_no_desaparece(sin_red: Any) -> None:
     """La fase se calcula, así que la luna sigue estando sin met.no.
 
-    Es lo que justifica el híbrido: en un camper sin cobertura sigues sabiendo
-    qué luna hay esta noche, que es justo cuando más sirve.
+    Es la degradación de la decisión 9 aplicada a la luna: un tercero caído la
+    deja a medias en vez de borrarla. No confundir con "funciona sin
+    cobertura": esto lo resuelve el servidor, y sin cobertura el móvil no llega
+    a preguntar.
     """
     estado = ensamblar(_place(), _weather(), ahora=AHORA)
 

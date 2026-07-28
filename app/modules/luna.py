@@ -5,10 +5,25 @@ Funciones de entrada:
     `efemerides(lat, lon, momento) -> Efemerides`   met.no, puede fallar
     `veredicto_nocturno(...) -> Veredicto`   regla explícita, no se le pregunta al modelo
 
-**Por qué híbrido, y no una de las dos cosas.** La fase y la iluminación son
-aritmética determinista: en un camper sin cobertura, seguir sabiendo qué luna
-hay esta noche es justo cuando más sirve, y depender de una API para eso sería
-regalar el dato más barato del proyecto. La salida, la puesta y el azimut son
+**Por qué híbrido, y no una de las dos cosas.** El motivo es concreto y está
+medido: **met.no da la fase de las 00:00 del día pedido, no la del momento.**
+Para el 28-07-2026 devuelve `moonphase: 162.1`, o sea 97,6 % — la luna a
+medianoche. A las 17:20 de ese mismo día está al 99,1 %, y cerca de los cuartos
+la diferencia llega a varios puntos. Una tarjeta que dice "la luna de esta
+noche" enseñando la de medianoche pasada está dando un dato de hace 17 horas.
+Sacarlo de la API exigiría pedir dos días e interpolar: más código que las ~25
+líneas de aritmética que hay aquí.
+
+El segundo motivo es la degradación: si met.no falla o el proxy lo bloquea,
+la luna se queda a medias en vez de desaparecer.
+
+**Lo que NO es un motivo, aunque lo parezca:** "funciona sin cobertura". La app
+corre en el servidor, así que un móvil sin cobertura no llega a `/api/contexto`
+y no ve nada — ni luna, ni tiempo, ni el nombre del pueblo. El argumento de la
+cobertura vale para la cola de notas del navegador (decisión 26), no para esto.
+Estuvo escrito aquí y era falso.
+
+La salida, la puesta y el azimut son
 bastante más código (dependen de la latitud, del paralaje y de la refracción) y
 met.no los da hechos, así que se piden y se degradan como cualquier otra fuente
 (decisión 9). Lo que **no** se hace es calcular unas y pedir las otras a la vez
