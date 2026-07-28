@@ -13,30 +13,30 @@ from app.modules.location_context import (
     LocationError,
     Place,
     _parse_nominatim,
-    _validate_coords,
+    validate_coords,
 )
 
 
 # --- Validación de coordenadas -------------------------------------------
 
 def test_validate_coords_acepta_valores_correctos():
-    assert _validate_coords(43.36, -8.41) == (43.36, -8.41)
+    assert validate_coords(43.36, -8.41) == (43.36, -8.41)
 
 
 def test_validate_coords_convierte_cadenas():
     """El JSON de una petición puede traer números como strings."""
-    assert _validate_coords("43.36", "-8.41") == (43.36, -8.41)
+    assert validate_coords("43.36", "-8.41") == (43.36, -8.41)
 
 
 @pytest.mark.parametrize("lat,lon", [(91, 0), (-91, 0), (0, 181), (0, -181)])
 def test_validate_coords_rechaza_fuera_de_rango(lat, lon):
     with pytest.raises(InvalidCoordinates):
-        _validate_coords(lat, lon)
+        validate_coords(lat, lon)
 
 
 def test_validate_coords_rechaza_no_numericos():
     with pytest.raises(InvalidCoordinates):
-        _validate_coords("norte", "oeste")
+        validate_coords("norte", "oeste")
 
 
 def test_invalid_coordinates_es_un_location_error():

@@ -76,11 +76,18 @@ class Place:
         return d
 
 
-def _validate_coords(lat: float, lon: float) -> tuple[float, float]:
+def validate_coords(lat: float, lon: float) -> tuple[float, float]:
     """Valida y normaliza coordenadas. Lanza LocationError si no son válidas.
 
     Validamos en el borde del módulo (no dentro) para que el resto de
     funciones pueda asumir que los datos son correctos.
+
+    Es pública (antes era `_validate_coords`) porque `contexto.construir()`
+    lanza varias consultas en paralelo y necesita descartar unas coordenadas
+    imposibles ANTES de abrir hilos: si no, una petición con basura acabaría
+    molestando a dos servicios ajenos para devolver un 400 igualmente. La
+    alternativa —duplicar la validación allí— es peor: dos definiciones de
+    "coordenada válida" que se separan sin que nadie se entere.
     """
     try:
         lat_f, lon_f = float(lat), float(lon)
@@ -135,7 +142,7 @@ def reverse_geocode(lat: float, lon: float) -> Place:
         LocationError: coordenadas inválidas, o la API no responde / responde
             algo que no entendemos.
     """
-    lat, lon = _validate_coords(lat, lon)
+    lat, lon = validate_coords(lat, lon)
 
     cache_key = storage.cache_key_for_coords("geocode", lat, lon)
     cached = storage.cache_get(cache_key, _GEOCODE_CACHE_TTL)
@@ -388,7 +395,7 @@ def find_nearby_pois(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi
         InvalidCoordinates: coordenadas inválidas.
         LocationError: ningún espejo de Overpass respondió.
     """
-    lat, lon = _validate_coords(lat, lon)
+    lat, lon = validate_coords(lat, lon)
 
     cache_key = f"{storage.cache_key_for_coords('pois', lat, lon)}:r{radius_m}"
     cached = storage.cache_get(cache_key, _POI_CACHE_TTL)

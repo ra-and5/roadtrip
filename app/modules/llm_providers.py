@@ -10,7 +10,7 @@ El contrato es deliberadamente estrecho:
 
     generate(system=..., context=..., schema=...) -> str
 
-Recibe el contexto ya construido (`ai_orchestrator.build_context()`, que sigue
+Recibe el contexto ya construido (`ai_orchestrator.formatear_para_prompt()`, que sigue
 siendo una función pura) y devuelve texto. Cada proveedor se encarga por dentro
 de sus propias rarezas: cómo se llaman los mensajes, cómo se pide salida en
 JSON, y cómo se traduce su jerarquía de errores a `AIError`.
@@ -168,7 +168,7 @@ class LLMProvider(ABC):
         Args:
             system: instrucciones de sistema. Compartidas entre proveedores:
                 las define `ai_orchestrator`, no cada proveedor.
-            context: el bloque de contexto de `build_context()`.
+            context: el bloque de contexto de `formatear_para_prompt()`.
             schema: JSON Schema que debe cumplir la respuesta.
 
         Returns:

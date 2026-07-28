@@ -54,6 +54,7 @@ roadtrip/
 │   ├── config.py           Configuración desde variables de entorno
 │   ├── modules/
 │   │   ├── auth.py                 Login de un solo usuario
+│   │   ├── contexto.py             El estado del viaje: una definición, tres consumidores
 │   │   ├── location_context.py     Nominatim (dónde estoy) + Overpass (qué hay cerca)
 │   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
@@ -341,7 +342,8 @@ comprobaciones en orden con lo que deberías ver en cada una.
 | GET | `/` | ✅ | Pantalla principal, y el formulario para marcar un sitio |
 | GET | `/mapa` | ✅ | El mapa acumulado del viaje y el progreso |
 | POST | `/api/location` | ✅ | `{lat, lon}` → datos del lugar |
-| POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → lugar + tiempo + POIs + recomendación |
+| POST | `/api/contexto` | ✅ | `{lat, lon}` → dónde estás, qué hora es y qué tiempo hace. **Sin LLM** |
+| POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → el contexto + POIs + recomendación |
 | POST | `/api/notes` | ✅ | Crea una nota geolocalizada. Idempotente por `client_id` |
 | GET | `/api/notes?year=` | ✅ | Las notas y el progreso del viaje |
 | GET | `/api/ruta?year=` | ✅ | El viaje entero: notas + fotos en orden, días y progreso |
@@ -356,7 +358,7 @@ eso: la sesión no da acceso a `/api/telemetria`, a propósito (decisión 24 de
 Códigos de error: `400` entrada ausente o inválida · `401` sin sesión o sin
 token · `405` método incorrecto · `413` cuerpo por encima de
 `MAX_CONTENT_LENGTH` · `502` el servicio de mapas falló (solo en
-`/api/location`).
+`/api/location` y `/api/contexto`).
 
 ### `/api/notes`
 
@@ -488,6 +490,45 @@ sin que nada proteste). Si el JSON no llega a parsearse, el `400` incluye
 `recibido` con el principio del cuerpo tal cual llegó — depurar un atajo del
 iPhone sin ver lo que se está enviando es adivinar.
 
+**`/api/contexto` es la pieza central**, y devuelve `200` aunque falten partes.
+Lo que hace seguro ese `200` —porque un `200` no significa que la respuesta
+sirva— es que el cuerpo trae su propio veredicto en `fuentes`: nunca hay que
+deducir de un `null` si el dato no existe, si aquí no aplica o si la fuente se
+cayó.
+
+```jsonc
+{
+  "ubicacion": { "short_label": "Cudillero, Asturias", "region": "Asturias", ... },
+  "momento":   { "iso": "2026-07-28T16:26:57+02:00", "hora": "16:26",
+                 "dia_semana": "martes", "zona": "Europe/Madrid",
+                 "zona_es_supuesta": false },
+  "tiempo":    { "summary": "...", "outdoor_rating": "bueno", ... },  // o null
+  "luna":      null,        // hueco reservado (Fase 5 §4)
+  "metricas":  null,        // hueco reservado (pasos y batería, tras cerrar la 2d)
+  "fuentes": {
+    "ubicacion": { "estado": "ok",            "motivo": "" },
+    "tiempo":    { "estado": "ok",            "motivo": "" },
+    "oleaje":    { "estado": "sin_datos",     "motivo": "Esta ubicación no está junto al mar." },
+    "luna":      { "estado": "no_consultada", "motivo": "Todavía no implementada." },
+    "metricas":  { "estado": "no_consultada", "motivo": "..." }
+  },
+  "warnings": []            // solo los `fallo`, en frases para el usuario
+}
+```
+
+Los cuatro estados de una fuente, que no son intercambiables:
+
+| Estado | Qué significa | ¿Avisa? |
+|---|---|---|
+| `ok` | Se consultó y trajo dato | no |
+| `sin_datos` | Se consultó, respondió bien y **aquí no hay dato** (oleaje tierra adentro) | no |
+| `fallo` | Se consultó y no se pudo | **sí** |
+| `no_consultada` | No se pidió, a propósito | no |
+
+`warnings` sale **derivado** de los `fallo`, no se va rellenando a mano: así es
+imposible que una fuente falle sin aviso, o que aparezca un aviso de algo que no
+ha fallado.
+
 **`/api/recommendations` devuelve 200 aunque fallen fuentes opcionales.** Ver
 "Degradación en cascada" más abajo. La respuesta tiene esta forma:
 
@@ -596,6 +637,6 @@ modelo). Poder distinguirlos es lo que hace que puedas fiarte del resultado.
 - **Salida estructurada (JSON Schema).** La API garantiza que la respuesta del
   modelo cumple el esquema. Es la diferencia entre un frontend que se rompe
   cuando el modelo decide escribir markdown, y uno que no se rompe nunca.
-- **`build_context()` es una función pura.** Puedes imprimir el prompt exacto
+- **`formatear_para_prompt()` es una función pura.** Puedes imprimir el prompt exacto
   que recibe el modelo sin gastar una sola llamada a la API. Iterar sobre un
   prompt a ciegas es la forma más cara de perder una tarde.

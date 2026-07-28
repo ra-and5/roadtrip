@@ -1,19 +1,26 @@
 """Orquestador de IA: construye el prompt y delega en un proveedor de LLM.
 
-Función de entrada: `get_recommendations(place, weather, pois) -> Recommendation`.
+Función de entrada: `get_recommendations(contexto, pois) -> Recommendation`.
 
 Tres reglas de diseño que hacen este módulo testeable y barato de iterar:
 
-1. **No llama a ninguna API de contexto.** Recibe el `Place`, el `Weather` y
-   los `Poi` ya resueltos por los otros módulos. Así puedes probar el prompt
-   con datos inventados, sin red y sin gastar llamadas.
-2. **`build_context()` es una función pura.** Puedes ver exactamente qué texto
-   recibe el modelo sin hacer una sola petición. Iterar sobre un prompt a
-   ciegas es la forma más cara de perder una tarde.
+1. **No llama a ninguna API de contexto.** Recibe el `Contexto` ya construido
+   por `contexto.construir()` y los `Poi` ya resueltos. Así puedes probar el
+   prompt con datos inventados, sin red y sin gastar llamadas.
+2. **`formatear_para_prompt()` es una función pura.** Puedes ver exactamente
+   qué texto recibe el modelo sin hacer una sola petición. Iterar sobre un
+   prompt a ciegas es la forma más cara de perder una tarde.
 3. **No sabe qué proveedor hay detrás.** El prompt de sistema y el esquema de
    salida se definen aquí UNA vez y se pasan al proveedor activo. Cambiar de
    Claude a Gemini es cambiar `LLM_PROVIDER` en el entorno; este archivo no se
    toca.
+
+Sobre el nombre de `formatear_para_prompt()`, que antes era `build_context()`:
+lo que hace es **renderizar** el contexto como texto, no construirlo. Desde que
+existe `contexto.construir()` había dos funciones llamadas "contexto" que no
+devuelven lo mismo —una datos, otra una cadena—, y ese es exactamente el tipo de
+ambigüedad que este proyecto ya evitó a propósito llamando de forma distinta a
+`waypoints.capturado_en` y `notes.created_at`.
 
 La API key nunca sale del backend.
 """
@@ -22,19 +29,24 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.modules import storage
+from app.modules.contexto import Contexto
 from app.modules.llm_providers import AIError, LLMProvider, build_provider
-from app.modules.location_context import Place, Poi
+from app.modules.location_context import Poi
 from app.modules.weather_context import Weather
 
 # Reexportamos AIError para que el resto de la app la siga importando de aquí.
 # Vive en llm_providers porque los proveedores tienen que lanzarla y este
 # módulo tiene que importarlos: al revés sería un import circular.
-__all__ = ["AIError", "Activity", "Recommendation", "build_context", "get_recommendations"]
+__all__ = [
+    "AIError",
+    "Activity",
+    "Recommendation",
+    "formatear_para_prompt",
+    "get_recommendations",
+]
 
 # Las recomendaciones caducan porque dependen de la hora y del tiempo, no solo
 # del sitio. 3 horas: lo bastante para no repetir llamada si pulsas el botón
@@ -188,21 +200,6 @@ bloque de código.\
 # Construcción del prompt (funciones puras: testeables sin red ni API key)
 # ---------------------------------------------------------------------------
 
-def _local_now(weather: Weather | None) -> datetime:
-    """Hora local del punto consultado.
-
-    Usamos la zona horaria que devuelve Open-Meteo (`timezone=auto`) en vez de
-    la del servidor: PythonAnywhere corre en UTC, y recomendar "un plan de
-    tarde" a las 20:00 UTC cuando en Asturias son las 22:00 es un fallo real.
-    """
-    tz_name = (weather.timezone if weather else "") or "Europe/Madrid"
-    try:
-        tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        tz = ZoneInfo("Europe/Madrid")
-    return datetime.now(tz)
-
-
 def _format_pois(pois: list[Poi]) -> str:
     """Agrupa los POIs por categoría en texto compacto.
 
@@ -258,19 +255,46 @@ def _format_weather(weather: Weather | None) -> str:
     return "\n".join(lines)
 
 
-def build_context(
-    place: Place,
-    weather: Weather | None,
-    pois: list[Poi],
-    now: datetime | None = None,
-) -> str:
-    """Construye el bloque de contexto que se envía al modelo.
+def _format_momento(contexto: Contexto) -> str:
+    """El "cuándo" que lee el modelo.
 
-    Función pura: mismos argumentos, mismo texto. Imprímela para depurar el
-    prompt sin gastar una sola llamada a la API. No depende del proveedor.
+    Si la zona horaria se ha supuesto, se dice. Callarlo sería darle al modelo
+    una hora local que puede estar equivocada presentándola como cierta, y a
+    partir de ahí razonaría sobre la luz que queda y sobre si un museo está
+    abierto con un dato falso. Es la misma honestidad que el resto del prompt:
+    lo que no se sabe se declara, no se disimula.
     """
-    now = now or _local_now(weather)
-    dias = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+    m = contexto.momento
+    linea = (
+        f"{m.dia_semana} {m.dt.day}/{m.dt.month}/{m.dt.year}, "
+        f"{m.dt.strftime('%H:%M')} (hora local)"
+    )
+    if m.zona_es_supuesta:
+        linea += (
+            f"\n(ATENCIÓN: no se ha podido confirmar la zona horaria; se ha supuesto "
+            f"{m.zona}. La hora puede estar desplazada, tenlo en cuenta antes de "
+            f"afirmar cuánta luz queda.)"
+        )
+    return linea
+
+
+def formatear_para_prompt(contexto: Contexto, pois: list[Poi]) -> str:
+    """Renderiza el contexto como el bloque de texto que lee el modelo.
+
+    Función pura: mismo contexto, mismo texto. Imprímela para depurar el prompt
+    sin gastar una sola llamada a la API. No depende del proveedor.
+
+    Antes se llamaba `build_context()` y recibía las piezas sueltas. Ahora
+    recibe el `Contexto` entero, que es lo que garantiza que la pantalla, el
+    recomendador y el chatbot razonen sobre **lo mismo**: si cada uno armara
+    su propio contexto, divergirían sin dar ningún error.
+
+    Regla que se mantiene aquí: un dato que falta NUNCA se renderiza como
+    silencio. Si no hay tiempo, el texto lo dice y le pide al modelo que no
+    suponga; si la hora local es dudosa, también. Un hueco callado se lee como
+    "no pasa nada", que es la peor forma de equivocarse.
+    """
+    place = contexto.ubicacion
 
     return f"""\
 ### UBICACIÓN
@@ -279,10 +303,10 @@ Dirección completa: {place.display_name or "no disponible"}
 Coordenadas: {place.lat:.4f}, {place.lon:.4f}
 
 ### MOMENTO
-{dias[now.weekday()]} {now.day}/{now.month}/{now.year}, {now.strftime("%H:%M")} (hora local)
+{_format_momento(contexto)}
 
 ### METEOROLOGÍA
-{_format_weather(weather)}
+{_format_weather(contexto.tiempo)}
 
 ### PUNTOS DE INTERÉS CERCANOS (datos de OpenStreetMap, distancias en línea recta)
 {_format_pois(pois)}
@@ -355,7 +379,7 @@ def _parse_response(raw_text: str, proveedor: str, modelo: str) -> Recommendatio
 # Entrada pública
 # ---------------------------------------------------------------------------
 
-def _cache_key(place: Place, weather: Weather | None, now: datetime, provider: LLMProvider) -> str:
+def _cache_key(contexto: Contexto, provider: LLMProvider) -> str:
     """Clave de caché de una recomendación.
 
     Incluye PROVEEDOR y MODELO además de sitio, día y franja horaria. Sin eso,
@@ -368,8 +392,10 @@ def _cache_key(place: Place, weather: Weather | None, now: datetime, provider: L
     la hora (el mismo sitio a las 10:00 y a las 21:00 merece planes distintos),
     pero dos pulsaciones seguidas deben acertar en la caché.
     """
+    now = contexto.momento.dt
+    weather = contexto.tiempo
     return (
-        f"{storage.cache_key_for_coords('reco', place.lat, place.lon)}"
+        f"{storage.cache_key_for_coords('reco', contexto.ubicacion.lat, contexto.ubicacion.lon)}"
         f":{provider.name}:{provider.model}"
         f":{now.strftime('%Y%m%d')}:h{now.hour // 3}"
         f":{weather.outdoor_rating() if weather else 'sin-tiempo'}"
@@ -377,20 +403,26 @@ def _cache_key(place: Place, weather: Weather | None, now: datetime, provider: L
 
 
 def get_recommendations(
-    place: Place,
-    weather: Weather | None,
+    contexto: Contexto,
     pois: list[Poi],
     *,
     use_cache: bool = True,
     provider: LLMProvider | None = None,
 ) -> Recommendation:
-    """Genera recomendaciones razonadas para la ubicación actual.
+    """Genera recomendaciones razonadas para el contexto actual.
+
+    Recibe el contexto **ya construido** en vez de resolverlo por su cuenta.
+    Eso es lo que hace que la pantalla y la recomendación no puedan contradecirse
+    y lo que deja al chatbot a una llamada de distancia: la misma pieza alimenta
+    a los tres.
 
     Args:
-        place: ubicación resuelta (obligatoria).
-        weather: condiciones actuales, o None si no se pudieron obtener.
-            No es un error: el prompt se adapta y lo dice explícitamente.
-        pois: puntos de interés cercanos. Puede estar vacía.
+        contexto: el estado del viaje, de `contexto.construir()`. La ubicación
+            va dentro y es obligatoria; que falte el tiempo no es un error, el
+            prompt se adapta y lo dice explícitamente.
+        pois: puntos de interés cercanos. Puede estar vacía. Va aparte del
+            contexto a propósito: son caros y poco fiables (Overpass), así que
+            quien llama decide si los pide, y la pantalla rápida no los paga.
         use_cache: False para forzar una consulta nueva.
         provider: proveedor concreto. Por defecto, el de `LLM_PROVIDER`.
             Se inyecta en los tests y en el diagnóstico multi-proveedor.
@@ -400,8 +432,7 @@ def get_recommendations(
             excepción que sale de aquí, venga del proveedor que venga.
     """
     provider = provider or build_provider()
-    now = _local_now(weather)
-    cache_key = _cache_key(place, weather, now, provider)
+    cache_key = _cache_key(contexto, provider)
 
     if use_cache:
         cached = storage.cache_get(cache_key, _RECOMMENDATION_CACHE_TTL)
@@ -412,8 +443,10 @@ def get_recommendations(
             recommendation.desde_cache = True
             return recommendation
 
-    context = build_context(place, weather, pois, now)
-    raw_text = provider.generate(system=_SYSTEM_PROMPT, context=context, schema=_OUTPUT_SCHEMA)
+    texto_contexto = formatear_para_prompt(contexto, pois)
+    raw_text = provider.generate(
+        system=_SYSTEM_PROMPT, context=texto_contexto, schema=_OUTPUT_SCHEMA
+    )
     recommendation = _parse_response(raw_text, provider.name, provider.model)
 
     # Guardamos el JSON ya serializado: si algún día cambian los dataclasses,

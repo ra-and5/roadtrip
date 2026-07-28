@@ -16,6 +16,7 @@ import pytest
 
 from app.modules import ai_orchestrator as ai
 from app.modules.ai_orchestrator import AIError, Recommendation, get_recommendations
+from app.modules.contexto import ensamblar
 from app.modules.llm_providers import LLMProvider
 from app.modules.location_context import Place
 from app.modules.weather_context import Marine, Weather
@@ -67,6 +68,23 @@ def weather() -> Weather:
 
 
 @pytest.fixture
+def ctx(place, weather):
+    """El contexto ya construido, que es lo que recibe el orquestador.
+
+    Se arma con `ensamblar()`, que es pura: ni red, ni dobles de HTTP, ni
+    reloj del sistema. La hora fija además quita una fuente de intermitencia
+    que existía antes: la clave de caché mete la franja de 3 h, así que un
+    test que llamara dos veces justo al cruzar las 18:00 fallaba una vez cada
+    muchas ejecuciones y era imposible de reproducir.
+    """
+    return ensamblar(
+        place,
+        weather,
+        ahora=datetime(2026, 7, 27, 18, 30, tzinfo=ZoneInfo("Europe/Madrid")),
+    )
+
+
+@pytest.fixture
 def db(tmp_path, monkeypatch):
     """Base de datos temporal: cada test empieza con la caché vacía."""
     from app.config import Config
@@ -80,9 +98,9 @@ def db(tmp_path, monkeypatch):
 
 # --- El orquestador no conoce al proveedor ---------------------------------
 
-def test_usa_el_proveedor_inyectado(db, place, weather):
+def test_usa_el_proveedor_inyectado(db, ctx):
     provider = FakeProvider()
-    reco = get_recommendations(place, weather, [], provider=provider)
+    reco = get_recommendations(ctx, [], provider=provider)
 
     assert isinstance(reco, Recommendation)
     assert reco.proveedor == "fake"
@@ -91,23 +109,23 @@ def test_usa_el_proveedor_inyectado(db, place, weather):
     assert reco.actividades[0].origen == "lista_cercana"
 
 
-def test_pasa_el_prompt_de_sistema_compartido(db, place, weather):
+def test_pasa_el_prompt_de_sistema_compartido(db, ctx):
     """El prompt lo define el orquestador, no el proveedor.
 
     Si cada proveedor tuviera su copia, divergirían y no sabrías cuál estás
     afinando. Este test fija que llega desde arriba.
     """
     provider = FakeProvider()
-    get_recommendations(place, weather, [], provider=provider)
+    get_recommendations(ctx, [], provider=provider)
 
     system = provider.llamadas[0]["system"]
     assert system is ai._SYSTEM_PROMPT
     assert "coche camperizado" in system
 
 
-def test_pasa_el_contexto_construido_y_el_esquema(db, place, weather):
+def test_pasa_el_contexto_construido_y_el_esquema(db, ctx):
     provider = FakeProvider()
-    get_recommendations(place, weather, [], provider=provider)
+    get_recommendations(ctx, [], provider=provider)
 
     llamada = provider.llamadas[0]
     assert "### UBICACIÓN" in llamada["context"]
@@ -115,35 +133,35 @@ def test_pasa_el_contexto_construido_y_el_esquema(db, place, weather):
     assert llamada["schema"] is ai._OUTPUT_SCHEMA
 
 
-def test_cualquier_fallo_del_proveedor_sale_como_aierror(db, place, weather):
+def test_cualquier_fallo_del_proveedor_sale_como_aierror(db, ctx):
     """Hacia fuera solo existe AIError, venga el fallo de donde venga."""
     provider = FakeProvider(error=RuntimeError("algo muy específico de un SDK"))
     with pytest.raises(RuntimeError):
         # Un error que el proveedor NO tradujo se propaga tal cual: es un bug
         # del proveedor, no una condición esperada. Los proveedores reales
         # traducen todo a AIError (ver test_llm_providers.py).
-        get_recommendations(place, weather, [], provider=provider)
+        get_recommendations(ctx, [], provider=provider)
 
 
-def test_error_traducido_por_el_proveedor_llega_intacto(db, place, weather):
+def test_error_traducido_por_el_proveedor_llega_intacto(db, ctx):
     provider = FakeProvider(error=AIError("Límite de la capa gratuita (429)."))
     with pytest.raises(AIError) as exc_info:
-        get_recommendations(place, weather, [], provider=provider)
+        get_recommendations(ctx, [], provider=provider)
     assert "429" in str(exc_info.value)
 
 
 # --- Clave de caché ---------------------------------------------------------
 
-def test_la_cache_funciona_con_el_mismo_proveedor(db, place, weather):
+def test_la_cache_funciona_con_el_mismo_proveedor(db, ctx):
     provider = FakeProvider()
-    get_recommendations(place, weather, [], provider=provider)
-    segunda = get_recommendations(place, weather, [], provider=provider)
+    get_recommendations(ctx, [], provider=provider)
+    segunda = get_recommendations(ctx, [], provider=provider)
 
     assert len(provider.llamadas) == 1, "la segunda llamada debía salir de caché"
     assert segunda.desde_cache is True
 
 
-def test_cambiar_de_proveedor_no_sirve_la_cache_del_otro(db, place, weather):
+def test_cambiar_de_proveedor_no_sirve_la_cache_del_otro(db, ctx):
     """EL fallo que esto evita, y por qué es peligroso:
 
     sin proveedor en la clave, tras afinar el prompt con Gemini y cambiar a
@@ -155,8 +173,8 @@ def test_cambiar_de_proveedor_no_sirve_la_cache_del_otro(db, place, weather):
     claude = FakeProvider(name="anthropic", model="claude-opus-5",
                           respuesta=RESPUESTA_VALIDA)
 
-    primera = get_recommendations(place, weather, [], provider=gemini)
-    segunda = get_recommendations(place, weather, [], provider=claude)
+    primera = get_recommendations(ctx, [], provider=gemini)
+    segunda = get_recommendations(ctx, [], provider=claude)
 
     assert len(claude.llamadas) == 1, "Claude debía ser consultado de verdad"
     assert primera.proveedor == "gemini"
@@ -164,51 +182,67 @@ def test_cambiar_de_proveedor_no_sirve_la_cache_del_otro(db, place, weather):
     assert segunda.desde_cache is False
 
 
-def test_cambiar_de_modelo_dentro_del_mismo_proveedor_tampoco(db, place, weather):
+def test_cambiar_de_modelo_dentro_del_mismo_proveedor_tampoco(db, ctx):
     """Comparar dos modelos del mismo proveedor es un caso igual de real."""
     flash = FakeProvider(name="gemini", model="gemini-2.5-flash")
     pro = FakeProvider(name="gemini", model="gemini-2.5-pro")
 
-    get_recommendations(place, weather, [], provider=flash)
-    get_recommendations(place, weather, [], provider=pro)
+    get_recommendations(ctx, [], provider=flash)
+    get_recommendations(ctx, [], provider=pro)
 
     assert len(pro.llamadas) == 1
 
 
-def test_la_clave_incluye_proveedor_y_modelo(place, weather):
-    now = datetime(2026, 7, 27, 18, 0, tzinfo=ZoneInfo("Europe/Madrid"))
-    clave = ai._cache_key(place, weather, now, FakeProvider(name="gemini", model="g-2.5"))
+def test_la_clave_incluye_proveedor_y_modelo(ctx):
+    clave = ai._cache_key(ctx, FakeProvider(name="gemini", model="g-2.5"))
     assert ":gemini:" in clave
     assert "g-2.5" in clave
 
 
-def test_use_cache_false_fuerza_llamada_nueva(db, place, weather):
+def test_la_clave_sale_de_la_hora_LOCAL_del_contexto(place):
+    """La franja horaria de la caché es local, no del servidor.
+
+    PythonAnywhere corre en UTC. A las 23:30 en Asturias son las 21:30 UTC:
+    con la hora del servidor, dos peticiones de la misma noche caerían en
+    franjas distintas —o peor, en días distintos— y la caché fallaría justo
+    cuando más se nota, en mitad de una carretera.
+    """
+    tiempo = Weather(timezone="Europe/Madrid")
+    medianoche_local = datetime(2026, 7, 27, 0, 30, tzinfo=ZoneInfo("Europe/Madrid"))
+    clave = ai._cache_key(
+        ensamblar(place, tiempo, ahora=medianoche_local),
+        FakeProvider(),
+    )
+    assert ":20260727:h0" in clave, "en UTC sería el día 26 a las 22:30 (franja h7)"
+
+
+def test_use_cache_false_fuerza_llamada_nueva(db, ctx):
     provider = FakeProvider()
-    get_recommendations(place, weather, [], provider=provider)
-    get_recommendations(place, weather, [], provider=provider, use_cache=False)
+    get_recommendations(ctx, [], provider=provider)
+    get_recommendations(ctx, [], provider=provider, use_cache=False)
     assert len(provider.llamadas) == 2
 
 
 # --- Interpretación de la respuesta ----------------------------------------
 
-def test_tolera_json_envuelto_en_bloque_de_codigo(db, place, weather):
+def test_tolera_json_envuelto_en_bloque_de_codigo(db, ctx):
     """Un modelo local (Ollama) casi seguro envolverá el JSON en ```json.
 
     Tolerarlo una vez aquí evita duplicar la limpieza en cada proveedor.
     """
     provider = FakeProvider(respuesta=f"```json\n{RESPUESTA_VALIDA}\n```")
-    reco = get_recommendations(place, weather, [], provider=provider)
+    reco = get_recommendations(ctx, [], provider=provider)
     assert reco.resumen.startswith("Estás en Cudillero")
 
 
-def test_json_invalido_da_aierror(db, place, weather):
+def test_json_invalido_da_aierror(db, ctx):
     provider = FakeProvider(respuesta="lo siento, no puedo ayudarte con eso")
     with pytest.raises(AIError) as exc_info:
-        get_recommendations(place, weather, [], provider=provider)
+        get_recommendations(ctx, [], provider=provider)
     assert "JSON" in str(exc_info.value)
 
 
-def test_respuesta_sin_actividades_no_revienta(db, place, weather):
+def test_respuesta_sin_actividades_no_revienta(db, ctx):
     provider = FakeProvider(respuesta='{"resumen": "vacío", "actividades": [], "aviso": ""}')
-    reco = get_recommendations(place, weather, [], provider=provider)
+    reco = get_recommendations(ctx, [], provider=provider)
     assert reco.actividades == []

@@ -88,6 +88,7 @@ def main() -> None:
 
     from app.modules import storage
     from app.modules.ai_orchestrator import get_recommendations
+    from app.modules.contexto import ensamblar
     from app.modules.llm_providers import PROVIDER_NAMES, build_provider
     from app.modules.location_context import find_nearby_pois, reverse_geocode
     from app.modules.weather_context import get_weather
@@ -190,8 +191,14 @@ def main() -> None:
                 # use_cache=False: una recomendación cacheada no prueba nada
                 # sobre si el proveedor responde ahora mismo.
                 provider = build_provider(nombre)
+                # El contexto se ensambla a partir de lo que cada
+                # comprobación de arriba ya ha resuelto, en vez de llamar a
+                # `contexto.construir()`: aquí las fuentes se prueban UNA A UNA
+                # para poder decir cuál falla, que es todo el sentido de un
+                # diagnóstico. `ensamblar()` es la parte pura, así que no
+                # repite ninguna llamada de red.
                 reco = get_recommendations(
-                    place, weather, pois, use_cache=False, provider=provider
+                    ensamblar(place, weather), pois, use_cache=False, provider=provider
                 )
                 detalle = f"{len(reco.actividades)} actividades vía {provider.describe()}"
                 # Con un proveedor de prepago, "cuántos tokens ha costado esto"

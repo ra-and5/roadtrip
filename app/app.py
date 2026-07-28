@@ -18,7 +18,7 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, ingest, notes, ruta, storage, waypoints
+from app.modules import auth, contexto, ingest, notes, ruta, storage, waypoints
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
 from app.modules.notes import NoteError
@@ -27,12 +27,10 @@ from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
     LocationError,
-    Place,
     Poi,
     find_nearby_pois,
     reverse_geocode,
 )
-from app.modules.weather_context import Weather, WeatherError, get_weather
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = Config.SECRET_KEY
@@ -142,78 +140,138 @@ def api_location() -> Any:
     return jsonify({"place": place.to_dict()})
 
 
+def _coordenadas_de(payload: dict[str, Any]) -> tuple[float, float] | tuple[None, None]:
+    """Saca lat/lon del cuerpo. `(None, None)` si no vienen las dos."""
+    if "lat" not in payload or "lon" not in payload:
+        return None, None
+    return payload["lat"], payload["lon"]
+
+
+@app.route("/api/contexto", methods=["POST"])
+@auth.login_required
+def api_contexto() -> Any:
+    """Dónde estás y qué tiempo hace. Rápido, gratis y SIN llamar a ningún LLM.
+
+    Es lo que pinta la pantalla nada más abrirla, y por eso está separado de
+    `/api/recommendations`: antes, mirar la temperatura obligaba a pagar una
+    llamada al modelo y a esperar a la fuente más lenta.
+
+    **Qué devuelve cuando algo falla, que es la decisión de esta vista:**
+
+        ubicación inválida -> 400. Culpa de quien llama.
+        ubicación falla    -> 502. Sin saber dónde estás no hay contexto.
+        cualquier otra     -> 200 con esa parte vacía.
+
+    Que un `200` pueda traer partes vacías es seguro **aquí y solo aquí**
+    porque el cuerpo trae su propio veredicto: `fuentes` dice de cada una si
+    respondió, si no había nada que dar o si se cayó. Las decisiones 5 y 20
+    avisan de lo contrario —un `200` cuyo cuerpo *parece* bueno—, y el remedio
+    es justamente ese: nada hay que deducir de un `null`.
+    """
+    payload = request.get_json(silent=True) or {}
+    lat, lon = _coordenadas_de(payload)
+    if lat is None:
+        return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
+
+    try:
+        estado = contexto.construir(lat, lon)
+    except InvalidCoordinates as exc:
+        # Va antes que LocationError porque es subclase suya: Python evalúa los
+        # `except` en orden y se queda con el primero que encaja.
+        return jsonify({"error": str(exc)}), 400
+    except LocationError as exc:
+        # 502: nuestro servidor está bien, el servicio del que dependemos no.
+        return jsonify({"error": str(exc)}), 502
+
+    return jsonify(estado.to_dict())
+
+
 @app.route("/api/recommendations", methods=["POST"])
 @auth.login_required
 def api_recommendations() -> Any:
-    """El endpoint principal: coordenadas -> qué hacer aquí y ahora.
+    """Qué hacer aquí y ahora, según el modelo. Bajo botón, porque cuesta.
 
-    La propiedad importante de esta vista es la **degradación en cascada**.
-    Solo una fuente es imprescindible (la ubicación); todas las demás pueden
-    fallar de forma independiente y la respuesta sigue siendo útil:
+    Reconstruye el contexto con la MISMA función que `/api/contexto` en vez de
+    resolverlo por su cuenta. Sale casi gratis: la pantalla acaba de pedirlo,
+    así que Nominatim y Open-Meteo están cacheados.
+
+    **La alternativa que se descarta: que el navegador mande el contexto en el
+    cuerpo.** Es lo que sugería la letra del encargo ("recibe el contexto ya
+    construido") y es la mala: el servidor estaría alimentando al modelo con lo
+    que diga el cliente, tendría que revalidarlo entero, y un cuerpo manipulado
+    pondría al modelo a razonar sobre un sitio y un tiempo inventados sin dar
+    ningún error. "Ya construido" se cumple igual dentro del servidor, y el
+    contrato con el frontend no cambia.
+
+    La degradación en cascada se mantiene:
 
         ubicación falla -> 502, no hay nada que hacer
         tiempo falla    -> se recomienda sin tiempo, se avisa
-        POIs falla      -> Claude tira de conocimiento general, se avisa
-        Claude falla    -> se devuelven igualmente ubicación, tiempo y POIs
-
-    Los avisos van en `warnings` para que el frontend los muestre: una app que
-    silencia que le falta la mitad del contexto no es fiable, es opaca.
+        POIs falla      -> el modelo tira de conocimiento general, se avisa
+        modelo falla    -> se devuelven igualmente contexto y POIs
     """
     payload = request.get_json(silent=True) or {}
-    if "lat" not in payload or "lon" not in payload:
+    lat, lon = _coordenadas_de(payload)
+    if lat is None:
         return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
 
-    # 1. Ubicación: única fuente imprescindible.
-    try:
-        place: Place = reverse_geocode(payload["lat"], payload["lon"])
-    except InvalidCoordinates as exc:
-        return jsonify({"error": str(exc)}), 400
-    except LocationError as exc:
-        return jsonify({"error": str(exc)}), 502
-
-    lat, lon = place.lat, place.lon
-    warnings: list[str] = []
-
-    # 2. Tiempo y POIs en paralelo. Overpass tarda entre 2 y 20 segundos y
-    #    Open-Meteo menos de 1: en serie pagas la suma, en paralelo el máximo.
-    #    Son dos llamadas de red independientes, así que dos hilos bastan
-    #    (esperan a la red, no consumen CPU).
+    # 1. El contexto y los POIs en paralelo. Overpass tarda entre 2 y 30
+    #    segundos y el contexto menos de dos: en serie se paga la suma, en
+    #    paralelo el máximo. Los POIs van por fuera del contexto a propósito
+    #    (ver el docstring de `get_recommendations`): son la fuente cara y la
+    #    pantalla rápida no debe pagarla.
     with ThreadPoolExecutor(max_workers=2) as pool:
-        weather_future = pool.submit(get_weather, lat, lon)
-        pois_future = pool.submit(find_nearby_pois, lat, lon)
+        # Los dos `submit` van seguidos y sin ningún `result()` en medio: en
+        # cuanto se espera un resultado antes de lanzar lo siguiente, esto
+        # vuelve a ser código en serie disfrazado de paralelo.
+        futuro_contexto = pool.submit(contexto.construir, lat, lon)
+        futuro_pois = pool.submit(find_nearby_pois, lat, lon)
 
-        weather: Weather | None = None
-        try:
-            weather = weather_future.result()
-        except WeatherError as exc:
-            warnings.append(f"Sin datos meteorológicos: {exc}")
-        except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba la petición
-            warnings.append("Sin datos meteorológicos por un error inesperado.")
-
+        # Primero lo que nunca propaga (los POIs), y después lo que sí puede
+        # cortar la vista. Al revés, un fallo de ubicación saldría con el hilo
+        # de Overpass todavía en vuelo y habría que esperarlo para poder
+        # contestar: un 502 que tarda medio minuto.
         pois: list[Poi] = []
+        aviso_pois = ""
         try:
-            pois = pois_future.result()
+            pois = futuro_pois.result()
         except LocationError as exc:
-            warnings.append(f"Sin puntos de interés cercanos: {exc}")
-        except Exception:  # noqa: BLE001
-            warnings.append("Sin puntos de interés por un error inesperado.")
+            aviso_pois = f"Sin puntos de interés cercanos: {exc}"
+        except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba la petición
+            aviso_pois = "Sin puntos de interés por un error inesperado."
 
-    if not pois and not warnings:
+        try:
+            estado = futuro_contexto.result()
+        except InvalidCoordinates as exc:
+            return jsonify({"error": str(exc)}), 400
+        except LocationError as exc:
+            return jsonify({"error": str(exc)}), 502
+
+    warnings: list[str] = estado.avisos()
+    if aviso_pois:
+        warnings.append(aviso_pois)
+    elif not pois:
         warnings.append("No hay puntos de interés mapeados en esta zona de OpenStreetMap.")
 
     body: dict[str, Any] = {
-        "place": place.to_dict(),
-        "weather": weather.to_dict() if weather else None,
+        "contexto": estado.to_dict(),
+        # `place` y `weather` se mantienen en la raíz porque es lo que consume
+        # hoy la pantalla. Duplican lo que ya va dentro de `contexto`, y esa
+        # duplicación es temporal: desaparece cuando el §5 reescriba el
+        # frontend contra el contexto. Romperlo ahora dejaría la app rota entre
+        # dos fases.
+        "place": estado.ubicacion.to_dict(),
+        "weather": estado.tiempo.to_dict() if estado.tiempo else None,
         "pois": [p.to_dict() for p in pois],
         "recommendation": None,
         "warnings": warnings,
     }
 
-    # 3. La IA. Si falla, devolvemos 200 con el resto del contexto: tener el
+    # 2. La IA. Si falla, devolvemos 200 con el resto del contexto: tener el
     #    tiempo y los sitios cercanos sigue siendo útil sin la recomendación.
     try:
         recommendation = get_recommendations(
-            place, weather, pois, use_cache=not payload.get("refresh", False)
+            estado, pois, use_cache=not payload.get("refresh", False)
         )
         body["recommendation"] = recommendation.to_dict()
     except AIError as exc:

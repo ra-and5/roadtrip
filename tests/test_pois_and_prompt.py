@@ -8,7 +8,8 @@ gastar una llamada.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.modules.ai_orchestrator import build_context, _format_pois, _format_weather
+from app.modules.ai_orchestrator import formatear_para_prompt, _format_pois, _format_weather
+from app.modules.contexto import ensamblar
 from app.modules.location_context import Place, Poi, _classify, _haversine_m, _parse_overpass
 from app.modules.weather_context import Marine, Weather
 
@@ -148,24 +149,45 @@ def test_format_weather_incluye_veredicto_de_agua():
     assert "oleaje 0.3 m" in texto
 
 
-def test_build_context_contiene_todas_las_secciones():
-    now = datetime(2026, 7, 27, 18, 30, tzinfo=ZoneInfo("Europe/Madrid"))
-    contexto = build_context(_place(), None, [], now)
+def _contexto(tiempo: Weather | None = None, ahora: datetime | None = None):
+    """Un contexto de mentira, sin tocar la red. Para eso `ensamblar()` es pura."""
+    ahora = ahora or datetime(2026, 7, 27, 18, 30, tzinfo=ZoneInfo("Europe/Madrid"))
+    return ensamblar(_place(), tiempo, ahora=ahora)
+
+
+def test_formatear_para_prompt_contiene_todas_las_secciones():
+    texto = formatear_para_prompt(_contexto(), [])
 
     for seccion in ("### UBICACIÓN", "### MOMENTO", "### METEOROLOGÍA",
                     "### PUNTOS DE INTERÉS", "### TAREA"):
-        assert seccion in contexto
+        assert seccion in texto
 
 
-def test_build_context_usa_hora_local_y_dia_en_espanol():
+def test_formatear_para_prompt_usa_hora_local_y_dia_en_espanol():
     """Recomendar 'plan de tarde' a las 22:00 locales sería un fallo real."""
-    now = datetime(2026, 7, 27, 18, 30, tzinfo=ZoneInfo("Europe/Madrid"))
-    contexto = build_context(_place(), None, [], now)
-    assert "lunes" in contexto      # 27/7/2026 es lunes
-    assert "18:30" in contexto
+    texto = formatear_para_prompt(_contexto(), [])
+    assert "lunes" in texto      # 27/7/2026 es lunes
+    assert "18:30" in texto
 
 
-def test_build_context_es_puro():
+def test_formatear_para_prompt_es_puro():
     """Mismos argumentos -> mismo texto. Sin esto no se puede cachear ni testear."""
-    now = datetime(2026, 7, 27, 18, 30, tzinfo=ZoneInfo("Europe/Madrid"))
-    assert build_context(_place(), None, [], now) == build_context(_place(), None, [], now)
+    assert formatear_para_prompt(_contexto(), []) == formatear_para_prompt(_contexto(), [])
+
+
+def test_el_prompt_avisa_al_modelo_cuando_la_hora_local_es_supuesta():
+    """Sin esto, el modelo razonaría sobre la luz que queda con una hora falsa.
+
+    Sin tiempo no hay zona horaria (la aporta Open-Meteo), así que la hora local
+    es una suposición. Dársela al modelo como si fuera cierta es exactamente el
+    fallo silencioso de la decisión 11: no da error, solo recomienda mal.
+    """
+    texto = formatear_para_prompt(_contexto(tiempo=None), [])
+    assert "no se ha podido confirmar la zona horaria" in texto.lower()
+
+
+def test_el_prompt_no_avisa_de_la_zona_cuando_open_meteo_la_ha_dado():
+    """El aviso solo cuando toca: si salta siempre, se deja de leer."""
+    tiempo = Weather(temperature_c=20.0, timezone="Europe/Madrid")
+    texto = formatear_para_prompt(_contexto(tiempo=tiempo), [])
+    assert "no se ha podido confirmar la zona horaria" not in texto.lower()

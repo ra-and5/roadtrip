@@ -69,6 +69,7 @@ app/
   app.py                     Rutas Flask. SIN lógica de negocio.
   config.py                  Configuración desde variables de entorno
   modules/
+    contexto.py              El estado del viaje. UNA definición, tres consumidores
     location_context.py      Nominatim (dónde estoy) + Overpass (qué hay cerca)
     weather_context.py       Open-Meteo (tiempo + oleaje) e interpretación
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
@@ -136,7 +137,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
-| 5 | Contexto único, luna, limpieza de la pantalla | ⬜ **Siguiente** — encargo en [`docs/prompt-fase5.md`](docs/prompt-fase5.md) |
+| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **En curso.** §2 (partir el endpoint) hecho; quedan §3 Overpass, §4 luna y §5 pantalla |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -835,6 +836,85 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Y lo que la ruta no puede enseñar se enseña igual: cuántas fotos se
     quedaron sin fecha (no se pueden colocar) y cuántas sin GPS (cuentan en el
     relato, no en el mapa). Esconderlas haría creer que el viaje está entero.
+
+32. **El contexto es un módulo, no un trozo de una vista.** Es la decisión 10
+    aplicada al contexto en vez de al proveedor: **una definición, tres
+    consumidores.** `contexto.construir(lat, lon)` devuelve el estado del viaje
+    y de ahí beben la pantalla (`/api/contexto`), el recomendador
+    (`ai_orchestrator`) y, cuando llegue, el chatbot. Si cada uno armara el
+    suyo divergirían, y no habría forma de saber cuál es el bueno.
+
+    Antes vivía dentro de `/api/recommendations`, y eso costaba tres cosas a la
+    vez: no se podía mirar el tiempo sin pagar una llamada al modelo, la
+    pantalla tardaba lo que tardase la fuente más lenta, y no existía ninguna
+    forma de pedir "el contexto" sin pedir también una recomendación.
+    **Medido tras separarlo: 0,52 s en frío y 0,01 s con la caché caliente**,
+    contra los ~43 s del peor caso anterior.
+
+    Dentro del módulo, la red y el razonamiento van separados a propósito:
+    `construir()` hace las llamadas y `ensamblar()` es **pura**. Toda la lógica
+    que merece pruebas —qué hora local es, en qué ha quedado cada fuente, qué
+    se avisa— vive en la pura, así que la degradación se comprueba con datos
+    escritos a mano y la suite sigue corriendo sin cobertura.
+
+    **`/api/contexto` devuelve `200` con partes vacías, y eso es seguro por una
+    razón concreta.** Las decisiones 5 y 20 avisan de lo contrario: un `200`
+    cuyo cuerpo *parece* bueno. Aquí el cuerpo trae su propio veredicto en
+    `fuentes`, con cuatro estados que no son intercambiables:
+
+    | Estado | Qué significa | ¿Avisa? |
+    |---|---|---|
+    | `ok` | Se consultó y trajo dato | no |
+    | `sin_datos` | Se consultó, respondió bien, y **aquí no hay dato** | no |
+    | `fallo` | Se consultó y no se pudo | **sí** |
+    | `no_consultada` | No se pidió, a propósito | no |
+
+    Distinguir `sin_datos` de `fallo` es el corolario de la decisión 22 —el que
+    quedó escrito y sin implementar al descartar el espejo suizo—: un `null` no
+    puede expresar la diferencia entre "aquí no hay mar" y "la API del mar se
+    ha caído", y confundirlas hace que la app diga "aquí no hay nada que ver"
+    cuando lo que pasa es "no he podido consultarlo". Por eso `Marine` lleva
+    ahora un campo `fallo`. La alternativa —`null` más la prosa de `warnings`—
+    vale para una pantalla que enseña texto y **no vale para el chatbot**, que
+    necesita saber si callar o avisar; un estado es un dato, una frase en
+    castellano no lo es.
+
+    Y `warnings` se **deriva** de los `fallo` en vez de irse rellenando a mano.
+    Así es imposible que una fuente falle sin aviso o que salga un aviso de algo
+    que no ha fallado: la invariante la garantiza la construcción, igual que la
+    idempotencia de la ingesta vive en el `UNIQUE` de la tabla y no en un
+    `SELECT` previo (decisión 23). Los `no_consultada` (la luna, las métricas)
+    **no** avisan: un aviso permanente durante las semanas que tarde en cerrarse
+    la 2d es el ruido inútil que hace que se dejen de leer los avisos.
+
+    Dos consecuencias que salieron al hacerlo:
+
+    - **La zona horaria supuesta ahora se marca.** La aporta Open-Meteo
+      (`timezone=auto`); si el tiempo falla no hay zona y se cae a
+      `Europe/Madrid`. Eso pasaba **en silencio**, y en Canarias significa una
+      hora de error en todo lo que cuelga de la hora local: la franja de la
+      caché de recomendaciones, el "queda poca luz" del prompt y el resumen del
+      día cuando exista. `Momento.zona_es_supuesta` lo hace visible, y el prompt
+      se lo dice al modelo. Es la misma regla del huso horario del EXIF
+      (decisión 30): no se inventa una zona en silencio.
+    - **`/api/recommendations` rearma el contexto en el servidor, no lo recibe
+      del navegador.** La letra del encargo decía "recibe el contexto ya
+      construido", y hacerlo por el cuerpo del POST habría sido alimentar al
+      modelo con lo que diga el cliente: habría que revalidarlo entero, y un
+      cuerpo manipulado pondría al modelo a razonar sobre un sitio y un tiempo
+      inventados sin dar ningún error. Sale casi gratis rearmarlo, porque la
+      pantalla acaba de pedirlo y Nominatim y Open-Meteo están cacheados.
+
+    Los POIs **no** entran en el contexto. Son la fuente cara y poco fiable
+    (Overpass, decisión 22), así que van aparte y quien llama decide si los
+    paga: la pantalla rápida no los pide.
+
+    Y un renombre que no es cosmético: `ai_orchestrator.build_context()` pasa a
+    llamarse `formatear_para_prompt()`. Lo que hace es **renderizar** el
+    contexto como texto, no construirlo, y tener dos funciones llamadas
+    "contexto" que devuelven cosas distintas —una datos, otra una cadena— es la
+    ambigüedad que este proyecto ya evitó llamando de forma distinta a
+    `waypoints.capturado_en` y `notes.created_at`.
 
 ## 7. Roadmap
 

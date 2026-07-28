@@ -77,6 +77,16 @@ class Marine:
     wind_wave_height_m: float | None = None
     swell_wave_height_m: float | None = None
     sea_temperature_c: float | None = None
+    # Por qué no hay datos, cuando el motivo es que la consulta falló. Vacío
+    # cuando la API respondió bien (haya mar o no).
+    #
+    # Sin esto, "estoy en León" y "la API marina está caída" se veían
+    # exactamente igual desde fuera —un `Marine` vacío— y son cosas
+    # completamente distintas: la primera es normal y la segunda hay que
+    # decirla. Es el corolario de la decisión 22 (distinguir "sin resultados"
+    # de "no consultado") aplicado al oleaje, y hace falta ahora porque
+    # `contexto.Fuente` informa de los dos casos por separado.
+    fallo: str = ""
 
     def has_data(self) -> bool:
         """¿Hay datos reales?
@@ -261,7 +271,9 @@ def _fetch_marine(lat: float, lon: float) -> Marine:
     """Datos de oleaje. Nunca lanza: si falla, devuelve un Marine vacío.
 
     Es información opcional (solo aplica en la costa), así que un fallo aquí
-    no debe tumbar toda la consulta del tiempo.
+    no debe tumbar toda la consulta del tiempo. Pero el fallo se **anota** en
+    `Marine.fallo` en vez de tragárselo: un vacío por avería y un vacío por
+    estar tierra adentro se ven igual desde fuera y no son lo mismo.
     """
     try:
         payload = _get_json(
@@ -277,8 +289,8 @@ def _fetch_marine(lat: float, lon: float) -> Marine:
             },
             "oleaje",
         )
-    except WeatherError:
-        return Marine()
+    except WeatherError as exc:
+        return Marine(fallo=str(exc))
 
     current = payload.get("current") or {}
     return Marine(
@@ -343,5 +355,12 @@ def get_weather(lat: float, lon: float) -> Weather:
     forecast = _fetch_forecast(lat, lon)
     marine = _fetch_marine(lat, lon)
 
+    # El `Marine` se guarda tal cual, incluso cuando trae `fallo`. Es
+    # deliberado y va en la misma línea que la decisión 12 (no reintentar
+    # contra un muro): si la API marina está caída, no cachear el fallo haría
+    # que CADA petición de los siguientes 30 minutos pagase su timeout entero,
+    # y el contexto tiene que responder por debajo de dos segundos. Así falla
+    # rápido, y `Marine.fallo` deja escrito que es una avería y no que aquí no
+    # haya mar. Se reevalúa media hora después, sola.
     storage.cache_set(cache_key, {"forecast": forecast, "marine": asdict(marine)})
     return _parse_forecast(forecast, marine)
