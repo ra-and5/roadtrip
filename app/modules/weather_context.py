@@ -125,6 +125,12 @@ class Weather:
     sunrise: str = ""
     sunset: str = ""
     timezone: str = ""
+    # Altitud del punto, en metros. La da Open-Meteo gratis en la misma
+    # respuesta, así que no cuesta una llamada más. OJO con lo que es: la
+    # altitud de la CELDA del modelo, no la del punto exacto — en un valle
+    # estrecho puede diferir bastante del suelo que pisas. Sirve para "estoy a
+    # 24 m" o "estoy a 1.200 m", no para calcular un desnivel.
+    elevation_m: float | None = None
     marine: Marine = field(default_factory=Marine)
 
     # -- Interpretación ----------------------------------------------------
@@ -330,6 +336,7 @@ def _parse_forecast(payload: dict[str, Any], marine: Marine) -> Weather:
         sunrise=str(first("sunrise") or ""),
         sunset=str(first("sunset") or ""),
         timezone=str(payload.get("timezone", "")),
+        elevation_m=payload.get("elevation"),
         marine=marine,
     )
 

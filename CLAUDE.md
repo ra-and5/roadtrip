@@ -71,6 +71,7 @@ app/
   modules/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
+    diario.py                El primer sitio de cada día. Registra; NO analiza
     location_context.py      Nominatim (dónde estoy) + Overpass (qué hay cerca)
     weather_context.py       Open-Meteo (tiempo + oleaje) e interpretación
     ai_orchestrator.py       Prompt, esquema de salida y caché. AGNÓSTICO del proveedor.
@@ -138,7 +139,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
 | 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | ✅ **Cerrada** 28-07-2026, con el atajo del álbum y fotos reales |
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
-| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **En curso.** §2 (contexto), §3 (Overpass) y §4 (luna) hechos; queda §5 (pantalla) |
+| 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha, sin cerrar.** Las cuatro partes escritas y probadas en local; **falta desplegar y validar en el móvil** |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -1007,6 +1008,61 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     "menguante cóncava". No daba error: solo escribía una tontería en la
     pantalla y en el prompt del modelo. Lo caza un test con la luna del
     12-08-2026, que met.no sitúa a 350,28°.
+
+35. **La pantalla pide el contexto antes que la recomendación, y son dos
+    botones.** Es la consecuencia visible de la decisión 32: *¿dónde estoy?*
+    responde en menos de un segundo y no cuesta nada, y *recomiéndame algo*
+    cuesta tokens y unos segundos, así que se pide aparte. Antes las dos cosas
+    iban en el mismo botón y no había forma de mirar el tiempo sin pagar el
+    modelo.
+
+    Un detalle del JavaScript que no es cosmético: **los dos caminos pintan con
+    la misma función** (`renderContexto`). Si cada uno pintase lo suyo, la
+    pantalla acabaría enseñando cosas distintas según qué botón hubieras
+    pulsado — el mismo problema que resolvió tener un solo módulo de contexto,
+    en pequeño.
+
+    **Fuera las coordenadas crudas de la tarjeta.** `38.39099, -0.52101 ·
+    ±1020 m` no le dice nada a nadie. Quedan el pueblo, la comunidad y la
+    altitud; las coordenadas y la precisión del GPS bajan a un detalle plegado,
+    porque cuando algo parece raro son lo primero que se mira y borrarlas sería
+    quitarse la única forma de depurar una chincheta en el sitio equivocado.
+
+    **La altitud sale gratis de Open-Meteo**, en la misma respuesta del tiempo,
+    así que no cuesta ni una llamada más. Con dos avisos escritos donde tocan:
+    es la altitud de la CELDA del modelo y no la del punto exacto (sirve para
+    "estoy a 1.200 m", no para calcular un desnivel), y si el tiempo falla no
+    hay altitud — y entonces **no se pone un cero**, que sería afirmar que
+    estás al nivel del mar.
+
+    **El primer sitio de cada día se registra, y no se analiza.** Lo pidió el
+    usuario. Vive en su propia tabla (`lugar_del_dia`) y en `diario.py`, con
+    tres decisiones dentro:
+
+    - **La idempotencia va en el esquema**: `UNIQUE(fecha_local)` más
+      `INSERT OR IGNORE`, así que la primera del día gana y las demás rebotan
+      solas. Comprobar-y-luego-insertar tendría una carrera con dos peticiones
+      a la vez (decisión 23).
+    - **El día es el LOCAL.** Preguntar a las 00:30 en España es del día
+      siguiente en UTC, y contarlo ahí desplaza un día entero del viaje sin dar
+      ningún error (decisión 29).
+    - **No se registra desde `contexto.construir()`.** Era lo cómodo —ya tiene
+      el sitio y la hora— y es un error: esa función la van a llamar también el
+      recomendador y el chatbot, así que preguntarle algo al chatbot escribiría
+      en la base de datos, y encima marcaría como "el sitio del día" uno que a
+      lo mejor venía de una consulta sobre ayer. Se registra desde la ruta.
+
+    Y se aplica la regla del proyecto sin excepción: **es un dato nuevo, así
+    que no se construye nada encima hasta que demuestre que llega sin huecos**.
+    `tools/diagnostico.py` enseña justamente los huecos y no el total, porque
+    un total alto con huecos no es una serie: son anécdotas sueltas. Por el
+    mismo motivo, **el hueco de pasos y batería está preparado y vacío**, con
+    su tarjeta explicando por qué — un hueco declarado se entiende, uno ausente
+    parece un olvido.
+
+    Lo que **no** se ha tocado, a propósito: la presentación del tiempo. El
+    usuario lo aplazó ("eso con el tiempo") y el orden es el que manda el
+    proyecto: los datos primero, la estética después.
 
 ## 7. Roadmap
 

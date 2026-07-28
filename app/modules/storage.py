@@ -146,6 +146,41 @@ CREATE TABLE IF NOT EXISTS telemetria (
 
 -- Toda consulta futura sobre esto será por rango de fechas.
 CREATE INDEX IF NOT EXISTS idx_telemetria_medido_en ON telemetria(medido_en);
+
+-- Dónde estabas la PRIMERA vez que abriste la app cada día (Fase 5).
+--
+-- Tabla propia y no una fila más en `telemetria`, por el mismo motivo que los
+-- waypoints: la regla vigente es que no se construye análisis sobre
+-- `telemetria` hasta cerrar la 2d, y meter ahí una fuente distinta obligaría a
+-- recordar un `WHERE fuente` en cada consulta futura.
+--
+-- La idempotencia va en el esquema y no en el código: `UNIQUE(fecha_local)`
+-- más `INSERT OR IGNORE` significa que la PRIMERA del día gana y las demás
+-- rebotan solas. Comprobar-y-luego-insertar tendría una carrera con dos
+-- peticiones a la vez; una restricción de unicidad no (misma idea que la
+-- decisión 23).
+--
+-- `fecha_local` y no UTC: abrir la app a las 00:30 en España es del día
+-- siguiente en UTC, y eso desplazaría un día entero del viaje. Es la misma
+-- decisión que ya se tomó para contar los días de las notas (decisión 29).
+--
+-- Ojo con lo que este dato ES y lo que NO es: es "el primer sitio desde el que
+-- pregunté cada día", no un registro de por dónde pasé. Los días que no abras
+-- la app no dejan fila, y eso no es un fallo. Mientras no demuestre que llega
+-- sin huecos, no se construye análisis encima (la regla de la 2d).
+CREATE TABLE IF NOT EXISTS lugar_del_dia (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha_local   TEXT NOT NULL,
+    lat           REAL NOT NULL,
+    lon           REAL NOT NULL,
+    place_name    TEXT,
+    region        TEXT,
+    -- El instante local completo con su huso, para saber a qué hora del día
+    -- fue esa primera consulta sin tener que deducirlo.
+    momento_local TEXT NOT NULL,
+    registrado_en TEXT NOT NULL,
+    UNIQUE(fecha_local)
+);
 """
 
 
@@ -600,3 +635,58 @@ def delete_notes(ids: Sequence[int]) -> int:
     with get_conn() as conn:
         cur = conn.execute(f"DELETE FROM notes WHERE id IN ({marcadores})", tuple(ids))
         return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# El lugar del día (Fase 5)
+# ---------------------------------------------------------------------------
+
+def insert_lugar_del_dia(fila: dict[str, Any]) -> bool:
+    """Guarda dónde estabas hoy, si es la primera vez que se pregunta.
+
+    Devuelve True solo si se ha insertado de verdad. `INSERT OR IGNORE` contra
+    el `UNIQUE(fecha_local)` hace que la primera del día gane y las demás
+    reboten solas, sin `SELECT` previo y sin carrera.
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO lugar_del_dia "
+            "(fecha_local, lat, lon, place_name, region, momento_local, registrado_en) "
+            "VALUES (:fecha_local, :lat, :lon, :place_name, :region, "
+            ":momento_local, :registrado_en)",
+            fila,
+        )
+        return cur.rowcount > 0
+
+
+def list_lugares_del_dia(limit: int = 400) -> list[dict[str, Any]]:
+    """Los días registrados, del más reciente al más antiguo."""
+    with get_conn() as conn:
+        filas = conn.execute(
+            "SELECT id, fecha_local, lat, lon, place_name, region, "
+            "       momento_local, registrado_en "
+            "FROM lugar_del_dia ORDER BY fecha_local DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(f) for f in filas]
+
+
+def lugares_del_dia_stats() -> dict[str, Any]:
+    """Cuántos días hay registrados y cuáles son el primero y el último.
+
+    Sirve para lo único que decide si este dato se puede usar: ¿hay huecos?
+    Un total muy por debajo de los días transcurridos entre `primero` y
+    `ultimo` significa que no llega solo, y entonces no se construye encima.
+    """
+    with get_conn() as conn:
+        fila = conn.execute(
+            "SELECT COUNT(*) AS total, MIN(fecha_local) AS primero, "
+            "       MAX(fecha_local) AS ultimo FROM lugar_del_dia"
+        ).fetchone()
+
+    return {
+        "total": fila["total"] or 0,
+        "primero": fila["primero"],
+        "ultimo": fila["ultimo"],
+    }

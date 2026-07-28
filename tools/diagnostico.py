@@ -138,6 +138,21 @@ def main() -> None:
         )
     check("puntos de las fotos", _puntos)
 
+    # El primer sitio de cada día (Fase 5). Lo que se enseña es el número de
+    # HUECOS, no el total, porque es la única cifra que decide si este dato
+    # sirve para construir algo encima — la misma vara de medir que mantiene
+    # aparcada la Fase 2d. Un total alto con huecos no es una serie: son
+    # anécdotas sueltas.
+    def _lugares() -> str:
+        from app.modules import diario
+
+        s = diario.resumen()
+        if not s["total"]:
+            return "0 días (aún no se ha abierto la app desde ningún sitio)"
+        estado = "sin huecos" if s["huecos"] == 0 else f"{s['huecos']} días SIN registrar"
+        return f"{s['total']} días, de {s['primero']} a {s['ultimo']} — {estado}"
+    check("lugar del día", _lugares)
+
     # El disco, que es el recurso que se agota sin avisar en un plan gratuito
     # de 512 MB. Hoy las notas son solo texto y no gastan casi nada, pero el
     # aviso tiene que existir ANTES de que haya fotos: quedarse sin disco a

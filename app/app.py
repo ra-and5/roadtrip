@@ -17,7 +17,7 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, contexto, ingest, notes, ruta, storage, waypoints
+from app.modules import auth, contexto, diario, ingest, notes, ruta, storage, waypoints
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
 from app.modules.notes import NoteError
@@ -181,6 +181,12 @@ def api_contexto() -> Any:
     except LocationError as exc:
         # 502: nuestro servidor está bien, el servicio del que dependemos no.
         return jsonify({"error": str(exc)}), 502
+
+    # Queda constancia de dónde estabas la primera vez que hoy preguntaste. Va
+    # aquí y no dentro de `contexto.construir()` a propósito: esa función la van
+    # a llamar también el recomendador y el chatbot, y darle un efecto lateral
+    # haría que preguntarle algo al chatbot escribiera en la base de datos.
+    diario.registrar_lugar_del_dia(estado)
 
     return jsonify(estado.to_dict())
 

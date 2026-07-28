@@ -464,3 +464,49 @@ def test_las_coordenadas_siguen_estando_en_el_contexto(sesion: Any, sin_red: Any
     cuerpo = sesion.post(RUTA, json={"lat": 43.5622, "lon": -6.1456}).get_json()
 
     assert cuerpo["ubicacion"]["lat"] == pytest.approx(43.5622)
+
+
+# ---------------------------------------------------------------------------
+# La pantalla (§5): lo que se enseña y lo que se guarda
+# ---------------------------------------------------------------------------
+
+def test_pedir_contexto_deja_constancia_del_sitio_del_dia(sesion: Any, sin_red: Any) -> None:
+    """Lo pidió el usuario: que quede escrito dónde estabas la primera vez.
+
+    Se registra desde la RUTA y no desde `construir()`, porque esa función la
+    van a llamar también el recomendador y el chatbot.
+    """
+    sesion.post(RUTA, json={"lat": 43.5622, "lon": -6.1456})
+
+    filas = storage.list_lugares_del_dia()
+    assert len(filas) == 1
+    assert filas[0]["place_name"] == "Cudillero, Asturias"
+
+
+def test_mirar_diez_veces_al_dia_no_son_diez_filas(sesion: Any, sin_red: Any) -> None:
+    for _ in range(5):
+        sesion.post(RUTA, json={"lat": 43.5622, "lon": -6.1456})
+
+    assert len(storage.list_lugares_del_dia()) == 1
+
+
+def test_la_altitud_viaja_en_el_contexto(sesion: Any, sin_red: Any) -> None:
+    """Sale gratis de Open-Meteo, en la misma respuesta del tiempo.
+
+    Sustituye a las coordenadas crudas en la tarjeta: "a 24 m de altitud" dice
+    algo, "43.56220, -6.14560" no.
+    """
+    sin_red(tiempo=_weather(elevation_m=24.0))
+
+    cuerpo = sesion.post(RUTA, json={"lat": 43.5622, "lon": -6.1456}).get_json()
+
+    assert cuerpo["tiempo"]["elevation_m"] == 24.0
+
+
+def test_sin_tiempo_tampoco_hay_altitud_y_no_se_inventa(sesion: Any, sin_red: Any) -> None:
+    """Un cero aquí sería "estás al nivel del mar", que es una afirmación."""
+    sin_red(tiempo=WeatherError("Open-Meteo no responde."))
+
+    cuerpo = sesion.post(RUTA, json={"lat": 43.5622, "lon": -6.1456}).get_json()
+
+    assert cuerpo["tiempo"] is None

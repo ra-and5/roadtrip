@@ -5,7 +5,11 @@
 <div class="card">
   <h1>¿Qué hago aquí?</h1>
 
-  <button id="locate-btn" class="primary">Recomiéndame algo</button>
+  <!-- Dos botones y no uno, y ese es el cambio de la fase: mirar dónde estás y
+       qué tiempo hace es gratis e instantáneo; pedirle un plan al modelo cuesta
+       tokens y unos segundos, así que se pide aparte y cuando tú quieras. -->
+  <button id="contexto-btn" class="primary">¿Dónde estoy?</button>
+  <button id="locate-btn" class="secondary">Recomiéndame algo</button>
   <button id="refresh-btn" class="secondary" hidden>Generar otra recomendación</button>
 
   <p id="status" class="status" aria-live="polite"></p>
@@ -14,9 +18,18 @@
 <!-- Cada sección se rellena y se muestra por separado. Es lo que permite que
      la app siga siendo útil aunque una de las fuentes haya fallado. -->
 
+<!-- Sin coordenadas crudas: "38.39099, -0.52101 · ±1020 m" no le dice nada a
+     nadie. El pueblo, la comunidad y la altitud sí. La precisión del GPS sigue
+     existiendo, pero en el detalle plegado, que es donde se mira cuando algo
+     parece raro y no presidiendo la tarjeta. -->
 <section id="place-card" class="card" hidden>
   <h2 id="place-label"></h2>
-  <p class="muted" id="place-coords"></p>
+  <p class="muted" id="place-altitud"></p>
+  <p class="muted" id="place-momento"></p>
+  <details id="place-detalle">
+    <summary>Detalle técnico</summary>
+    <p class="muted" id="place-coords"></p>
+  </details>
 </section>
 
 <section id="warnings-card" class="card warnings" hidden>
@@ -49,6 +62,18 @@
   <p id="reco-aviso" class="aviso" hidden></p>
   <div id="reco-activities"></div>
   <p class="muted" id="reco-meta"></p>
+</section>
+
+<!-- El hueco de pasos y batería: preparado y VACÍO mientras la Fase 2d no
+     cierre. No es un olvido ni una tarjeta a medias — es la regla del proyecto:
+     un dato no entra en la pantalla hasta que ha demostrado que llega solo y
+     sin huecos. Construir un perfil sobre una fuente que aún no se ha
+     demostrado es trabajo que hay que tirar, y peor, produce conclusiones
+     equivocadas sin dar ningún error. El día que la 2d cierre, esta tarjeta se
+     rellena sin tocar la pantalla. -->
+<section id="metricas-card" class="card" hidden>
+  <h2>Tu día</h2>
+  <p class="muted" id="metricas-motivo"></p>
 </section>
 
 <!-- Overpass está muerto o saturado casi siempre (31,3 s medidos desde el

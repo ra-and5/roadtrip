@@ -56,6 +56,7 @@ roadtrip/
 │   │   ├── auth.py                 Login de un solo usuario
 │   │   ├── contexto.py             El estado del viaje: una definición, tres consumidores
 │   │   ├── luna.py                 Fase e iluminación sin red; salida y puesta de met.no
+│   │   ├── diario.py               El primer sitio de cada día. Registra; NO analiza
 │   │   ├── location_context.py     Nominatim (dónde estoy) + Overpass (qué hay cerca)
 │   │   ├── weather_context.py      Open-Meteo (tiempo + oleaje) e interpretación
 │   │   ├── ai_orchestrator.py      Prompt, esquema y caché. AGNÓSTICO del proveedor.
@@ -510,6 +511,7 @@ cayó.
                  "efemerides": { "salida": "2026-07-28T21:35+02:00", ... },  // o null
                  "veredicto": { "hay_luz": true, "motivo": "..." } },
   "metricas":  null,        // hueco reservado (pasos y batería, tras cerrar la 2d)
+  // `tiempo.elevation_m` trae la altitud, gratis y en la misma respuesta.
   "fuentes": {
     "ubicacion": { "estado": "ok",            "motivo": "" },
     "tiempo":    { "estado": "ok",            "motivo": "" },

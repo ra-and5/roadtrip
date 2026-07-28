@@ -8,6 +8,7 @@
 (function () {
   "use strict";
 
+  const contextoBtn = document.getElementById("contexto-btn");
   const btn = document.getElementById("locate-btn");
   const refreshBtn = document.getElementById("refresh-btn");
   const poisBtn = document.getElementById("pois-btn");
@@ -22,7 +23,8 @@
    * desapareciendo y reapareciendo sin motivo. Lo que se oculta es su
    * desplegable de resultados, que sí depende de haber buscado. */
   const SECTIONS = [
-    "place-card", "warnings-card", "weather-card", "luna-card", "reco-card",
+    "place-card", "warnings-card", "weather-card", "luna-card",
+    "metricas-card", "reco-card",
   ];
 
   function setStatus(message, kind) {
@@ -106,12 +108,34 @@
 
   // --- Renderizado ---------------------------------------------------------
 
-  function renderPlace(place, coords) {
+  function renderPlace(place, coords, momento, weather) {
     text("place-label", place.short_label);
+
+    /* La altitud la da Open-Meteo gratis en la misma respuesta del tiempo, así
+     * que si el tiempo falló tampoco hay altitud. Se calla en vez de poner un
+     * cero: "estás a 0 m" es una afirmación, y falsa. */
+    text(
+      "place-altitud",
+      weather && weather.elevation_m !== null && weather.elevation_m !== undefined
+        ? "A " + Math.round(weather.elevation_m) + " m de altitud"
+        : ""
+    );
+
+    text(
+      "place-momento",
+      momento
+        ? momento.dia_semana + " " + momento.hora +
+          (momento.zona_es_supuesta ? " (hora aproximada: zona sin confirmar)" : "")
+        : ""
+    );
+
+    /* Las coordenadas bajan al detalle plegado. Siguen estando porque cuando
+     * algo parece raro son lo primero que se mira, pero no presiden la tarjeta:
+     * "38.39099, -0.52101 · ±1020 m" no le dice nada a nadie. */
     text(
       "place-coords",
-      coords.latitude.toFixed(5) + ", " + coords.longitude.toFixed(5) +
-        (coords.accuracy ? "  ·  ±" + Math.round(coords.accuracy) + " m" : "")
+      place.lat.toFixed(5) + ", " + place.lon.toFixed(5) +
+        (coords && coords.accuracy ? "  ·  GPS ±" + Math.round(coords.accuracy) + " m" : "")
     );
     show("place-card");
 
@@ -192,6 +216,16 @@
 
     text("luna-motivo", luna.veredicto.motivo);
     show("luna-card");
+  }
+
+  /* El hueco de pasos y batería. Mientras la 2d no cierre, la tarjeta explica
+   * POR QUÉ está vacía en vez de no existir: un hueco declarado se entiende,
+   * uno ausente parece que se ha olvidado. */
+  function renderMetricas(metricas, fuente) {
+    if (metricas) return;               // el día que haya datos, aquí van
+    if (!fuente || fuente.estado !== "no_consultada") return;
+    text("metricas-motivo", "Todavía no: " + fuente.motivo);
+    show("metricas-card");
   }
 
   function renderRecommendation(reco) {
@@ -289,7 +323,65 @@
     text("pois-estado", mensaje === "" ? "Datos de OpenStreetMap." : mensaje);
   }
 
+  function renderContexto(ctx, coords) {
+    renderPlace(ctx.ubicacion, coords, ctx.momento, ctx.tiempo);
+    renderWarnings(ctx.warnings);
+    renderWeather(ctx.tiempo);
+    renderLuna(ctx.luna);
+    renderMetricas(ctx.metricas, ctx.fuentes && ctx.fuentes.metricas);
+    renderEstadoPois(ctx.fuentes && ctx.fuentes.pois);
+  }
+
   // --- Flujo principal -----------------------------------------------------
+
+  /* Dónde estoy y qué tiempo hace. Sin modelo, sin Overpass y sin esperas: es
+   * lo que la pantalla puede enseñar en menos de un segundo, y es el motivo de
+   * haber partido el endpoint en dos. */
+  async function verContexto() {
+    contextoBtn.disabled = true;
+    hideAll();
+
+    try {
+      setStatus("Obteniendo posición del GPS…");
+      const position = await getPosition();
+      lastCoords = position.coords;
+
+      setStatus("Consultando…");
+      const response = await fetch("/api/contexto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        }),
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const data = await response.json().catch(function () {
+        return {};
+      });
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error del servidor (" + response.status + ").");
+      }
+
+      // El evento `lugar-resuelto` que necesita notas.js ya lo emite
+      // renderPlace(), así que no se repite aquí.
+      renderContexto(data, position.coords);
+      setStatus("");
+    } catch (err) {
+      setStatus(
+        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message,
+        "error"
+      );
+    } finally {
+      contextoBtn.disabled = false;
+    }
+  }
 
   async function run(refresh) {
     btn.disabled = true;
@@ -309,13 +401,22 @@
       const data = await fetchRecommendations(coords.latitude, coords.longitude, refresh);
       if (!data) return;
 
-      renderPlace(data.place, coords);
-      renderWarnings(data.warnings);
-      renderWeather(data.weather);
-      renderLuna(data.contexto && data.contexto.luna);
+      /* El mismo renderizado que el botón de contexto: una sola función pinta
+       * el estado del viaje, venga de donde venga. Si cada camino pintase lo
+       * suyo, la pantalla acabaría enseñando cosas distintas según qué botón
+       * hubieras pulsado — que es, en pequeño, el mismo problema que resolvió
+       * partir el contexto en un solo módulo.
+       *
+       * `warnings` se toma del nivel superior porque ahí vienen ya los del
+       * contexto MÁS los de los POIs, que no son parte del contexto. */
+      if (data.contexto) {
+        renderContexto(
+          Object.assign({}, data.contexto, { warnings: data.warnings }),
+          coords
+        );
+      }
       renderRecommendation(data.recommendation);
       renderPois(data.pois);
-      renderEstadoPois(data.contexto && data.contexto.fuentes && data.contexto.fuentes.pois);
 
       setStatus("");
       refreshBtn.hidden = false;
@@ -380,6 +481,7 @@
     }
   }
 
+  contextoBtn.addEventListener("click", verContexto);
   btn.addEventListener("click", function () {
     run(false);
   });
