@@ -10,12 +10,14 @@ ubicación y batería a `/api/telemetria`.
 >
 > - ✅ **Probado el 27-07-2026 en un iPhone real**: el envío completo (URL,
 >   método POST, las dos cabeceras, cuerpo como *Archivo* desde una acción
->   *Texto*) contra el servidor desplegado, y la **idempotencia** — el segundo
+>   *Texto*) contra el servidor desplegado; la **idempotencia** —el segundo
 >   envío devolvió `{"guardadas":0,"duplicadas":1}`, que es justo lo que tiene
->   que pasar.
-> - ❌ **Sin probar**: todo el bloque de datos reales (buscar muestras de Salud,
->   nivel de batería, ubicación) y las automatizaciones por hora. Esos pasos
->   están escritos a partir de cómo funciona Atajos, no de haberlos ejecutado.
+>   que pasar—; y una muestra con **fecha y batería reales** guardada desde el
+>   móvil. De ahí salen las cuatro trampas documentadas al final de la §4.
+> - ❌ **Sin probar**: el bloque de pasos de Salud (el bucle de la ventana
+>   solapada), el envío de ubicación —se aparcó, ver la trampa 1— y las
+>   automatizaciones por hora. Esos pasos están escritos a partir de cómo
+>   funciona Atajos, no de haberlos ejecutado.
 >
 > Los nombres de las acciones cambian entre versiones de iOS y entre idiomas,
 > así que espera tener que buscar alguna por un nombre parecido. Lo que no
@@ -234,6 +236,40 @@ Atajos → **+** → nombre: `Enviar telemetría`.
     Solo mientras pruebas: en la automatización final se quita (ver §6).
 
 ---
+
+### Trampas comprobadas montándolo de verdad
+
+Las cuatro salieron la primera noche (27-07-2026) y ninguna es evidente. Si
+construyes el JSON a mano con una acción **Texto** en vez de con
+**Diccionario**, te vas a encontrar con las dos primeras seguro.
+
+1. **Los decimales salen con coma.** Con el iPhone en español, una latitud
+   `43.5622` se convierte en texto como `43,5622`, y eso rompe el JSON: para el
+   parser, `"lat":43,5622` es un `43`, una coma de separación y un `5622` suelto
+   donde debería ir una clave. El síntoma es un 400 diciendo que el cuerpo no es
+   un objeto JSON. Por eso conviene la acción **Diccionario**, que no pasa los
+   números por texto. Si aun así usas Texto, hace falta un **Reemplazar texto**
+   (`,` → `.`) sobre **cada número por separado** — nunca sobre el JSON entero,
+   donde las comas separan campos.
+
+2. **La fecha se formatea en el propio chip, sin bloques aparte.** No hacen falta
+   `Fecha actual` + `Aplicar formato` + `Definir variable`: basta insertar la
+   variable especial **Fecha actual** dentro del texto, **tocar el chip** y
+   elegir *Formato de fecha → ISO 8601* con *Incluir hora* activado. Tres
+   bloques menos y, sobre todo, una cadena menos que se rompa: al reordenar
+   acciones, un `Definir variable` puede quedar apuntando a nada y entonces la
+   fecha **se envía vacía**, sin ningún aviso en Atajos. El servidor sí lo dice
+   (`falta 'medido_en'`), y por eso el mensaje nombra el campo.
+
+3. **El teclado del iPhone mete tildes y dobles.** `"batería"` en vez de
+   `"bateria"`, o `"lat:":` en vez de `"lat":`. Esta segunda es la peligrosa:
+   `{"lat:": 43.5}` es JSON **válido** —solo que la clave se llama `lat:`—, así
+   que el servidor responde `guardadas: 1` tan contento y guarda la ubicación
+   como `NULL`. Un fallo mudo de manual: no se detecta mirando si hubo error,
+   sino mirando lo que llegó, con `tools/ver_telemetria.py`.
+
+4. **Cuidado al pegar el token en la cabecera.** Ver la fila de `openresty` en
+   la tabla de abajo.
 
 ## 5. Probarlo
 
