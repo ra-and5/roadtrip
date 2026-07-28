@@ -18,10 +18,11 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
-from app.modules import auth, ingest, notes, storage
+from app.modules import auth, ingest, notes, ruta, storage, waypoints
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
 from app.modules.notes import NoteError
+from app.modules.waypoints import WaypointError
 from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
@@ -291,6 +292,75 @@ def api_listar_notas() -> Any:
             "progreso": notes.progreso(todas),
         }
     )
+
+
+@app.route("/api/ruta", methods=["GET"])
+@auth.login_required
+def api_ruta() -> Any:
+    """El viaje entero: la línea de tiempo, los días y el progreso, de una vez.
+
+    Todo en una petición y no en tres, por lo mismo que en `/api/notes`: el
+    cliente es un móvil con mala cobertura y cada petición extra es otra
+    oportunidad de que la pantalla se quede a medias.
+
+    `progreso` se calcula siempre sobre TODAS las notas aunque `year` filtre la
+    línea de tiempo: el filtro cambia qué viaje se está mirando, no cuánto
+    llevas hecho en total. Es lo que permite comparar años sin volver a pedir
+    el histórico entero.
+    """
+    year: int | None = None
+    bruto = request.args.get("year", "").strip()
+    if bruto:
+        try:
+            year = int(bruto)
+        except ValueError:
+            return jsonify({"error": f"'year' no es un número: {bruto!r}"}), 400
+
+    todas = notes.get_notes()
+    linea = ruta.construir(
+        notes.solo_del_anio(todas, year),
+        storage.list_waypoints(),
+        year=year,
+    )
+
+    return jsonify(
+        {
+            "resumen": linea["resumen"],
+            "momentos": linea["momentos"],
+            "dias": ruta.por_dias(linea["momentos"]),
+            "progreso": notes.progreso(todas),
+        }
+    )
+
+
+@app.route("/api/waypoints", methods=["POST"])
+def api_waypoints() -> Any:
+    """Recibe los metadatos de las fotos que manda `tools/importar_fotos.py`.
+
+    Sin `@auth.login_required` y con el token de ingesta, igual que
+    `/api/telemetria`: al otro lado hay un script, no un navegador con sesión.
+    Que use el MISMO token y no uno propio es una decisión, no pereza. Un
+    secreto más significa otro sitio donde guardarlo y otra cosa que rotar, y
+    aquí no compraría nada: los dos clientes son máquinas que controla el dueño
+    de la app, con el mismo nivel de confianza, y si el token se compromete hay
+    que rotarlo igual para los dos.
+
+    Lo que **no** se hace es aceptar además la cookie de sesión. Esa es la
+    decisión 24 y sigue en pie: cada ruta, exactamente un camino de
+    autenticación. Lo fija un test.
+    """
+    if not ingest.token_valido(request.headers.get("Authorization")):
+        app.logger.warning("Importación de puntos rechazada: credencial inválida")
+        return jsonify({"error": "no_autorizado"}), 401
+
+    payload = request.get_json(silent=True)
+
+    try:
+        resultado = waypoints.import_waypoints(payload)
+    except WaypointError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(resultado.to_dict())
 
 
 @app.route("/api/telemetria", methods=["POST"])

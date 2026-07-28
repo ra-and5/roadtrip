@@ -16,6 +16,7 @@ geolocalizadas y construir el mapa acumulado de un viaje.
 | — | **Desplegado y validado en iPhone real** (27-07-2026) | ✅ |
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; aparcada a la espera de días de datos |
 | 3 | Notas geolocalizadas (con cola offline) y mapa Leaflet | 🟨 Hecho; falta validarlo en el móvil |
+| 3b | Ruta del viaje desde el EXIF de las fotos, y revivirla | 🟨 Hecho; falta probarlo con fotos reales |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
 Desplegado en PythonAnywhere (plan gratuito) y probado desde un iPhone con datos
@@ -59,12 +60,15 @@ roadtrip/
 │   │   ├── llm_providers.py        Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
 │   │   ├── ingest.py               Telemetría del móvil: token, validación, idempotencia
 │   │   ├── notes.py                Notas geolocalizadas y progreso del mapa
+│   │   ├── photo_meta.py           EXIF de una foto: cuándo y dónde. Sin dependencias
+│   │   ├── waypoints.py            Puntos del viaje sacados de las fotos
+│   │   ├── ruta.py                 Notas + fotos en una línea de tiempo, y su medida
 │   │   ├── timeparse.py            Instantes ISO 8601: validar, canonizar, volver a local
 │   │   └── storage.py              SQLite: caché, notas y telemetría
 │   ├── templates/          HTML (Jinja2)
 │   └── static/
 │       ├── js/notas.js     Cola offline en IndexedDB: guarda primero, envía después
-│       ├── js/mapa.js      Mapa, chinchetas y progreso del viaje
+│       ├── js/mapa.js      Mapa, trayecto, progreso y "revivir el viaje"
 │       └── vendor/leaflet/ Leaflet 1.9.4, servido por nosotros (no por un CDN)
 ├── tools/
 │   ├── hash_password.py    Genera SECRET_KEY y APP_PASSWORD_HASH
@@ -72,6 +76,7 @@ roadtrip/
 │   ├── diagnostico.py      Estado de cada dependencia externa
 │   ├── ver_telemetria.py   Últimas muestras del móvil, y borrado de las malas
 │   ├── ver_notas.py        Notas del viaje, progreso, y borrado de las malas
+│   ├── importar_fotos.py   Lee el EXIF de una carpeta y monta la ruta
 │   └── listar_modelos.py   Qué modelos de Gemini funcionan con tu key
 ├── tests/                  pytest
 └── data/                   BD e imágenes. NO va a git.
@@ -80,7 +85,7 @@ roadtrip/
 **Regla de arquitectura:** `app.py` solo valida la entrada, llama a un módulo y
 formatea la respuesta. Cada módulo tiene una función de entrada clara, tipada, y
 lanza sus propias excepciones (`LocationError`, `WeatherError`, `AIError`,
-`IngestError`, `NoteError`) en vez de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
+`IngestError`, `NoteError`, `WaypointError`) en vez de devolver `None`. Ningún módulo salvo `storage.py` abre la base de datos.
 
 ---
 
@@ -339,6 +344,8 @@ comprobaciones en orden con lo que deberías ver en cada una.
 | POST | `/api/recommendations` | ✅ | `{lat, lon, refresh?}` → lugar + tiempo + POIs + recomendación |
 | POST | `/api/notes` | ✅ | Crea una nota geolocalizada. Idempotente por `client_id` |
 | GET | `/api/notes?year=` | ✅ | Las notas y el progreso del viaje |
+| GET | `/api/ruta?year=` | ✅ | El viaje entero: notas + fotos en orden, días y progreso |
+| POST | `/api/waypoints` | 🔑 | Metadatos de las fotos (`tools/importar_fotos.py`) |
 | POST | `/api/telemetria` | 🔑 | Muestras del iPhone (pasos, ubicación, batería) |
 | GET | `/healthz` | — | Comprobación de vida |
 
@@ -387,6 +394,51 @@ que enseña `python tools/ver_notas.py`.
 `GET /api/notes` devuelve `{total, notes, progreso}`. `progreso` se calcula
 sobre **todas** las notas aunque `?year=` filtre la lista: el filtro cambia qué
 se pinta, no cuánto llevas hecho.
+
+### La ruta desde tus fotos
+
+Las fotos **no se suben**. Se leen sus metadatos EXIF —cuándo y dónde se
+hicieron— y con eso se dibuja el trayecto entero. Una foto son ~3 MB y el plan
+gratuito tiene 512 MB; sus metadatos son ~100 bytes.
+
+```bash
+python tools/importar_fotos.py ~/Fotos/viaje              # solo informa, no guarda nada
+python tools/importar_fotos.py ~/Fotos/viaje --detalle    # foto a foto
+python tools/importar_fotos.py ~/Fotos/viaje --enviar https://TU_USUARIO.pythonanywhere.com
+```
+
+Empieza siempre por el primero: te dice cuántas fotos traen fecha, GPS y huso
+horario **antes** de guardar nada. Tres cosas comprobadas contra archivos
+reales que conviene saber:
+
+- **WhatsApp borra el EXIF entero.** Ni fecha, ni GPS, ni cámara. Solo sirven
+  los originales del carrete.
+- Si la cámara tenía la ubicación desactivada, la foto trae fecha pero no
+  sitio: cuenta en el relato del viaje, no en el mapa.
+- El huso horario es opcional en el EXIF. Sin él se guarda la hora local tal
+  cual y **no se inventa ninguna zona**.
+
+Para `--enviar` hace falta `INGEST_TOKEN` (el token **en claro**, el mismo del
+atajo del iPhone) en el `.env` de tu portátil. En el servidor vive solo el
+hash, y así tiene que seguir.
+
+```jsonc
+// POST /api/waypoints
+// Authorization: Bearer <token de tools/token_ingesta.py>
+{
+  "fuente": "fotos",
+  "puntos": [
+    { "archivo": "IMG_4213.JPG",              // clave de la idempotencia
+      "capturado_en": "2026-07-28T14:32:05",  // hora LOCAL de la cámara, SIN huso
+      "offset_original": "+02:00",            // si la cámara lo escribió
+      "lat": 43.5619, "lon": -6.1467,         // opcionales, pero las dos o ninguna
+      "altitud": 123.4, "camara": "Apple iPhone 15" }
+  ]
+}
+```
+
+Reenviar la misma carpeta no duplica nada (`UNIQUE(fuente, archivo)`), así que
+se puede reimportar cada vez que vuelques el móvil.
 
 ### `/api/telemetria`
 

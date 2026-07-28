@@ -40,20 +40,23 @@ app/
     llm_providers.py         Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
     ingest.py                Telemetría del móvil: token, validación e idempotencia
     notes.py                 Notas geolocalizadas, y el progreso del mapa
+    photo_meta.py            EXIF de una foto: cuándo y dónde. Sin dependencias
+    waypoints.py             Puntos del viaje sacados de las fotos
+    ruta.py                  Notas + fotos en una línea de tiempo, y su medida
     timeparse.py             Instantes ISO 8601: validar, canonizar a UTC, volver a local
-    storage.py               SQLite: caché, notas y telemetría
+    storage.py               SQLite: caché, notas, puntos y telemetría
     auth.py                  Login de un solo usuario (sesión; NO cubre la ingesta)
   static/
     js/app.js                Pantalla principal: GPS → lugar, tiempo y recomendación
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
-    js/mapa.js               Mapa Leaflet, chinchetas y progreso del viaje
+    js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
 Regla: `app.py` valida la entrada, llama a un módulo y formatea la respuesta.
 Cada módulo tiene una función de entrada tipada y lanza su propia excepción
-(`LocationError`, `WeatherError`, `AIError`, `IngestError`). Solo `storage.py`
-abre la BD.
+(`LocationError`, `WeatherError`, `AIError`, `IngestError`, `NoteError`,
+`WaypointError`, `PhotoMetaError`). Solo `storage.py` abre la BD.
 
 Hay **dos** formas de autenticarse, y no se cruzan: la sesión (`auth.py`) para
 todo lo que usa una persona con un navegador, y el token de `ingest.py` para lo
@@ -77,6 +80,10 @@ python tools/ver_telemetria.py --borrar 3,4  # borra muestras malas por id
 python tools/ver_notas.py                  # notas del viaje + progreso del mapa
 python tools/ver_notas.py 50               # las 50 últimas
 python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
+python tools/importar_fotos.py CARPETA     # qué EXIF traen tus fotos (no guarda nada)
+python tools/importar_fotos.py CARPETA --detalle    # foto a foto
+python tools/importar_fotos.py CARPETA --importar   # a la BD local
+python tools/importar_fotos.py CARPETA --enviar https://tuapp…   # al servidor
 ```
 
 ## 5. Estado actual
@@ -90,7 +97,8 @@ python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
 | 2c | Preparación del despliegue (deps fijadas, `/healthz`, cookie `Secure`) | ✅ Hecho |
 | — | **Desplegado en PythonAnywhere y validado en iPhone** | ✅ 27-07-2026 |
 | 2d | Ingesta de telemetría del iPhone (pasos, ubicación, batería) | 🟨 MVP funcionando; **aparcada** a la espera de días de datos |
-| 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho en local; **falta validarlo en el móvil** |
+| 3 | Notas geolocalizadas (cola offline) y mapa Leaflet | 🟨 Hecho; **falta validarlo en el móvil** |
+| 3b | Ruta del viaje a partir del EXIF de las fotos, y "revivir el viaje" | 🟨 Hecho; **falta probarlo con fotos reales** |
 | 4 | Resumen narrativo del viaje + manifest PWA | ⬜ Pendiente |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -99,7 +107,7 @@ Leaflet servido por nosotros, y progreso del viaje (sitios, días, racha,
 tablero de 19 comunidades, comparación entre años). Las fotos se aplazaron a
 propósito (decisión 27) y su diseño queda escrito para cuando toquen.
 
-Lo que **sí** está probado, y no solo por la suite (287 tests): la cola offline
+Lo que **sí** está probado, y no solo por la suite (340 tests): la cola offline
 se ejecutó entera en un Chrome de escritorio, cortando la red a mano, y los
 cuatro caminos se comportaron como debían. Con `fetch` fallando, la nota se
 guardó en IndexedDB y la interfaz enseñó "1 nota por enviar"; al disparar
@@ -120,6 +128,24 @@ evento `online` en una red móvil que va y viene, que no es lo mismo que
 desenchufar un cable. En la 2d, esa misma distancia entre "probado en
 escritorio" y "probado en el móvil" escondía cuatro trampas
 ([`docs/atajo-iphone.md`](docs/atajo-iphone.md)).
+
+**La Fase 3b (la ruta) también está hecha y sin cerrar, por el mismo motivo:
+todavía no ha pasado por unas fotos de verdad.** Lo que hay: un lector de EXIF
+sin dependencias, `tools/importar_fotos.py`, la tabla `waypoints`, el endpoint
+`/api/waypoints` y el mapa dibujando el trayecto con el modo *revivir el viaje*.
+
+Probado de extremo a extremo, no solo con tests: se fabricaron fotos con EXIF
+conocido, se leyeron, se importaron por HTTP real contra un servidor (401 con
+token malo, 10 guardados con el bueno, y 0 nuevos / 10 duplicados al reenviar),
+y en Chrome se recorrió el viaje entero con el reproductor —el mapa se centra
+en cada momento, el halo marca dónde estás y la barra del tiempo sigue—.
+
+Lo que falta es una sola cosa y no se puede simular: **pasarle la carpeta de
+fotos del viaje de verdad**. De ahí saldrá qué conservan realmente, que es lo
+único que decide si esto sirve. Empieza por
+`python tools/importar_fotos.py <carpeta>`, que no guarda nada y solo informa.
+Ya hay un dato comprobado que ahorra tiempo: **las fotos que pasan por WhatsApp
+llegan sin ningún metadato**, así que hay que partir de los originales.
 
 **La Fase 2d está APARCADA como MVP, no cerrada,** y la diferencia importa.
 Probado contra el servidor desplegado y desde un iPhone real (28-07-2026): el
@@ -647,6 +673,79 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     a la espera de demostrar que llega sin huecos, y construir el progreso
     sobre una fuente que aún no es fiable es trabajo que habría que tirar.
 
+30. **Las fotos no se suben: se leen sus metadatos y se quedan donde están.**
+    Una foto son ~3 MB y el plan gratuito tiene 512 MB; sus metadatos EXIF son
+    ~100 bytes y contienen lo único que el mapa necesita —cuándo y dónde— así
+    que **el trayecto entero se reconstruye sin subir un solo megabyte**. Es la
+    decisión que convierte "guardar fotos" (caro, y aplazado en la decisión 27)
+    en "tener la ruta" (gratis, y hecho).
+
+    El lector de EXIF no trae dependencias. Pillow o exifread habrían sido un
+    paquete más para leer cuatro etiquetas; y aquí se puede evitar porque el
+    EXIF es un TIFF incrustado y sacar cuatro etiquetas de un TIFF son cien
+    líneas que además se prueban **con bytes fabricados a mano**, sin meter
+    ningún binario en el repositorio. Es la decisión 18 otra vez.
+
+    Tres cosas comprobadas contra archivos reales, no supuestas:
+
+    - **WhatsApp borra el EXIF entero.** Ni fecha, ni GPS, ni cámara: cero
+      bytes. Para esto solo sirven los originales del carrete, y la herramienta
+      lo dice explícitamente cuando detecta que no hay metadatos, porque si no
+      parecería que está rota.
+    - **En un JPEG se recorren los segmentos, no se busca la palabra "Exif".**
+      Un JPEG puede llevar esos bytes dentro de la imagen comprimida por
+      casualidad, y fabricar coordenadas a partir de eso sería el peor fallo
+      posible aquí: una chincheta convincente en un sitio inventado.
+    - **El huso horario es opcional en el EXIF.** `DateTimeOriginal` es hora
+      local *sin zona*; el desfase va en otra etiqueta que el iPhone escribe y
+      muchas cámaras no. Sin ella se guarda la hora local tal cual y **no se
+      inventa ninguna zona**: suponer "+02:00 porque el viaje es por España"
+      dejaría las fotos de Canarias una hora corridas sin dar ningún error.
+      Por eso `waypoints.capturado_en` es hora local sin huso y `notes.created_at`
+      es UTC canónico: son cosas distintas y llamarlas igual habría escondido
+      la diferencia.
+
+    Los puntos van a **su propia tabla** y no a una `fuente` más dentro de
+    `telemetria`, que era lo tentador porque esa tabla ya tiene `fuente`,
+    `lat`, `lon` y su UNIQUE. Se descartó porque la regla vigente es que no se
+    construye análisis sobre `telemetria` hasta cerrar la Fase 2d, y meter ahí
+    una fuente que **sí** es fiable obligaría a recordar un `WHERE fuente` en
+    cada consulta futura. Una regla que depende de que alguien se acuerde no es
+    una regla.
+
+    La idempotencia va por `UNIQUE(fuente, archivo)` y no por la fecha: dos
+    fotos de una ráfaga comparten el segundo y son dos puntos distintos.
+    Reimportar la carpeta entera —que es lo que se hace cada vez que se vuelca
+    el móvil— deja el viaje igual.
+
+31. **La ruta mezcla notas y fotos por su hora LOCAL, y los kilómetros se
+    calculan una sola vez.** Una nota trae su instante en UTC con el huso
+    aparte; una foto trae la hora de la cámara y puede que sin huso. Para
+    ponerlas en la misma línea se usa la hora local de cada una, que además es
+    la que se recuerda ("esa foto es de después de comer"). El precio, dicho
+    claro: un viaje que cruce husos podría ordenar dos momentos con el desfase
+    entre zonas. Para el norte de España es exacto.
+
+    Dos decisiones sobre la distancia, y una es una corrección:
+
+    - **Haversine, no restar grados.** Un grado de longitud mide 111 km en el
+      ecuador y 78 km en el norte de España: restar daría un 40 % de error
+      justo en la zona del viaje.
+    - **Un salto de más de 300 km entre dos puntos seguidos no suma.** No es un
+      tramo recorrido: es un vuelo, o dos viajes importados juntos. Sumarlo
+      daría un total espectacular y falso, y un total modesto y cierto vale
+      más. Se dice cuántos saltos se han ignorado, en vez de callarlo.
+    - **Los kilómetros de cada día y el total salen del MISMO cálculo.** Se
+      hacían por separado y no cuadraban: el total incluía los tramos entre
+      días (el trayecto nocturno de Cudillero a Laredo) y ningún día los
+      contaba. Dos números que no suman y no dan ningún error son el fallo
+      silencioso de manual (decisión 11). Ahora hay un solo sitio que decide
+      qué es un tramo, y cada tramo se le apunta al día en que se **llegó**.
+
+    Y lo que la ruta no puede enseñar se enseña igual: cuántas fotos se
+    quedaron sin fecha (no se pueden colocar) y cuántas sin GPS (cuentan en el
+    relato, no en el mapa). Esconderlas haría creer que el viaje está entero.
+
 ## 7. Roadmap
 
 - **Cerrar la Fase 2d.** El atajo ya está montado y envía bien a mano. Falta lo
@@ -730,15 +829,17 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
 - **Fase 4.** Resumen narrativo del viaje generado por el LLM a partir de todas
   las notas, y `manifest.json` + iconos para instalar como PWA en el iPhone.
 
-- **Metadatos de las fotos del carrete (EXIF).** Idea distinta de "subir fotos
-  a la app", y probablemente más útil: un script que lee la galería del viaje y
-  saca fecha, coordenadas y orden real en que se hicieron. Da el trayecto y el
-  relato del día **sin subir ni un megabyte** al servidor, que es justo el
-  recurso escaso. Encaja con la Fase 4: material para que el LLM haga preguntas
-  y monte el diario. Antes de escribir nada hay que verificar contra la
-  realidad qué EXIF conservan las fotos del iPhone al exportarlas (los
-  metadatos se pierden en varias rutas de exportación, y eso decide si la idea
-  funciona).
+- **Cerrar la 3b.** Pasarle `tools/importar_fotos.py` a la carpeta de fotos
+  del viaje de verdad y ver qué conservan. Es lo único que falta, y decide
+  cuánto de esto sirve.
+
+- **Enseñar la foto, no solo el punto.** Hoy el mapa dice "📷 IMG_4213.JPG" y
+  no puede enseñarla, porque la foto vive en tu disco y no se sube (decisión
+  30). Lo que falta no es subirlas: es una miniatura. Una de 200×150 a JPEG
+  bajo son ~8 KB, así que **mil fotos serían 8 MB** —cabe de sobra en los 512
+  MB— y el mapa pasaría de una lista de nombres a un álbum del viaje. Es la
+  mejor relación entre lo que aporta y lo que cuesta que queda pendiente, y
+  reutiliza entera la tubería que ya existe: solo cambia qué se manda.
 
 - **La app también en casa.** Hoy el uso pensado es el viaje, pero la mitad de
   lo que hace ya sirve desde el sofá: oleaje y tiempo con veredicto propio,

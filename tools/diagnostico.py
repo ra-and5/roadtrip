@@ -124,6 +124,19 @@ def main() -> None:
         return f"{s['total']} notas, la última del {s['ultima']}"
     check("notas del viaje", _notas)
 
+    # Puntos sacados del EXIF de las fotos (Fase 3b). Tampoco cuenta para el
+    # veredicto. Se mira `ubicados` y no solo el total porque es la cifra que
+    # dice si el trayecto se puede dibujar: mil fotos sin GPS no pintan nada.
+    def _puntos() -> str:
+        s = storage.waypoints_stats()
+        if not s["total"]:
+            return "0 puntos (aún no se ha importado ninguna foto)"
+        return (
+            f"{s['total']} puntos, {s['ubicados']} con GPS, "
+            f"de {(s['primera'] or '?')[:10]} a {(s['ultima'] or '?')[:10]}"
+        )
+    check("puntos de las fotos", _puntos)
+
     # El disco, que es el recurso que se agota sin avisar en un plan gratuito
     # de 512 MB. Hoy las notas son solo texto y no gastan casi nada, pero el
     # aviso tiene que existir ANTES de que haya fotos: quedarse sin disco a

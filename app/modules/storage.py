@@ -68,6 +68,48 @@ CREATE TABLE IF NOT EXISTS notes (
 
 CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at);
 
+-- Puntos del viaje sacados de los metadatos de las fotos (Fase 3b).
+--
+-- Tabla propia y NO una `fuente` más dentro de `telemetria`, que era la
+-- alternativa tentadora porque esa tabla ya tiene `fuente`, `lat`, `lon` y su
+-- UNIQUE. Se descarta por una razón concreta: la regla vigente del proyecto es
+-- que no se construye análisis sobre `telemetria` hasta cerrar la Fase 2d, y
+-- meter ahí una fuente que sí es fiable obligaría a recordar un `WHERE fuente`
+-- en cada consulta futura para no mezclarlas. Una regla que depende de que
+-- alguien se acuerde no es una regla: es un fallo esperando (decisión 11).
+--
+-- Aquí NO se guarda ninguna foto, solo dónde y cuándo se hizo. Una foto son
+-- ~3 MB y el plan gratuito 512 MB; sus metadatos son ~100 bytes y contienen
+-- todo lo que el mapa necesita. El trayecto se reconstruye sin subir nada.
+CREATE TABLE IF NOT EXISTS waypoints (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- De dónde sale el punto. Hoy "fotos"; mañana podría ser un GPX o la
+    -- telemetría cuando se cierre la 2d.
+    fuente      TEXT NOT NULL,
+    -- Nombre del archivo, sin ruta. Es la clave de la idempotencia: reimportar
+    -- la misma carpeta no puede duplicar el viaje. Sin ruta a propósito, para
+    -- que mover las fotos de carpeta no cree puntos nuevos.
+    archivo     TEXT NOT NULL,
+    -- Hora LOCAL de la cámara, tal y como la escribió, SIN huso:
+    -- "2026-07-28T14:32:05". El EXIF no lleva zona en esta etiqueta, y
+    -- convertirla a UTC aquí sería inventarse el instante. Es distinto de
+    -- `notes.created_at`, que sí es UTC canónico porque allí el navegador sí
+    -- manda el huso; llamarlas igual habría escondido esa diferencia.
+    capturado_en TEXT,
+    -- El desfase, si la cámara lo escribió (iPhone lo hace desde iOS 13).
+    -- Con él, `capturado_en` se puede llevar a UTC; sin él, no. NULL significa
+    -- "no se sabe", nunca "UTC".
+    offset_original TEXT,
+    lat         REAL,
+    lon         REAL,
+    altitud     REAL,
+    camara      TEXT,
+    importado_en TEXT NOT NULL,
+    UNIQUE(fuente, archivo)
+);
+
+CREATE INDEX IF NOT EXISTS idx_waypoints_capturado_en ON waypoints(capturado_en);
+
 -- Telemetría del móvil (Fase 2d): pasos, ubicación y batería que el iPhone
 -- envía cada hora desde un atajo de la app Atajos.
 CREATE TABLE IF NOT EXISTS telemetria (
@@ -449,6 +491,97 @@ def notes_stats() -> dict[str, Any]:
         "ultima_recepcion": fila["ultima_recepcion"],
         "con_foto": fila["con_foto"] or 0,
     }
+
+
+_WAYPOINT_COLS = (
+    "fuente",
+    "archivo",
+    "capturado_en",
+    "offset_original",
+    "lat",
+    "lon",
+    "altitud",
+    "camara",
+    "importado_en",
+)
+
+
+def insert_waypoints(rows: Sequence[dict[str, Any]]) -> tuple[int, int]:
+    """Guarda puntos del viaje ignorando los que ya existan. (nuevos, repetidos).
+
+    Misma mecánica que `insert_telemetry` y por el mismo motivo: reimportar la
+    carpeta de fotos entera es lo normal —se hace cada vez que se vuelcan las
+    del móvil— y tiene que dejar la base de datos igual que importarla una vez.
+    Lo garantiza el `UNIQUE(fuente, archivo)`, no un `SELECT` previo.
+    """
+    if not rows:
+        return 0, 0
+
+    columnas = ", ".join(_WAYPOINT_COLS)
+    marcadores = ", ".join("?" for _ in _WAYPOINT_COLS)
+    sql = f"INSERT OR IGNORE INTO waypoints ({columnas}) VALUES ({marcadores})"
+
+    nuevos = 0
+    with get_conn() as conn:
+        for row in rows:
+            cur = conn.execute(sql, tuple(row[c] for c in _WAYPOINT_COLS))
+            nuevos += cur.rowcount
+
+    return nuevos, len(rows) - nuevos
+
+
+def list_waypoints(limit: int = 5000) -> list[dict[str, Any]]:
+    """Los puntos del viaje, del más antiguo al más reciente.
+
+    Al revés que las notas, y a propósito: una nota se lee como un mensaje (lo
+    último primero) y un trayecto se recorre hacia delante. Este orden es el
+    del recorrido, que es para lo que existe la tabla.
+
+    Los que no traen fecha van al final: SQLite ordena NULL primero, y abrir la
+    línea del viaje con las fotos que no se sabe cuándo se hicieron sería
+    empezar el relato por lo que no se puede contar.
+    """
+    with get_conn() as conn:
+        filas = conn.execute(
+            f"SELECT id, {', '.join(_WAYPOINT_COLS)} FROM waypoints "
+            "ORDER BY capturado_en IS NULL, capturado_en ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(f) for f in filas]
+
+
+def waypoints_stats() -> dict[str, Any]:
+    """Cuántos puntos hay, cuántos ubicados, y el tramo que cubren."""
+    with get_conn() as conn:
+        fila = conn.execute(
+            "SELECT COUNT(*) AS total, COUNT(lat) AS ubicados, "
+            "       MIN(capturado_en) AS primera, MAX(capturado_en) AS ultima "
+            "FROM waypoints"
+        ).fetchone()
+        por_fuente = conn.execute(
+            "SELECT fuente, COUNT(*) AS n FROM waypoints GROUP BY fuente ORDER BY n DESC"
+        ).fetchall()
+
+    return {
+        "total": fila["total"] or 0,
+        "ubicados": fila["ubicados"] or 0,
+        "primera": fila["primera"],
+        "ultima": fila["ultima"],
+        "por_fuente": {r["fuente"]: r["n"] for r in por_fuente},
+    }
+
+
+def delete_waypoints(ids: Sequence[int]) -> int:
+    """Borra puntos por id. Devuelve cuántos se han borrado de verdad."""
+    if not ids:
+        return 0
+    marcadores = ", ".join("?" for _ in ids)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM waypoints WHERE id IN ({marcadores})", tuple(ids)
+        )
+        return cur.rowcount
 
 
 def delete_notes(ids: Sequence[int]) -> int:

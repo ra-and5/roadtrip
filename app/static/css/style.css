@@ -343,3 +343,54 @@ button.pequeno {
   cursor: pointer;
 }
 .visitados li:first-child { border-top: none; }
+
+/* ---------- Fase 3b: el trayecto y revivir el viaje ---------- */
+
+.revivir {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+.revivir button {
+  /* No ocupa toda la línea: al lado tiene que caber la barra del tiempo. */
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.55rem 1rem;
+  min-height: 42px;
+}
+#revivir-slider {
+  flex: 1 1 12rem;
+  /* Área táctil cómoda para arrastrar con el pulgar en un móvil. */
+  height: 42px;
+  accent-color: var(--accent);
+  background: transparent;
+}
+#revivir-pie { flex: 1 1 100%; margin: 0; }
+
+/* El viaje día a día */
+.jornada { border-top: 1px solid var(--border); padding-top: 0.9rem; margin-top: 0.9rem; }
+.jornada:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.jornada h3 { margin: 0 0 0.4rem; font-size: 1rem; }
+.jornada h3 .muted { font-weight: 400; font-size: 0.85rem; }
+
+.momentos { list-style: none; margin: 0; padding: 0; }
+.momento {
+  display: flex;
+  gap: 0.7rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  cursor: pointer;
+  font-size: 0.93rem;
+}
+.momento-hora {
+  flex: 0 0 3rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.momento-texto { flex: 1 1 auto; }
+/* Una foto pesa menos que una nota en el relato: se distingue sin gritar. */
+.momento-foto .momento-texto { color: var(--muted); }
+.momento-nota .momento-texto { font-weight: 500; }
