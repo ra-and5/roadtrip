@@ -187,6 +187,12 @@
     return respuesta.json();
   }
 
+  /* Los pasos de la última carga, para poder decir cuántos han entrado al
+   * volver del atajo. `null` es "aún no se ha cargado nunca": el primer dibujo
+   * no anuncia novedades porque entonces todo sería nuevo. */
+  let pasosAntes = null;
+  let ultimaCarga = 0;
+
   async function cargar() {
     /* La zona la pone el navegador: el servidor va en UTC y el día del perfil es
      * el local (a las 00:30 en España, "hoy" en UTC todavía es ayer). */
@@ -197,6 +203,7 @@
       zona = "";
     }
 
+    ultimaCarga = Date.now();
     estado("Cargando…");
     for (let intento = 0; intento < 2; intento += 1) {
       try {
@@ -205,7 +212,17 @@
         renderCabecera(perfil);
         renderCuerpo(perfil);
         renderFuentes(perfil.fuentes);
-        estado("");
+
+        /* Lo que se ve al volver de Atajos. Un número de pasos que sube sin
+         * decir nada no se nota: acabas de venir de otra app y no te sabes el
+         * de antes. Y es justo lo que hay que mirar, porque cuando el envío
+         * falla el síntoma es que ese número NO cambia. */
+        const hoy = perfil.cuerpo ? perfil.cuerpo.pasos_hoy : null;
+        const nuevos =
+          pasosAntes === null || hoy === null || hoy === undefined ? 0 : hoy - pasosAntes;
+        if (hoy !== null && hoy !== undefined) pasosAntes = hoy;
+
+        estado(nuevos > 0 ? "+" + miles(nuevos) + " pasos" : "", nuevos > 0 ? "ok" : "");
         return;
       } catch (err) {
         if (intento === 0 && reintentable(err)) {
@@ -223,6 +240,19 @@
       }
     }
   }
+
+  /* Al volver a la pestaña se recarga, igual que el Mapa. Es lo que hace que el
+   * botón de «Enviar pasos y batería ahora» sirva de algo: pulsas, iOS te lleva
+   * a Atajos, vuelves, y el número ya está al día sin acordarte de recargar.
+   *
+   * Con el mismo anti-rebote de tres segundos y por el mismo motivo: cambiar de
+   * app y volver es constante en un móvil, y en el plan gratuito hay UN worker.
+   * Sin él, cada vistazo dejaría esperando detrás a la petición que importa. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - ultimaCarga < 3000) return;
+    cargar();
+  });
 
   cargar();
 })();
