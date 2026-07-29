@@ -16,6 +16,7 @@ Lo que se protege aquí:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -518,3 +519,50 @@ def test_los_dias_salen_agrupados_y_en_orden() -> None:
 
     assert [d["dia"] for d in dias] == ["2026-07-24", "2026-07-26"]
     assert len(dias[0]["momentos"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# El cuerpo se acepta aunque falte el Content-Type
+# ---------------------------------------------------------------------------
+
+
+def test_los_puntos_entran_sin_cabecera_content_type(cliente: Any) -> None:
+    """El fallo real que dejó el mapa parado, y costó una mañana encontrarlo.
+
+    Atajos manda el JSON perfecto, pero si el cuerpo va como *Archivo* sale sin
+    `Content-Type: application/json`. Flask entonces devuelve `None` sin llegar
+    a mirar el cuerpo, y el endpoint contestaba «el cuerpo tiene que ser
+    {...}» sobre un cuerpo que era EXACTAMENTE eso: un mensaje de error
+    correcto y una pista falsa al mismo tiempo.
+
+    Exigir la cabecera no protege de nada aquí: al otro lado no hay un
+    navegador —donde el `Content-Type` participa en CORS— sino una máquina que
+    ya ha pasado por el token.
+    """
+    cuerpo = json.dumps({
+        "fuente": "fotos",
+        "puntos": [{
+            "archivo": "SIN_CONTENT_TYPE",
+            "capturado_en": "2026-07-29T02:30:13+02:00",
+            "lat": 38.390595,
+            "lon": -0.5164333,
+        }],
+    })
+
+    respuesta = cliente.post("/api/waypoints", data=cuerpo, headers=_auth())
+
+    assert respuesta.status_code == 200, respuesta.get_json()
+    assert respuesta.get_json()["guardados"] == 1
+
+
+def test_un_cuerpo_que_no_es_json_dice_QUE_llego(cliente: Any) -> None:
+    """Sin el eco, se depura a ciegas desde un iPhone.
+
+    La causa habitual es una variable de Atajos que llegó vacía sin que nadie
+    avisara, y eso solo se ve mirando el texto que llegó de verdad.
+    """
+    respuesta = cliente.post("/api/waypoints", data="lat: , lon: ", headers=_auth())
+    cuerpo = respuesta.get_json()
+
+    assert respuesta.status_code == 400
+    assert cuerpo["recibido"] == "lat: , lon: "

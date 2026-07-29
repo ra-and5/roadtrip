@@ -650,7 +650,21 @@ def api_waypoints() -> Any:
         app.logger.warning("Importación de puntos rechazada: credencial inválida")
         return jsonify({"error": "no_autorizado"}), 401
 
-    payload = request.get_json(silent=True)
+    # `force=True` para NO exigir la cabecera `Content-Type: application/json`.
+    #
+    # No es dejadez, es la trampa que costó una mañana entera: Atajos manda el
+    # JSON perfecto y, si el cuerpo va como *Archivo* o como *Texto*, sale sin
+    # esa cabecera. Flask entonces devuelve `None` sin mirar el cuerpo, y el
+    # endpoint contestaba «el cuerpo tiene que ser {...}» sobre un cuerpo que
+    # ERA exactamente eso. Un mensaje de error correcto y una pista falsa a la
+    # vez, que es lo que más se tarda en depurar.
+    #
+    # Exigir la cabecera no protege de nada aquí: al otro lado no hay un
+    # navegador —donde el `Content-Type` participa en las reglas de CORS— sino
+    # una máquina con un token, y la petición ya ha pasado por él. Lo que hace
+    # el rigor en este punto es romper el atajo por un desplegable mal puesto en
+    # la pantalla de un móvil.
+    payload = request.get_json(silent=True, force=True)
 
     try:
         resultado = waypoints.import_waypoints(payload)
@@ -658,7 +672,20 @@ def api_waypoints() -> Any:
         # El cuerpo se rechaza entero, así que hay que decir por qué: al otro
         # lado hay un atajo escrito a mano en la pantalla de un móvil.
         app.logger.warning("Importación de puntos rechazada: %s", exc)
-        return jsonify({"error": str(exc)}), 400
+        cuerpo: dict[str, Any] = {"error": str(exc)}
+
+        if payload is None:
+            # Igual que en la ingesta: cuando el cuerpo ni siquiera es JSON, lo
+            # único que ayuda es ver QUÉ llegó. Sin esto se depura a ciegas
+            # desde un iPhone, y la causa suele ser una variable de Atajos que
+            # llegó vacía sin que nadie avisara.
+            crudo = request.get_data(as_text=True)
+            cuerpo["recibido"] = redact(crudo[:_MAX_ECO_CUERPO])
+            if len(crudo) > _MAX_ECO_CUERPO:
+                cuerpo["recibido"] += "..."
+            app.logger.warning("Cuerpo recibido (recortado): %s", cuerpo["recibido"])
+
+        return jsonify(cuerpo), 400
 
     # Se registra también cuando va BIEN, y esa es la parte que faltaba. Antes
     # solo quedaba rastro de los rechazos, así que ante un mapa que no cambia no
@@ -702,7 +729,11 @@ def api_telemetria() -> Any:
         app.logger.warning("Ingesta rechazada: credencial ausente o inválida")
         return jsonify({"error": "no_autorizado"}), 401
 
-    payload = request.get_json(silent=True)
+    # `force=True` por lo mismo que en los puntos: Atajos manda el JSON bien y
+    # sin `Content-Type` si el cuerpo va como *Archivo*, y entonces Flask
+    # devolvía `None` sin llegar a mirarlo. Aquí hoy funciona, pero es el mismo
+    # cliente y la misma trampa esperando al primer cambio en el atajo.
+    payload = request.get_json(silent=True, force=True)
 
     try:
         resultado = ingest.ingest(payload)
