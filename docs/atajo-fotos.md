@@ -407,12 +407,53 @@ Truco de diagnóstico que ahorra mucho tiempo: **quita la cabecera
 URL; si sale `{"error":"no_autorizado"}` o un `405`, la petición llega bien y el
 problema está en el token o en el cuerpo.
 
-### Y una de orden, que no es una trampa pero cuesta igual
+### 10. El envío colocado ANTES del texto: cuerpo vacío, y todo lo demás correcto
 
-**El envío tiene que ir DESPUÉS del `Texto` que construye el cuerpo.** Atajos
-deja añadir una acción que referencia la salida de otra que va más abajo, sin
-avisar de nada. Al ejecutarse, el `Archivo` apunta a algo que todavía no existe
-y sale una petición con el cuerpo roto.
+La que más ha costado, y estaba escrita aquí como "una de orden, que no es una
+trampa". Sí lo es: costó una mañana entera el 29-07-2026.
+
+**Síntoma, y es engañoso en las dos direcciones:**
+
+- El servidor **recibe** la petición y **acepta el token** — o sea, la URL está
+  bien, el `Bearer` está bien, y el móvil llega. Todo lo difícil funciona.
+- Responde `400`: *el cuerpo tiene que ser `{"fuente": ..., "puntos": [...]}`*.
+  Un mensaje correcto y una pista falsa: manda a revisar el JSON, que está
+  perfecto.
+- Y al ejecutar el atajo **se ve el JSON completo y bien formado**, lo que
+  confirma la pista falsa.
+
+**Lo que pasa:** Atajos deja que una acción referencie la salida de otra que va
+**más abajo**, sin avisar de nada. Si el `Obtener contenido de la URL` está
+colocado antes del `Texto` que arma el cuerpo, al ejecutarse el campo `Archivo`
+apunta a algo que todavía no existe, y **sale una petición con el cuerpo vacío**.
+El JSON que ves al final es el `Detener y generar`, un cuerpo que nunca se envió.
+
+Orden correcto, y hay que mirarlo aunque todo "parezca" bien:
+
+```
+Combinar PUNTOS con ","
+Texto: {"fuente":"fotos","puntos":[Texto combinado]}     ← primero el cuerpo
+Obtener contenido de .../api/waypoints                   ← DESPUÉS el envío
+Detener y generar                                        (opcional, para ver la respuesta)
+```
+
+**Cómo se caza en dos minutos**, desde una consola del servidor:
+
+```bash
+tail -5 /var/log/TU_USUARIO.pythonanywhere.com.error.log
+```
+
+| Lo que sale | Qué significa |
+|---|---|
+| `Puntos importados: N guardados, M duplicados` | entró; recarga el mapa |
+| `Cuerpo recibido (recortado):` **vacío** | esta trampa: el envío va antes del texto |
+| `Importación de puntos rechazada: credencial inválida` | el token del atajo no casa con `INGEST_TOKEN_HASH` |
+| nada | la petición no sale del móvil: mira la URL (trampa 9) |
+
+Esa tabla se puede leer porque el servidor registra también los **aciertos**.
+Antes solo escribía los fallos, así que el silencio no distinguía "no envió" de
+"envió y se guardó" — que es lo que convirtió esto en una mañana en vez de dos
+ejecuciones.
 
 ---
 

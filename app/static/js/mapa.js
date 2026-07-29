@@ -461,8 +461,15 @@
     filtroEl.value = seleccionado || "";
   }
 
+  /* Cuántas fotos había en la carga anterior, para poder decir "2 fotos nuevas"
+   * al volver del atajo. `null` es "todavía no se ha cargado nunca": el primer
+   * dibujo no puede anunciar novedades, porque todo sería nuevo. */
+  let fotosAntes = null;
+  let ultimaCarga = 0;
+
   async function cargar(anio) {
     parar();
+    ultimaCarga = Date.now();
     estadoEl.textContent = "Cargando el viaje…";
     estadoEl.className = "status";
     try {
@@ -498,10 +505,21 @@
           " a " + fechaLegible(datos.resumen.ultima)
         : "";
 
-      estadoEl.textContent = hay
-        ? ""
-        : "Todavía no hay nada. Marca un sitio desde la pantalla principal, " +
-          "o importa las fotos con tools/importar_fotos.py.";
+      /* Lo que se ve al volver del atajo. Un contador que sube de 4 a 6 sin
+       * decir nada no se nota: acabas de venir de otra app y no te sabes el
+       * número de antes. Y saberlo importa más que de costumbre, porque cuando
+       * el envío falla —y hay muchas formas— el síntoma es justamente que este
+       * número no cambia. */
+      const nuevas = fotosAntes === null ? 0 : datos.resumen.fotos - fotosAntes;
+      fotosAntes = datos.resumen.fotos;
+
+      estadoEl.textContent = !hay
+        ? "Todavía no hay nada. Marca un sitio desde la pantalla principal, " +
+          "o importa las fotos con tools/importar_fotos.py."
+        : nuevas > 0
+        ? nuevas + (nuevas === 1 ? " foto nueva" : " fotos nuevas")
+        : "";
+      estadoEl.className = nuevas > 0 ? "status ok" : "status";
     } catch (err) {
       /* Aquí no hay degradación posible: sin datos no hay viaje que enseñar.
        * Se dice qué ha pasado en vez de dejar la página en blanco.
@@ -518,6 +536,27 @@
   }
 
   filtroEl.addEventListener("change", function () {
+    cargar(filtroEl.value);
+  });
+
+  /* Al volver a la pestaña se recargan los datos. Es lo que hace que el botón
+   * de «Enviar fotos» tenga sentido: pulsas, iOS te lleva a Atajos, vuelves, y
+   * el mapa ya está al día sin que nadie tenga que acordarse de recargar.
+   *
+   * Se recargan los DATOS y no la página: `/api/ruta` sale con `no-store`, así
+   * que trae lo nuevo, y el mapa conserva el zoom y el centro donde los
+   * dejaste. Recargar entero perdería la vista y volvería a pedir los tiles.
+   *
+   * El anti-rebote de 3 s no es cosmético: cambiar de app y volver es un gesto
+   * constante en un móvil, y en el plan gratuito hay UN worker. Sin él, cada
+   * vistazo sería una petición, y la que importa —la del contexto en Inicio—
+   * tendría que esperar detrás.
+   *
+   * `visibilitychange` y no `focus`: es el que dispara iOS al volver desde otra
+   * app, que es exactamente el caso que hay que cubrir. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - ultimaCarga < 3000) return;
     cargar(filtroEl.value);
   });
 
