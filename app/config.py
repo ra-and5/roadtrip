@@ -228,6 +228,19 @@ class Config:
     DB_PATH: Path = DATA_DIR / "roadtrip.db"
     UPLOAD_DIR: Path = DATA_DIR / "uploads"
 
+    # Cuánto puede cachear el navegador un archivo estático, en segundos. Un
+    # año, que con `?v=<mtime>` en la URL es seguro: al desplegar cambia la URL
+    # y el archivo viejo deja de pedirse (decisión 48).
+    #
+    # Medido contra el desplegado el 29-07-2026: sin esta cabecera, nginx de
+    # PythonAnywhere solo manda `Last-Modified`, el navegador aplica caché
+    # heurística (~10 % de la edad del archivo) y **revalida en cada
+    # navegación** durante las horas siguientes a un despliegue. Eso eran 4-5 s
+    # de estáticos por entrar al Mapa.
+    #
+    # A 0 se desactiva, por si algún día estorba al depurar.
+    STATIC_MAX_AGE_SECONDS: int = int(_env("STATIC_MAX_AGE_SECONDS", default="31536000"))
+
     # Cuánto disco tenemos EN TOTAL, en MB. No se puede preguntar: en
     # PythonAnywhere la cuota de 512 MB es un límite de la cuenta, impuesto
     # aparte del sistema de archivos, y `shutil.disk_usage()` contesta por el

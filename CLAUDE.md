@@ -1690,6 +1690,65 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     entre "la suite pasa" y "la página funciona", no la de "va en mi portátil"
     a "va en el iPhone".
 
+48. **Lo que hacía lenta la app no era la app: era pedir otra vez lo que ya
+    estaba en el móvil.** El §2 de la Fase 7 pedía que cambiar de pantalla fuese
+    inmediato, y lo primero fue medirlo con `tools/medir_pantallas.py` **contra
+    el desplegado**, que es la lección de la decisión 43. Medianas de 5 pasadas,
+    en milisegundos:
+
+    | pantalla | html | estáticos | api | pintar | TOTAL |
+    |---|---|---|---|---|---|
+    | Inicio | 455 | 0 | 0 | 52 | 514 |
+    | Perfil | 394 | 1499 | 842 | 115 | 2640 |
+    | Mapa | 206 | **4306** | 412 | 67 | 3921 |
+    | Chat | 320 | 652 | 482 | 54 | 1246 |
+
+    El documento no era el problema. **Los estáticos sí**, y la explicación
+    estaba escrita desde la decisión 41 sin haber sacado la consecuencia: nginx
+    de PythonAnywhere los sirve **sin `Cache-Control` ni `ETag`**, solo con
+    `Last-Modified` (vuelto a comprobar con `curl -I`). Sin `Cache-Control`, el
+    navegador aplica **caché heurística**: da por fresco el archivo un ~10 % del
+    tiempo que lleva sin modificarse. Recién desplegado eso son minutos, así que
+    durante las horas siguientes a un `git pull` **cada navegación revalida cada
+    archivo**. Entrar al Mapa pagaba Leaflet entero otra vez.
+
+    Y no daba ningún error: la app funcionaba, solo iba lenta, que es lo que se
+    achaca al plan gratuito y no se investiga.
+
+    El arreglo son dos piezas que ya estaban medio puestas:
+
+    - **`Cache-Control: public, max-age=31536000, immutable` en `/static/`**, que
+      **solo es admisible porque la URL lleva `?v=<mtime>`** (decisión 41): al
+      desplegar cambia la URL, así que un archivo viejo cacheado para siempre no
+      se puede volver a pedir. Sin la versión en la URL, esto sería la peor idea
+      del proyecto.
+    - **Se quita el mapeo de *Static files* de PythonAnywhere**, y esto es lo
+      que menos se ve venir: mientras nginx los sirva, `/static/` no llega a la
+      app y su cabecera no se aplica. El arreglo estaría desplegado **y sin
+      efecto**, que es la forma más cara de creer que algo está hecho. Por eso
+      `tools/medir_pantallas.py` imprime **quién los sirve** antes de la tabla.
+
+    El precio, dicho: los estáticos pasan por el único worker. Se pagan una vez
+    por despliegue en lugar de en cada salto de pantalla, y se vuelve atrás
+    añadiendo el mapeo otra vez.
+
+    **Lo que NO se hace, y es media decisión:** el encargo ofrecía precargar la
+    pantalla siguiente. Con **un solo worker**, una precarga compite con la
+    petición que el usuario está esperando — es la decisión 43 otra vez, donde
+    lo paralelo salía peor que lo secuencial. No se toca hasta que los números
+    de después digan que hace falta.
+
+    Queda pendiente el otro bulto: `api` entre 412 y 842 ms para leer SQLite.
+    Eso no lo arregla ninguna caché del navegador, y se mira cuando esta medida
+    esté confirmada.
+
+    Y dos artefactos del propio medidor, corregidos, porque los dos daban un
+    número que parecía bueno: `estáticos` se calculaba como el intervalo del
+    primer recurso al último —y Leaflet pide los iconos de las chinchetas mucho
+    después de arrancar, así que ese hueco se contaba como red—, e **Inicio se
+    daba por pintado antes de cargar su JavaScript**, porque su marcador está en
+    el HTML. Un medidor con un sesgo no avisa de nada: confirma lo que ya creías.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
@@ -1707,9 +1766,11 @@ orden sale de lo que costó el 29-07-2026:
 salida un fallo mudo real —el aviso de tiles caídos se borraba solo—, que es la
 prueba de que hacía falta.
 
-**2. Que cambiar de pantalla sea instantáneo.** Hoy cada salto es una carga
-entera. Y antes de elegir cómo arreglarlo hay que **medirlo**, que es la lección
-de la decisión 43: el número que importa no es el que sale en el portátil.
+**2. Que cambiar de pantalla sea instantáneo.** 🟨 Medido contra el desplegado y
+arreglado lo gordo: los estáticos se revalidaban en cada salto (decisión 48).
+Falta **volver a medir con el arreglo puesto** —hace falta quitar el mapeo de
+*Static files* en PythonAnywhere— y decidir qué hacer con los 0,4-0,8 s que
+tarda la API en leer SQLite.
 
 **3. El diario y las miniaturas.** Es lo que convierte el mapa en el álbum del
 viaje. ~8 KB por miniatura, mil fotos son 8 MB de los 512 del plan, y reutiliza

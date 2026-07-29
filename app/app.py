@@ -84,7 +84,7 @@ _MAX_ECO_CUERPO = 400
 
 @app.after_request
 def sin_cache_en_la_api(respuesta: Any) -> Any:
-    """Ninguna respuesta de `/api/` se cachea. Las páginas y el estático, sí.
+    """Ninguna respuesta de `/api/` se cachea. El estático, un año entero.
 
     Sin `Cache-Control`, un navegador puede reutilizar un GET por su cuenta
     (Safari en iOS lo hace), y entonces importas una foto nueva y el mapa sigue
@@ -93,9 +93,18 @@ def sin_cache_en_la_api(respuesta: Any) -> Any:
 
     Solo la API. El HTML y el JavaScript se siguen cacheando a propósito: es lo
     que hace que las páginas abran sin cobertura (decisión 28).
+
+    Y al estático se le pone un año e `immutable`, que **solo es seguro porque
+    la URL lleva `?v=<mtime>`** (decisión 48): al desplegar cambia la URL, así
+    que el archivo viejo no se puede servir aunque esté cacheado para siempre.
+    Sin la versión en la URL esto sería la peor idea del proyecto.
     """
     if request.path.startswith("/api/"):
         respuesta.headers["Cache-Control"] = "no-store"
+    elif request.path.startswith("/static/") and Config.STATIC_MAX_AGE_SECONDS > 0:
+        respuesta.headers["Cache-Control"] = (
+            f"public, max-age={Config.STATIC_MAX_AGE_SECONDS}, immutable"
+        )
     return respuesta
 
 

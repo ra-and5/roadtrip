@@ -296,9 +296,16 @@ va por síntomas.
       from wsgi import application
       ```
 - [ ] **Virtualenv**: `/home/TU_USUARIO/.virtualenvs/roadtrip`
-- [ ] **Static files**: URL `/static/` → Directory
-      `/home/TU_USUARIO/roadtrip/app/static/`
-      (que el CSS y el JS los sirva el servidor web, no Flask)
+- [ ] **Static files: NINGUNO. Si hay un mapeo `/static/`, bórralo.**
+      Parece al revés de lo recomendado, y está medido (decisión 48): el nginx
+      de PythonAnywhere sirve los estáticos **sin `Cache-Control` ni `ETag`**,
+      solo con `Last-Modified`, así que el navegador aplica caché heurística y
+      **revalida cada archivo en cada navegación** durante las horas siguientes
+      a un despliegue. Medido contra el desplegado: 4-5 s de estáticos por
+      entrar al Mapa. Sirviéndolos Flask salen con `max-age` de un año e
+      `immutable`, que es seguro porque la URL lleva `?v=<mtime>`: se piden una
+      vez por despliegue y ninguna más.
+      Si algún día estorba, se vuelve atrás añadiendo el mapeo otra vez.
 - [ ] **Force HTTPS: activado.** No es opcional. La cookie de sesión sale
       marcada `Secure`, así que si entras por `http://` el navegador la
       descarta y la app **entra en un bucle de login sin mensaje de error**.

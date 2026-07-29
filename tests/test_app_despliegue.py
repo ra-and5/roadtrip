@@ -205,6 +205,30 @@ def test_los_estaticos_salen_con_version() -> None:
     assert url.startswith("/static/js/app.js"), "la ruta no puede cambiar: nginx sirve por ruta"
 
 
+def test_los_estaticos_se_cachean_un_ano_y_la_api_no() -> None:
+    """La otra mitad del `?v=`: sin ella el navegador revalida en cada salto.
+
+    Medido contra el desplegado (decisión 48): nginx de PythonAnywhere manda
+    solo `Last-Modified`, así que durante las horas siguientes a un despliegue
+    el navegador pide cada archivo otra vez en cada navegación — 4-5 s de
+    estáticos por entrar al Mapa.
+
+    Las dos afirmaciones van juntas en el mismo test a propósito: `immutable`
+    solo es admisible porque la URL lleva versión, y `no-store` en la API es lo
+    que impide que esta cabecera se extienda a donde haría daño.
+    """
+    cliente = flask_app.test_client()
+
+    estatico = cliente.get("/static/js/app.js").headers.get("Cache-Control", "")
+    assert "max-age=31536000" in estatico, estatico
+    assert "immutable" in estatico, estatico
+
+    # La API sigue intocable: un dato viejo ahí es una pantalla que miente.
+    with cliente.session_transaction() as sesion:
+        sesion["authenticated"] = True
+    assert cliente.get("/api/perfil").headers["Cache-Control"] == "no-store"
+
+
 def test_la_version_cambia_cuando_cambia_el_archivo(tmp_path: Any) -> None:
     """Que la query exista no basta: tiene que moverse al desplegar."""
     import os

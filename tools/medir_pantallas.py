@@ -91,9 +91,21 @@ def _medir(page: Any, base: str, ruta: str, marcador: str, api: str | None) -> d
     page.goto(f"{base}{ruta}", wait_until="commit")
     esperar(lambda: page.locator(marcador).count() > 0, f"{ruta} no llegó a pintar")
 
-    # Además del marcador visible, se espera a que la llamada de la pantalla
-    # haya terminado. El Chat enseña su caja de texto antes de traerse el
-    # historial, así que sin esto se estaría midiendo media pantalla.
+    # El marcador de Inicio está en el HTML, así que se cumple antes de que
+    # ninguno de sus scripts haya cargado: sin esto, esa fila salía con
+    # `estáticos = 0` y un TOTAL que no incluía lo que de verdad se espera.
+    esperar(
+        lambda: page.evaluate(
+            "() => { const r = performance.getEntriesByType('resource').map(x => x.name);"
+            " return [...document.querySelectorAll('script[src]')]"
+            ".every(s => r.includes(s.src)); }"
+        ),
+        f"{ruta} no llegó a cargar sus scripts",
+    )
+
+    # Y se espera además a que termine la llamada de la pantalla. El Chat
+    # enseña su caja de texto antes de traerse el historial, así que sin esto
+    # se estaría midiendo media pantalla.
     if api:
         esperar(
             lambda: page.evaluate(
@@ -137,6 +149,32 @@ def _medir(page: Any, base: str, ruta: str, marcador: str, api: str | None) -> d
         "pintar": max(visto - fin_datos, 0.0),
         "total": visto,
     }
+
+
+def quien_sirve_los_estaticos(base: str) -> str:
+    """¿Los sirve la app, o nginx por su cuenta?
+
+    Importa más de lo que parece y no se ve en el código: en PythonAnywhere,
+    si la pestaña *Web* tiene un mapeo de archivos estáticos, `/static/` lo
+    atiende **nginx** y la app no llega a verlo, así que su `Cache-Control` no
+    se aplica y el navegador revalida cada archivo en cada navegación
+    (decisión 48). El arreglo estaría desplegado y sin efecto — un fallo mudo
+    de manual.
+    """
+    import requests
+
+    try:
+        cabeceras = requests.get(f"{base}/static/js/app.js", timeout=15).headers
+    except Exception as exc:  # noqa: BLE001
+        return f"no se pudo comprobar ({type(exc).__name__})"
+
+    cache = cabeceras.get("Cache-Control", "")
+    if "max-age" in cache:
+        return f"los sirve la app: {cache}"
+    return (
+        f"los sirve {cabeceras.get('Server', 'otro servidor')} SIN Cache-Control"
+        " -> el navegador revalidará en cada salto"
+    )
 
 
 def _mediana(muestras: list[dict[str, float]], clave: str) -> float:
@@ -233,6 +271,7 @@ def main() -> int:
             print(f"mediana de {args.pasadas} pasadas, en milisegundos"
                   + ("" if args.con_tiles else ", sin los tiles de fuera"))
             print("las columnas NO suman el TOTAL: se solapan entre ellas")
+            print(f"estáticos: {quien_sirve_los_estaticos(base)}")
             print("=" * 62)
 
             for estado in ("en frío", "en caliente"):
