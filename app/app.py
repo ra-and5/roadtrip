@@ -11,6 +11,7 @@ Si una vista empieza a crecer, la lógica se va a un módulo.
 
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from typing import Any
 
@@ -82,6 +83,33 @@ def sin_cache_en_la_api(respuesta: Any) -> Any:
     if request.path.startswith("/api/"):
         respuesta.headers["Cache-Control"] = "no-store"
     return respuesta
+
+
+@app.url_defaults
+def versionar_estaticos(endpoint: str, values: dict) -> None:
+    """`?v=<mtime>` en cada estático, o un despliegue puede quedarse invisible.
+
+    Es la otra mitad de la decisión 41. Allí se decidió que el HTML y el
+    JavaScript SÍ se cachean, a propósito, porque es lo que hace que las páginas
+    abran con mala cobertura. Lo que faltaba era poder invalidarlos: en
+    PythonAnywhere los estáticos los sirve nginx y salen **sin `Cache-Control` ni
+    `ETag`**, solo con `Last-Modified` (comprobado con `curl -I`), así que el
+    navegador aplica caché heurística y puede seguir con el archivo viejo días
+    después de desplegar. No da ningún error: la pantalla simplemente se comporta
+    como la versión anterior, y se depura el despliegue en vez del código.
+
+    `mtime` y no un hash del contenido: `git pull` reescribe la fecha, que es
+    exactamente el momento en que la caché debe romperse, y no obliga a leer cada
+    archivo en cada render.
+    """
+    if endpoint != "static" or "filename" not in values:
+        return
+    try:
+        values["v"] = int(os.stat(os.path.join(app.static_folder, values["filename"])).st_mtime)
+    except OSError:
+        # Un estático que no existe ya da 404 al pedirlo. Convertirlo aquí en un
+        # 500 cambiaría un fallo localizado por uno que tumba la página entera.
+        pass
 
 
 # ---------------------------------------------------------------------------
