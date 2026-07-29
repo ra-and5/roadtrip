@@ -504,8 +504,15 @@
           "o importa las fotos con tools/importar_fotos.py.";
     } catch (err) {
       /* Aquí no hay degradación posible: sin datos no hay viaje que enseñar.
-       * Se dice qué ha pasado en vez de dejar la página en blanco. */
-      estadoEl.textContent = "No se pudo cargar el viaje: " + (err.message || err);
+       * Se dice qué ha pasado en vez de dejar la página en blanco.
+       *
+       * El TypeError se traduce porque su texto en Safari es «Load failed», que
+       * no dice nada y suena a pantalla rota; lo normal es que el único worker
+       * del plan gratuito estuviera ocupado con el contexto de Inicio. */
+      estadoEl.textContent =
+        err.name === "TypeError"
+          ? "No se pudo conectar con el servidor. Comprueba la cobertura y recarga."
+          : "No se pudo cargar el viaje: " + (err.message || err);
       estadoEl.className = "status error";
     }
   }

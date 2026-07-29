@@ -59,6 +59,25 @@
     }
   }
 
+  /* Traduce CUALQUIER fallo a algo que se pueda leer en una gasolinera.
+   *
+   * Existe por un mensaje concreto: cuando un `fetch` no llega, Safari lanza un
+   * TypeError cuyo texto es «Load failed», y eso es exactamente lo que salía en
+   * rojo en el iPhone. No dice qué pasó, no dice qué hacer, y encima suena a
+   * error de programación cuando lo normal es que sea el servidor ocupado o la
+   * cobertura. En el plan gratuito hay UN worker, así que basta con que otra
+   * pantalla esté esperando para que esta falle así. */
+  function mensajeDeError(err) {
+    if (typeof err.code === "number") return geolocationErrorMessage(err);
+    if (err.name === "AbortError") {
+      return "El servidor tardó demasiado. Puede estar ocupado con otra consulta; inténtalo otra vez.";
+    }
+    if (err.name === "TypeError") {
+      return "No se pudo conectar con el servidor. Comprueba la cobertura e inténtalo otra vez.";
+    }
+    return err.message || "Error inesperado.";
+  }
+
   function getPosition() {
     return new Promise(function (resolve, reject) {
       if (!("geolocation" in navigator)) {
@@ -367,14 +386,31 @@
       lastCoords = position.coords;
 
       setStatus("Consultando…");
-      const response = await fetch("/api/contexto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        }),
-      });
+
+      /* Con todo cacheado esto tarda centésimas, y en un sitio nuevo lo que
+       * tarde la fuente más lenta. Pasado ese margen no es que vaya lento: es
+       * que algo va mal, y entonces vale más soltar el botón y decirlo que
+       * dejar la pantalla girando sin fin. Es lo mismo que ya hacían las
+       * recomendaciones y el chat; esta llamada se había quedado sin ello. */
+      const controller = new AbortController();
+      const timer = setTimeout(function () {
+        controller.abort();
+      }, 15000);
+
+      let response;
+      try {
+        response = await fetch("/api/contexto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (response.status === 401) {
         window.location.href = "/login";
@@ -394,10 +430,7 @@
       renderContexto(data, position.coords);
       setStatus("");
     } catch (err) {
-      setStatus(
-        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message,
-        "error"
-      );
+      setStatus(mensajeDeError(err), "error");
     } finally {
       contextoBtn.disabled = false;
     }
@@ -441,13 +474,7 @@
       setStatus("");
       refreshBtn.hidden = false;
     } catch (err) {
-      const message =
-        err.name === "AbortError"
-          ? "La consulta tardó demasiado. Inténtalo otra vez."
-          : typeof err.code === "number"
-          ? geolocationErrorMessage(err)
-          : err.message;
-      setStatus(message, "error");
+      setStatus(mensajeDeError(err), "error");
     } finally {
       btn.disabled = false;
       refreshBtn.disabled = false;
@@ -492,10 +519,7 @@
       renderPois(data.pois);
       renderEstadoPois(data.fuente);
     } catch (err) {
-      text(
-        "pois-estado",
-        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message
-      );
+      text("pois-estado", mensajeDeError(err));
     } finally {
       poisBtn.disabled = false;
     }

@@ -160,6 +160,33 @@
 
   // --- Arranque ------------------------------------------------------------
 
+  /* Esta pantalla NO sale a internet: `/api/perfil` solo lee SQLite. Así que
+   * un fallo aquí casi nunca es cosa del perfil — es que el único worker del
+   * plan gratuito estaba ocupado atendiendo el contexto de Inicio, que sí sale
+   * a la red. Se veía como un «Load failed» en rojo, que es el texto crudo que
+   * lanza Safari cuando un fetch no llega: no dice qué pasó ni qué hacer, y
+   * suena a que la pantalla está rota cuando lo que hay que hacer es esperar
+   * dos segundos. */
+  function reintentable(err) {
+    return err.name === "TypeError" || err.name === "AbortError" || err.recuperable === true;
+  }
+
+  async function pedir(zona) {
+    const respuesta = await fetch("/api/perfil?zona=" + encodeURIComponent(zona));
+    if (respuesta.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+    if (!respuesta.ok) {
+      const fallo = new Error("El servidor respondió con un error (" + respuesta.status + ").");
+      // Un 5xx es del servidor y puede pasarse solo; un 4xx no se arregla
+      // repitiendo la misma petición.
+      fallo.recuperable = respuesta.status >= 500;
+      throw fallo;
+    }
+    return respuesta.json();
+  }
+
   async function cargar() {
     /* La zona la pone el navegador: el servidor va en UTC y el día del perfil es
      * el local (a las 00:30 en España, "hoy" en UTC todavía es ayer). */
@@ -170,21 +197,30 @@
       zona = "";
     }
 
-    try {
-      const respuesta = await fetch("/api/perfil?zona=" + encodeURIComponent(zona));
-      if (respuesta.status === 401) {
-        window.location.href = "/login";
+    estado("Cargando…");
+    for (let intento = 0; intento < 2; intento += 1) {
+      try {
+        const perfil = await pedir(zona);
+        if (perfil === null) return;        // se está yendo al login
+        renderCabecera(perfil);
+        renderCuerpo(perfil);
+        renderFuentes(perfil.fuentes);
+        estado("");
+        return;
+      } catch (err) {
+        if (intento === 0 && reintentable(err)) {
+          estado("El servidor está ocupado. Reintentando…");
+          await new Promise(function (listo) { setTimeout(listo, 2000); });
+          continue;
+        }
+        estado(
+          err.name === "TypeError"
+            ? "No se pudo conectar con el servidor. Comprueba la cobertura y recarga."
+            : err.message || "No se pudo cargar el perfil.",
+          "error"
+        );
         return;
       }
-      if (!respuesta.ok) throw new Error("Error del servidor (" + respuesta.status + ").");
-
-      const perfil = await respuesta.json();
-      renderCabecera(perfil);
-      renderCuerpo(perfil);
-      renderFuentes(perfil.fuentes);
-      estado("");
-    } catch (err) {
-      estado(err.message || "No se pudo cargar el perfil.", "error");
     }
   }
 

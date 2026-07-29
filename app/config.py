@@ -234,9 +234,20 @@ class Config:
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
     OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
 
-    # Timeout para CUALQUIER llamada HTTP saliente. Sin timeout, una API caída
-    # cuelga el worker de Flask indefinidamente y la app deja de responder.
-    HTTP_TIMEOUT: float = float(_env("HTTP_TIMEOUT", default="10"))
+    # Timeout de las fuentes RÁPIDAS del contexto: Nominatim, Open-Meteo y
+    # met.no. (Overpass tiene el suyo, mucho más largo, porque es lento por
+    # naturaleza y va detrás de un botón; y la generación del LLM también.)
+    #
+    # Sin timeout, una API caída cuelga el worker de Flask indefinidamente. Y
+    # seis segundos y no diez porque el número que importa no es "cuánto
+    # aguanto una API lenta" sino cuánto tarda la pantalla cuando algo va mal:
+    # las tres fuentes van en paralelo, así que este valor **es** el peor caso
+    # de `contexto.construir()`. Las tres responden por debajo del segundo
+    # cuando están sanas, así que seis segundos ya son de sobra generosos, y
+    # los cuatro de diferencia solo servían para alargar la agonía. En el plan
+    # gratuito eso además se paga doble: hay UN worker, y mientras el contexto
+    # espera, cualquier otra pantalla que se abra desde el móvil falla.
+    HTTP_TIMEOUT: float = float(_env("HTTP_TIMEOUT", default="6"))
 
     # Cuántos decimales conservamos al cachear por coordenada.
     # 3 decimales ~= 110 m. Suficiente para "estoy en el mismo sitio".

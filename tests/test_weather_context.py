@@ -152,3 +152,71 @@ def test_parse_forecast_tolera_payload_vacio():
     weather = _parse_forecast({}, Marine())
     assert weather.temperature_c is None
     assert weather.summary() == "sin datos"
+
+
+# ---------------------------------------------------------------------------
+# La previsión y el oleaje van EN PARALELO
+# ---------------------------------------------------------------------------
+
+
+def test_la_prevision_y_el_oleaje_no_se_esperan_la_una_a_la_otra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Son dos servicios distintos y ninguno depende del otro.
+
+    En serie se pagaba la suma de las dos latencias, y con el timeout puesto
+    eso son doce segundos de peor caso dentro de UNA de las tres fuentes que
+    `contexto.construir()` ya lanza en paralelo. No se veía en el diagnóstico
+    porque mide siempre las mismas coordenadas, que llegan cacheadas; se veía
+    desde el móvil, al abrir la app en un sitio nuevo.
+
+    Se mide con dos dobles que duermen: en serie tardaría 0,6 s y en paralelo
+    algo más de 0,3 s. El margen es ancho a propósito, para que este test no
+    falle por un pico de la máquina que lo corre.
+    """
+    import time
+
+    from app.modules import storage, weather_context
+
+    def _lento_forecast(lat: float, lon: float) -> dict:
+        time.sleep(0.3)
+        return {"current": {}, "daily": {}}
+
+    def _lento_marine(lat: float, lon: float) -> Marine:
+        time.sleep(0.3)
+        return Marine()
+
+    monkeypatch.setattr(weather_context, "_fetch_forecast", _lento_forecast)
+    monkeypatch.setattr(weather_context, "_fetch_marine", _lento_marine)
+    monkeypatch.setattr(storage, "cache_get", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "cache_set", lambda *a, **k: None)
+
+    inicio = time.time()
+    weather_context.get_weather(43.5622, -6.1456)
+    tardanza = time.time() - inicio
+
+    assert tardanza < 0.5, f"tardó {tardanza:.2f}s: las dos llamadas van en serie"
+
+
+def test_un_fallo_de_la_prevision_sale_aunque_el_oleaje_vaya_bien(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paralelizar no puede tragarse la excepción que sí importa.
+
+    El oleaje es opcional y nunca lanza; la previsión es obligatoria. Al
+    recoger primero el futuro que no lanza, la excepción de la previsión tiene
+    que seguir saliendo igual.
+    """
+    from app.modules import storage, weather_context
+    from app.modules.weather_context import WeatherError
+
+    def _revienta(lat: float, lon: float) -> dict:
+        raise WeatherError("El servicio de previsión tardó demasiado.")
+
+    monkeypatch.setattr(weather_context, "_fetch_forecast", _revienta)
+    monkeypatch.setattr(weather_context, "_fetch_marine", lambda lat, lon: Marine())
+    monkeypatch.setattr(storage, "cache_get", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "cache_set", lambda *a, **k: None)
+
+    with pytest.raises(WeatherError):
+        weather_context.get_weather(43.5622, -6.1456)
