@@ -127,6 +127,10 @@ python tools/simular_telemetria.py         # siembra 7 días de telemetría SIMU
 python tools/simular_telemetria.py 14      # 14 días
 python tools/simular_telemetria.py --ver   # enseña lo que haría, sin guardar nada
 python tools/simular_telemetria.py --limpiar  # borra lo simulado; no toca lo real
+tools/logs.sh                              # (EN EL SERVIDOR) qué ha hecho la app
+tools/logs.sh -f                           # en directo, mientras ejecutas el atajo
+tools/logs.sh fotos                        # solo las importaciones de fotos
+python tools/medir_contexto.py             # dónde se va el tiempo de construir()
 python tools/ver_notas.py                  # notas del viaje + progreso del mapa
 python tools/ver_notas.py 50               # las 50 últimas
 python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
