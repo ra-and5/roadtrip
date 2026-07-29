@@ -68,7 +68,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 from tools.servidor_de_prueba import CONTRASENA  # noqa: E402
-from tools.verificar import BASE, arrancar_servidor, esperar  # noqa: E402
+from tools.verificar import BASE, Fallo, arrancar_servidor, esperar  # noqa: E402
 
 # Qué se espera en cada pantalla para dar por "vista". No es el `load` del
 # navegador: es el momento en que la pantalla contesta su pregunta, que es lo
@@ -183,12 +183,6 @@ def main() -> int:
         datos = Path(tempfile.mkdtemp(prefix="roadtrip-medida-"))
         servidor = arrancar_servidor(datos)
 
-    print(f"\nCambiar de pantalla — {base}")
-    print(f"mediana de {args.pasadas} pasadas, en milisegundos"
-          + ("" if args.con_tiles else ", sin los tiles de fuera"))
-    print("las columnas NO suman el TOTAL: se solapan entre ellas")
-    print("=" * 62)
-
     try:
         with sync_playwright() as pw:
             navegador = pw.chromium.launch()
@@ -209,11 +203,37 @@ def main() -> int:
             page = contexto.new_page()
             cdp = contexto.new_cdp_session(page)
 
-            page.goto(f"{base}/login")
+            # El login va ANTES de imprimir la cabecera: una tabla con título y
+            # sin filas parece que el servidor no contesta, cuando lo que pasa
+            # es que la contraseña no era.
+            try:
+                page.goto(f"{base}/login", timeout=20000)
+            except Exception as exc:  # noqa: BLE001
+                print(f"\nNo se pudo abrir {base}/login: {type(exc).__name__}")
+                print("¿Está el servidor levantado y bien escrita la URL?\n")
+                return 1
+
             page.fill("#password", clave)
             page.click("button[type=submit]")
-            esperar(lambda: page.locator("#contexto-btn").count() == 1,
-                    "no se pudo entrar (¿contraseña?)")
+            try:
+                esperar(lambda: page.locator("#contexto-btn").count() == 1,
+                        "el servidor no llevó a la pantalla de Inicio")
+            except Fallo:
+                mala = "incorrecta" in page.content()
+                print("\nNo se pudo entrar en " + base + ": "
+                      + ("contraseña incorrecta." if mala
+                         else "el login no llevó a Inicio."))
+                if remoto:
+                    print("La contraseña es la de la app; se puede dar sin que se vea con:")
+                    print("  ROADTRIP_PASSWORD='…' python tools/medir_pantallas.py --url " + base)
+                print()
+                return 1
+
+            print(f"\nCambiar de pantalla — {base}")
+            print(f"mediana de {args.pasadas} pasadas, en milisegundos"
+                  + ("" if args.con_tiles else ", sin los tiles de fuera"))
+            print("las columnas NO suman el TOTAL: se solapan entre ellas")
+            print("=" * 62)
 
             for estado in ("en frío", "en caliente"):
                 print(f"\n{estado}"
