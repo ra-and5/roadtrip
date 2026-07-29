@@ -11,6 +11,7 @@ Si una vista empieza a crecer, la lógica se va a un módulo.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import timedelta
 from typing import Any
@@ -62,6 +63,19 @@ app.config["MAX_CONTENT_LENGTH"] = Config.MAX_CONTENT_LENGTH
 # Crear el esquema al arrancar. Es idempotente, así que da igual cuántos
 # workers levante PythonAnywhere.
 storage.init_db()
+
+# El log de la app baja a INFO, y no es un detalle de configuración: sin esto
+# Flask filtra a WARNING en producción, así que las líneas que dicen "esto ha
+# ido bien" no se escriben nunca. Y eso dejaba un agujero concreto — ante un
+# mapa que no cambiaba, el log solo tenía rechazos, así que no había forma de
+# distinguir "el atajo no envió nada" de "envió y se guardó", que son problemas
+# opuestos y se arreglan en sitios distintos. Un log donde solo aparecen los
+# errores no sirve para saber si algo llegó.
+#
+# El volumen no es un problema: aquí hay un usuario y unas pocas líneas por
+# ingesta. Nada de esto registra cuerpos ni cabeceras (ver el 401 de la
+# ingesta): un token en un log es un token comprometido.
+app.logger.setLevel(logging.INFO)
 
 # Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
 # el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
@@ -641,8 +655,26 @@ def api_waypoints() -> Any:
     try:
         resultado = waypoints.import_waypoints(payload)
     except WaypointError as exc:
+        # El cuerpo se rechaza entero, así que hay que decir por qué: al otro
+        # lado hay un atajo escrito a mano en la pantalla de un móvil.
+        app.logger.warning("Importación de puntos rechazada: %s", exc)
         return jsonify({"error": str(exc)}), 400
 
+    # Se registra también cuando va BIEN, y esa es la parte que faltaba. Antes
+    # solo quedaba rastro de los rechazos, así que ante un mapa que no cambia no
+    # había forma de distinguir «el atajo no envió nada» de «envió y se guardó»
+    # — y son problemas opuestos. Costó una mañana averiguarlo mirando el log y
+    # encontrando silencio, que es el peor resultado posible de una búsqueda.
+    #
+    # Va a INFO y no a WARNING porque no es un aviso; y lleva las tres cifras
+    # porque «duplicados: 6» es la respuesta normal al reenviar el álbum entero
+    # y no un problema.
+    app.logger.info(
+        "Puntos importados: %d guardados, %d duplicados, %d descartados",
+        resultado.guardados,
+        resultado.duplicados,
+        resultado.descartados,
+    )
     return jsonify(resultado.to_dict())
 
 
@@ -700,6 +732,16 @@ def api_telemetria() -> Any:
 
         return jsonify(cuerpo), 400
 
+    # Igual que en los puntos: queda escrito también cuando va bien. Que
+    # `duplicadas` sea casi siempre mayor que `guardadas` no es un problema, es
+    # la señal de que la ventana solapada funciona (decisión 23), y desde el log
+    # es la forma de comprobar que la automatización sigue corriendo sola.
+    app.logger.info(
+        "Telemetría recibida: %d guardadas, %d duplicadas, %d descartadas",
+        resultado.guardadas,
+        resultado.duplicadas,
+        resultado.descartadas,
+    )
     return jsonify(resultado.to_dict())
 
 
