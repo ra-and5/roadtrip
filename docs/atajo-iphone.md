@@ -474,7 +474,18 @@ del atajo. En resumen:
 | **`descartadas` > 0** | Las muestras llegan pero se rechazan. `errores` dice cuál y por qué |
 | **`guardadas` siempre 0** | Está funcionando: son duplicadas. Mira `duplicadas` |
 | Nada, se queda colgado | La app está caída o no hay cobertura. No pasa nada: el próximo envío recupera estas muestras |
+| **La alerta enseña `{"muestras": [...]}`** | **Eso es lo que MANDAS, no lo que contesta el servidor**, y la diferencia es todo: significa que la alerta va antes del *Obtener contenido de la URL*, o que esa acción ya no está en el atajo. En el servidor no entra nada y el atajo parece funcionar, porque enseña un JSON impecable. Pasó el 29-07-2026 |
 
 Un truco para depurar sin ordenador: añade temporalmente un **Mostrar alerta**
 justo antes del *Obtener contenido de la URL* enseñando la variable `MUESTRAS`.
 Ver el JSON que se está construyendo resuelve casi todo.
+
+**Y quítalo en cuanto funcione, por dos motivos y no uno.** El conocido es el
+ruido. El que cuesta un día: **una alerta bloquea las automatizaciones.** El
+atajo se queda esperando un toque que nadie va a dar a las 06:00, así que las
+seis automatizaciones no envían nada aunque el atajo esté perfecto — y no da
+ningún error, solo un servidor donde no entra nada.
+
+Para distinguir a simple vista qué estás mirando: la respuesta de la app trae
+`guardadas`, `duplicadas` y `descartadas`. Si no salen esas tres palabras, no
+estás viendo una respuesta.
