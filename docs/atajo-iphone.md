@@ -475,6 +475,9 @@ del atajo. En resumen:
 | **`guardadas` siempre 0** | Está funcionando: son duplicadas. Mira `duplicadas` |
 | Nada, se queda colgado | La app está caída o no hay cobertura. No pasa nada: el próximo envío recupera estas muestras |
 | **La alerta enseña `{"muestras": [...]}`** | **Eso es lo que MANDAS, no lo que contesta el servidor**, y la diferencia es todo: significa que la alerta va antes del *Obtener contenido de la URL*, o que esa acción ya no está en el atajo. En el servidor no entra nada y el atajo parece funcionar, porque enseña un JSON impecable. Pasó el 29-07-2026 |
+| **El atajo acaba en *Detener y generar Texto*** | Lo mismo con otro disfraz: lo que sale en pantalla es la **salida del atajo**, tu propio JSON. Esa acción **corta la ejecución ahí**, así que nada de lo que venga después se ejecuta |
+| **La URL apunta a `/api/waypoints`** | Ese es el endpoint de las **fotos**. Los dos atajos se parecen y la URL se copia de uno a otro sin darse cuenta. La telemetría va a `/api/telemetria` |
+| **La llamada va ANTES del bloque `Texto`** | Entonces manda lo que hubiera producido la acción anterior —el número de pasos suelto— y el JSON se construye después, para nadie. El orden es: `Texto` primero, *Obtener contenido de la URL* después, con el cuerpo apuntando a ese texto |
 
 Un truco para depurar sin ordenador: añade temporalmente un **Mostrar alerta**
 justo antes del *Obtener contenido de la URL* enseñando la variable `MUESTRAS`.
