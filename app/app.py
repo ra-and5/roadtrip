@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import timedelta
 from typing import Any
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
 
 from app.config import Config
 from app.modules import (
@@ -80,6 +81,39 @@ app.logger.setLevel(logging.INFO)
 # Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
 # el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
 _MAX_ECO_CUERPO = 400
+
+
+@app.before_request
+def _empezar_el_cronometro() -> None:
+    g.empezado_en = time.perf_counter()
+
+
+@app.after_request
+def cronometrar_la_api(respuesta: Any) -> Any:
+    """Cuánto ha tardado el SERVIDOR en contestar cada `/api/`.
+
+    Desde fuera solo se puede medir el viaje entero, y ahí van juntos el camino
+    y el trabajo: `/api/perfil` tarda ~600 ms medido desde el navegador
+    (decisión 48) y esa cifra no dice si el servidor se los gasta leyendo SQLite
+    o si son latencia hasta PythonAnywhere. Son problemas distintos y se
+    arreglan en sitios opuestos, así que hay que poder restar.
+
+    Va al log y no a la respuesta: es información para depurar, no un dato de la
+    app. Y registra también lo rápido, por lo mismo que la decisión 44 — un log
+    donde solo aparece lo que falla no sirve para saber si algo va bien.
+
+    Solo `/api/`: el estático son cientos de líneas al día y las páginas se
+    piden una vez.
+    """
+    if request.path.startswith("/api/"):
+        empezado = getattr(g, "empezado_en", None)
+        if empezado is not None:
+            ms = (time.perf_counter() - empezado) * 1000
+            app.logger.info(
+                "%s %s -> %s en %.0f ms", request.method, request.path,
+                respuesta.status_code, ms,
+            )
+    return respuesta
 
 
 @app.after_request

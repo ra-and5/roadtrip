@@ -1768,6 +1768,28 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     que altera lo que mide no da un error, da una conclusión.** Es la decisión
     11 aplicada a las herramientas en vez de al código.
 
+    **El resultado, medido con el instrumento ya arreglado** (TOTAL en caliente,
+    contra el desplegado, ms):
+
+    | pantalla | antes | después |
+    |---|---|---|
+    | Mapa | 6829 | **675** |
+    | Perfil | 3737 | 1538 |
+    | Chat | 1762 | 730 |
+    | Inicio | 378 | 285 |
+
+    La columna `estáticos` es **0** en las cuatro: al cambiar de pantalla ya no
+    se descarga nada. Y el agujero de 1,8 s que había aparecido en el Mapa era la
+    caché desactivada por el medidor, no Leaflet: `arranque` en caliente son
+    20-65 ms.
+
+    **Lo que queda, y por qué no se toca todavía:** `api` entre 298 y 593 ms.
+    Desde el navegador esa cifra mezcla la latencia hasta PythonAnywhere con lo
+    que el servidor gasta de verdad, y son problemas opuestos —uno se arregla
+    cacheando en el cliente, el otro tocando la consulta—. Por eso lo primero es
+    poder restar: cada `/api/` deja ahora en el log lo que tardó **el servidor**
+    (`tools/logs.sh tiempos`). Se decide con ese número, no antes.
+
 50. **Un suelo no es un total, y una fuente parada no "va regular".** Los dos
     salieron de la misma pregunta —*¿por qué el dashboard no enseña los pasos de
     hoy?*— y los dos son números o etiquetas que **parecen** buenos, que es la

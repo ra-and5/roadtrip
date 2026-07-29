@@ -12,6 +12,7 @@
 #   tools/logs.sh -f         se queda mirando en directo (Ctrl+C para salir)
 #   tools/logs.sh fotos      solo las importaciones de fotos
 #   tools/logs.sh pasos      solo la telemetría
+#   tools/logs.sh tiempos    cuánto tarda el SERVIDOR en cada /api/
 #   tools/logs.sh todo       sin filtrar nada, por si falta algo
 #
 set -euo pipefail
@@ -47,6 +48,12 @@ case "${1:-}" in
     ;;
   pasos)
     grep -E 'Telemetría recibida|Ingesta rechazada' "$LOG" | sin_duplicados | tail -20
+    ;;
+  tiempos)
+    # Cuánto tarda el SERVIDOR en contestar cada /api/. Desde el navegador solo
+    # se mide el viaje entero, y ahí van juntos el camino y el trabajo: esta
+    # lista es la única forma de restar uno del otro (decisión 48).
+    grep -E ' -> [0-9]+ en [0-9]+ ms' "$LOG" | sin_duplicados | tail -30
     ;;
   todo)
     tail -40 "$LOG"

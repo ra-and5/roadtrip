@@ -229,6 +229,39 @@ def test_los_estaticos_se_cachean_un_ano_y_la_api_no() -> None:
     assert cliente.get("/api/perfil").headers["Cache-Control"] == "no-store"
 
 
+def test_la_api_deja_escrito_cuanto_tardo_el_servidor(caplog: Any) -> None:
+    """Sin esto no se puede separar el camino del trabajo.
+
+    Desde el navegador, `/api/perfil` tarda ~600 ms contra el desplegado, y esa
+    cifra mezcla la latencia hasta PythonAnywhere con lo que el servidor gasta
+    leyendo SQLite. Son problemas distintos, se arreglan en sitios opuestos, y
+    sin este número no hay forma de restar uno del otro (decisión 48).
+
+    Se comprueba además que el cronómetro no se lleve por delante la cabecera de
+    caché: son dos `after_request` sobre la misma respuesta.
+    """
+    import logging
+
+    cliente = flask_app.test_client()
+    with cliente.session_transaction() as sesion:
+        sesion["authenticated"] = True
+
+    with caplog.at_level(logging.INFO, logger=flask_app.logger.name):
+        respuesta = cliente.get("/api/perfil")
+
+    assert respuesta.headers["Cache-Control"] == "no-store"
+    assert any(
+        "/api/perfil" in linea and " ms" in linea for linea in caplog.messages
+    ), caplog.messages
+
+    # Una página normal no se cronometra: serían cientos de líneas al día por
+    # una cifra que no se mira.
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=flask_app.logger.name):
+        cliente.get("/perfil")
+    assert not any(" ms" in linea for linea in caplog.messages), caplog.messages
+
+
 def test_la_version_cambia_cuando_cambia_el_archivo(tmp_path: Any) -> None:
     """Que la query exista no basta: tiene que moverse al desplegar."""
     import os
