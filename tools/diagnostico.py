@@ -148,6 +148,45 @@ def check(nombre: str, fn) -> bool:
     return True
 
 
+def veredicto(*, ok: bool, contexto_ok: bool, todo_fino: bool, lento: str) -> list[str]:
+    """Las líneas finales, que son lo único que mucha gente lee.
+
+    Es una función y no cuatro `print` dentro de `main()` por la razón de
+    siempre: aquí se **decide** qué se le dice a alguien que está mirando un
+    servidor, y eso merece pruebas. Y hacía falta, porque estaba mal: cuando el
+    contexto se construía entero pero tardaba de más, el veredicto anunciaba
+    "la ubicación no se puede resolver" **con la ubicación resuelta y 6/6
+    fuentes impresas dos líneas más arriba**. Mandaba a depurar el GPS, que era
+    lo único que no tenía nada que ver.
+
+    Args:
+        ok: las comprobaciones obligatorias (base de datos, ubicación) pasaron.
+        contexto_ok: `contexto.construir()` pasó, tiempo incluido.
+        todo_fino: además, las fuentes opcionales respondieron.
+        lento: cuánto tardó el contexto, si incumplió el contrato. Vacío si no.
+    """
+    if ok and contexto_ok and todo_fino:
+        return ["Todo correcto."]
+    if ok and contexto_ok:
+        # Este es el mensaje importante: recuerda que la app está diseñada
+        # para seguir sirviendo aunque falten fuentes opcionales.
+        return [
+            "La app FUNCIONA en modo degradado: la ubicación se resuelve y",
+            "las fuentes que fallan se sustituyen por un aviso en la interfaz.",
+        ]
+    if lento:
+        # Se construyó, con su ubicación y sus fuentes. Lo que falla es el
+        # tiempo, y decirlo así evita mandar a mirar el GPS, que está bien.
+        return [
+            f"El contexto se construye ENTERO, pero tardó {lento} y el contrato",
+            "es de un segundo. La app se abre, pero se abandona por lenta.",
+            "  python tools/medir_contexto.py   dice cuál de las tres fuentes es",
+            "Si las tres salen rápidas ahí, no era la red: el servidor estaba",
+            "ahogado en ese momento (la cuota de CPU del plan gratuito). Repite.",
+        ]
+    return ["La ubicación no se puede resolver: la app no será utilizable."]
+
+
 def dato(nombre: str, valor: str) -> None:
     """Una línea informativa: ni pasa ni falla, solo se lee.
 
@@ -514,6 +553,15 @@ def main() -> None:
     #      el error que este proyecto ya evitó a propósito.
     print("\nEL CONTEXTO   (la pieza que alimenta pantalla, recomendador y chat)")
 
+    # Se anota si el contexto se CONSTRUYÓ pero incumplió el contrato de tiempo.
+    # Sin esto, el veredicto final trataba las dos formas de suspender como una
+    # sola y anunciaba "la ubicación no se puede resolver" con la ubicación
+    # resuelta y 6/6 fuentes en la línea de arriba. Una herramienta de
+    # diagnóstico que nombra mal el fallo manda a depurar lo que no era: es el
+    # fallo silencioso de la decisión 11 dentro de la propia herramienta que
+    # existe para cazarlo.
+    lento: list[str] = []
+
     def _contexto() -> str:
         t0 = time.time()
         estado = contexto.construir(lat, lon)
@@ -529,23 +577,24 @@ def main() -> None:
         if caidas:
             resumen += f" (caídas: {', '.join(caidas)})"
         if tardanza > 2:
+            lento.append(f"{tardanza:.1f}s")
             raise RuntimeError(
-                f"ha tardado {tardanza:.1f}s, y el contrato es <1s. Alguien ha "
-                f"metido una fuente lenta en el camino normal: {resumen}"
+                f"ha tardado {tardanza:.1f}s, y el contrato es <1s. O alguien ha "
+                f"metido una fuente lenta en el camino normal, o el servidor está "
+                f"ahogado. Para saber cuál: python tools/medir_contexto.py. "
+                f"El contexto SÍ se construyó: {resumen}"
             )
         return resumen
     contexto_ok = check("contexto.construir()", _contexto)
 
     print("\n" + "=" * 66)
-    if ok and contexto_ok and weather_ok and pois_ok and ai_ok:
-        print("Todo correcto.")
-    elif ok and contexto_ok:
-        # Este es el mensaje importante: recuerda que la app está diseñada
-        # para seguir sirviendo aunque falten fuentes opcionales.
-        print("La app FUNCIONA en modo degradado: la ubicación se resuelve y")
-        print("las fuentes que fallan se sustituyen por un aviso en la interfaz.")
-    else:
-        print("La ubicación no se puede resolver: la app no será utilizable.")
+    for linea in veredicto(
+        ok=ok,
+        contexto_ok=contexto_ok,
+        todo_fino=weather_ok and pois_ok and ai_ok,
+        lento=lento[0] if lento else "",
+    ):
+        print(linea)
     print()
 
     # Degradado sale 0: es un estado de funcionamiento diseñado a propósito

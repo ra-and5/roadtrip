@@ -180,3 +180,44 @@ def test_sin_virtualenv_no_se_mide_el_python_del_sistema(
     monkeypatch.setattr(diagnostico.sys, "base_prefix", "/usr")
 
     assert diagnostico._raiz_venv() is None
+
+
+# ---------------------------------------------------------------------------
+# El veredicto final
+# ---------------------------------------------------------------------------
+
+
+def test_un_contexto_lento_no_dice_que_falle_la_ubicacion() -> None:
+    """El fallo que se vio en el servidor y mandó a depurar lo que no era.
+
+    `contexto.construir()` devolvió su ubicación y sus 6/6 fuentes, y solo
+    incumplió el contrato de tiempo. El veredicto anunciaba, dos líneas más
+    abajo, "la ubicación no se puede resolver". Eso no es un matiz: es la
+    herramienta de diagnóstico nombrando mal el fallo, que es peor que callarse.
+    """
+    lineas = diagnostico.veredicto(ok=True, contexto_ok=False, todo_fino=False, lento="33.8s")
+    texto = " ".join(lineas)
+
+    assert "33.8s" in texto
+    assert "ubicación no se puede resolver" not in texto
+    assert "medir_contexto" in texto, "hay que decir con qué se averigua cuál es"
+
+
+def test_sin_ubicacion_si_se_dice_que_la_app_no_sirve() -> None:
+    """Y el caso de verdad grave no se puede haber ablandado al arreglar el otro."""
+    lineas = diagnostico.veredicto(ok=False, contexto_ok=False, todo_fino=False, lento="")
+
+    assert "no será utilizable" in " ".join(lineas)
+
+
+def test_una_fuente_opcional_caida_es_modo_degradado_y_no_un_fallo() -> None:
+    """Degradar es un estado diseñado a propósito (decisión 9), no un roto."""
+    lineas = diagnostico.veredicto(ok=True, contexto_ok=True, todo_fino=False, lento="")
+
+    assert "degradado" in " ".join(lineas)
+
+
+def test_con_todo_en_verde_no_se_avisa_de_nada() -> None:
+    assert diagnostico.veredicto(
+        ok=True, contexto_ok=True, todo_fino=True, lento=""
+    ) == ["Todo correcto."]
