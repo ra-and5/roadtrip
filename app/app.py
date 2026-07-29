@@ -697,10 +697,11 @@ def api_waypoints() -> Any:
     # porque «duplicados: 6» es la respuesta normal al reenviar el álbum entero
     # y no un problema.
     app.logger.info(
-        "Puntos importados: %d guardados, %d duplicados, %d descartados",
+        "Puntos importados: %d guardados, %d duplicados, %d descartados, %d eliminados",
         resultado.guardados,
         resultado.duplicados,
         resultado.descartados,
+        resultado.eliminados,
     )
     return jsonify(resultado.to_dict())
 

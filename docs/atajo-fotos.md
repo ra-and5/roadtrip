@@ -97,6 +97,7 @@ si algún día hacen falta, pero **no son el plan**:
 // Content-Type: application/json
 {
   "fuente": "fotos",
+  "completo": true,                           // este envío ES el álbum, no una lista de altas
   "puntos": [
     { "archivo": "IMG_4638",                  // el nombre. Es la clave anti-duplicados
       "capturado_en": "2026-07-20T15:15:39+02:00",  // hora de la cámara, con huso
@@ -110,7 +111,34 @@ Este cuerpo exacto está **probado contra el servidor** (`{"guardados": 4}` la
 primera vez, `{"duplicados": 4}` la segunda). Ocupa 475 bytes con cuatro fotos,
 de los 128 KB que acepta el servidor.
 
-Cuatro cosas que no son evidentes:
+### `"completo": true` — lo que hace que quitar una foto la quite del mapa
+
+Sin esta bandera el importador **solo suma**: sacas una foto del álbum `Viaje` y
+su punto se queda en el mapa para siempre. Y eso rompe lo que hace útil al
+álbum — quitar una foto es decir *«esta no cuenta»*, y una curación que solo
+suma no es una curación.
+
+Con la bandera, un envío **es el estado del álbum**: lo que no viene, se borra.
+
+Va explícita en vez de ser el comportamiento normal porque el precio de
+equivocarse no es simétrico: una foto de más se ve y se quita, y una foto de
+menos es **historia borrada**. Un lote parcial —una prueba a mano, un atajo a
+medio montar— no puede llevarse el viaje por delante sin decirlo. Quien manda el
+álbum entero lo sabe; los demás no tienen que saber nada.
+
+Dos protecciones que ya no dependen de acordarse:
+
+- **Una lista vacía se rechaza con un 400** antes de llegar al borrado. Es el
+  caso que más miedo da: un atajo roto que manda cero puntos.
+- **El borrado se acota a la `fuente`.** El álbum del iPhone no puede tocar lo
+  que entró por `tools/importar_fotos.py`.
+
+⚠️ **Y una consecuencia del límite del paso 1.** El atajo manda como mucho 300
+fotos. Si el álbum crece por encima, un envío deja de ser el álbum entero y el
+borrado se llevaría lo que no cupo. Por eso la respuesta y el log dicen
+`eliminados`: un número raro ahí es la señal de que hay que subir ese límite.
+
+Cuatro cosas más que no son evidentes:
 
 - **`capturado_en` es la hora que marcaba el reloj de la cámara**, no un
   instante en UTC. Al revés que `medido_en` en la telemetría, aquí no se
@@ -181,7 +209,7 @@ y hay dos sitios donde equivocarse no da ningún error.
 | 19 | `Terminar repetición` | — | — | 🔁 |
 | — | **↑ fin del bucle ↑** | | | |
 | 20 | `Combinar` | chip `PUNTOS` | con `Personalizar` → `,` | 📝 amarillo |
-| 21 | `Texto` | `{"fuente":"fotos","puntos":[«Texto combinado»]}` | — | 📝 amarillo |
+| 21 | `Texto` | `{"fuente":"fotos","completo":true,"puntos":[«Texto combinado»]}` | — | 📝 amarillo |
 | 22 | `Obtener contenido de la URL` | ver abajo | — | ⬇️ verde |
 | 23 | `Mostrar aviso` | chip `Contenido de URL` | — | 🟨 |
 
@@ -432,7 +460,7 @@ Orden correcto, y hay que mirarlo aunque todo "parezca" bien:
 
 ```
 Combinar PUNTOS con ","
-Texto: {"fuente":"fotos","puntos":[Texto combinado]}     ← primero el cuerpo
+Texto: {"fuente":"fotos","completo":true,"puntos":[Texto combinado]}   ← primero el cuerpo
 Obtener contenido de .../api/waypoints                   ← DESPUÉS el envío
 Detener y generar                                        (opcional, para ver la respuesta)
 ```

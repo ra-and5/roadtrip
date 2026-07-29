@@ -634,6 +634,37 @@ def insert_waypoints(rows: Sequence[dict[str, Any]]) -> tuple[int, int]:
     return nuevos, len(rows) - nuevos
 
 
+def delete_waypoints_ausentes(fuente: str, archivos: Sequence[str]) -> int:
+    """Borra los puntos de `fuente` cuyo archivo NO está en `archivos`.
+
+    Es lo que convierte un envío en el estado del álbum y no en una lista de
+    altas: quitar una foto de `Viaje` tiene que quitarla del mapa, porque la
+    curación es el dato.
+
+    Dos cosas que no son detalles de implementación:
+
+    - **Con `archivos` vacío no borra nada.** Es la única forma de que un
+      cliente roto —o una lista que se quedó vacía por el camino— no se lleve el
+      viaje entero. Un `NOT IN ()` sin elementos borraría toda la tabla, que es
+      exactamente el desastre que hay que hacer imposible.
+    - **Acotado a `fuente`.** El álbum del iPhone no puede tocar lo que entró
+      por `tools/importar_fotos.py`, aunque las dos cosas sean fotos.
+
+    Los nombres van como parámetros y no interpolados: son texto que viene de
+    fuera, y aquí lo que llega es el carrete de alguien.
+    """
+    if not archivos:
+        return 0
+
+    marcadores = ", ".join("?" for _ in archivos)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM waypoints WHERE fuente = ? AND archivo NOT IN ({marcadores})",
+            (fuente, *archivos),
+        )
+        return cur.rowcount
+
+
 def list_waypoints(limit: int = 5000) -> list[dict[str, Any]]:
     """Los puntos del viaje, del más antiguo al más reciente.
 

@@ -80,6 +80,7 @@ class ResultadoImportacion:
     guardados: int = 0
     duplicados: int = 0
     descartados: int = 0
+    eliminados: int = 0
     errores: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -87,6 +88,7 @@ class ResultadoImportacion:
             "guardados": self.guardados,
             "duplicados": self.duplicados,
             "descartados": self.descartados,
+            "eliminados": self.eliminados,
             "errores": self.errores,
         }
 
@@ -222,7 +224,38 @@ def _parse_punto(datos: Any, fuente: str) -> Waypoint:
 
 
 def import_waypoints(payload: Any) -> ResultadoImportacion:
-    """Valida un lote de puntos y guarda los buenos."""
+    """Valida un lote de puntos y guarda los buenos.
+
+    Con `"completo": true` en el cuerpo, además **borra los que ya no están**.
+
+    Hace falta porque el álbum no solo crece: quitar una foto de `Viaje` es
+    decir "esta no cuenta", y hasta ahora el mapa se quedaba con ella para
+    siempre. La curación es el dato, y una curación que solo suma no es una
+    curación. Con la bandera puesta, un envío es el estado del álbum y no una
+    lista de altas.
+
+    Y va detrás de una bandera explícita en vez de ser el comportamiento normal,
+    porque el precio de equivocarse no es simétrico: una foto de más se ve y se
+    quita, y una foto de menos **es historia borrada**. Un cliente que mande un
+    lote parcial —una prueba a mano, un atajo a medio montar, otro camino de
+    importación— borraría el viaje sin querer y sin dar ningún error. Quien
+    manda el álbum entero lo sabe y lo dice; los demás no tienen que saber nada.
+
+    Las dos protecciones que lo hacen seguro, más allá de la bandera:
+
+    - **el borrado se acota a la `fuente` del envío.** El atajo del álbum no
+      puede tocar lo que entró por `tools/importar_fotos.py`.
+    - **una lista vacía no llega hasta aquí**: se rechaza antes con un 400. Es
+      el caso que más miedo da —un atajo roto que manda cero puntos y se lleva
+      por delante el viaje entero— y por eso la protección no está aquí, sino
+      arriba, donde no depende de recordar nada.
+
+    Ojo con el límite del atajo: manda como mucho `MAX_PUNTOS` fotos, y el de
+    iPhone está puesto en 300. Si el álbum crece por encima de eso, un envío
+    deja de ser el álbum entero y el borrado se llevaría lo que no cupo. Por eso
+    `eliminados` sale en la respuesta y en el log: un número raro ahí es la
+    señal de que el límite se ha quedado corto.
+    """
     if not isinstance(payload, dict):
         raise WaypointError(
             'el cuerpo tiene que ser {"fuente": ..., "puntos": [...]}'
@@ -270,5 +303,13 @@ def import_waypoints(payload: Any) -> ResultadoImportacion:
         )
         resultado.guardados = guardados
         resultado.duplicados = duplicados
+
+        # El borrado va DESPUÉS de insertar, y ese orden es la garantía que
+        # importa: si el insert falla, no se ha borrado nada. Al revés, un fallo
+        # a mitad dejaría el viaje vacío y sin nada que lo repueble.
+        if payload.get("completo") is True:
+            resultado.eliminados = storage.delete_waypoints_ausentes(
+                fuente, [w.archivo for w in validos]
+            )
 
     return resultado

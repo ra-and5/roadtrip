@@ -94,7 +94,8 @@ def test_reimportar_la_misma_carpeta_no_duplica_el_viaje(cliente: Any) -> None:
     segunda = cliente.post(RUTA, json=lote, headers=_auth())
 
     assert primera.get_json() == {
-        "guardados": 2, "duplicados": 0, "descartados": 0, "errores": [],
+        "guardados": 2, "duplicados": 0, "descartados": 0, "eliminados": 0,
+        "errores": [],
     }
     assert segunda.get_json()["guardados"] == 0
     assert segunda.get_json()["duplicados"] == 2
@@ -566,3 +567,114 @@ def test_un_cuerpo_que_no_es_json_dice_QUE_llego(cliente: Any) -> None:
 
     assert respuesta.status_code == 400
     assert cuerpo["recibido"] == "lat: , lon: "
+
+
+# ---------------------------------------------------------------------------
+# El álbum es el estado, no una lista de altas
+# ---------------------------------------------------------------------------
+
+
+def _enviar(cliente: Any, archivos: list[str], completo: bool = False) -> dict[str, Any]:
+    cuerpo: dict[str, Any] = {
+        "fuente": "fotos",
+        "puntos": [
+            {
+                "archivo": nombre,
+                "capturado_en": "2026-07-2%dT12:00:00+02:00" % (i % 9),
+                "lat": 38.39 + i / 1000,
+                "lon": -0.51 - i / 1000,
+            }
+            for i, nombre in enumerate(archivos)
+        ],
+    }
+    if completo:
+        cuerpo["completo"] = True
+    respuesta = cliente.post("/api/waypoints", json=cuerpo, headers=_auth())
+    assert respuesta.status_code == 200, respuesta.get_json()
+    return respuesta.get_json()
+
+
+def test_quitar_una_foto_del_album_la_quita_del_mapa(cliente: Any) -> None:
+    """Quitar una foto de `Viaje` es decir «esta no cuenta».
+
+    Antes el importador solo sumaba, así que la foto retirada se quedaba en el
+    mapa para siempre. La curación es el dato, y una curación que solo suma no
+    es una curación.
+    """
+    _enviar(cliente, ["A.jpg", "B.jpg", "C.jpg"])
+    assert len(_guardados()) == 3
+
+    resultado = _enviar(cliente, ["A.jpg", "C.jpg"], completo=True)
+
+    assert resultado["eliminados"] == 1
+    assert sorted(p["archivo"] for p in _guardados()) == ["A.jpg", "C.jpg"]
+
+
+def test_sin_la_bandera_completo_no_se_borra_nada(cliente: Any) -> None:
+    """El precio de equivocarse no es simétrico.
+
+    Una foto de más se ve y se quita; una foto de menos es historia borrada. Un
+    lote parcial —una prueba a mano, otro camino de importación— no puede
+    llevarse el viaje por delante sin decirlo.
+    """
+    _enviar(cliente, ["A.jpg", "B.jpg", "C.jpg"])
+
+    resultado = _enviar(cliente, ["A.jpg"])
+
+    assert resultado["eliminados"] == 0
+    assert len(_guardados()) == 3
+
+
+def test_un_envio_vacio_no_puede_borrar_el_viaje(cliente: Any) -> None:
+    """El caso que más miedo da: un atajo roto que manda cero puntos.
+
+    Se rechaza ANTES de llegar al borrado, así que la protección no depende de
+    que nadie se olvide de comprobarlo más abajo.
+    """
+    _enviar(cliente, ["A.jpg", "B.jpg"])
+
+    respuesta = cliente.post(
+        "/api/waypoints",
+        json={"fuente": "fotos", "puntos": [], "completo": True},
+        headers=_auth(),
+    )
+
+    assert respuesta.status_code == 400
+    assert len(_guardados()) == 2, "un cuerpo vacío ha borrado el viaje"
+
+
+def test_el_borrado_se_acota_a_la_fuente_del_envio() -> None:
+    """Hoy solo existe la fuente `fotos`, así que esto se prueba en storage.
+
+    Importa igualmente y por eso está escrito: el día que entren fotos por la
+    carpeta del portátil además de por el álbum, el atajo del iPhone no puede
+    llevarse por delante lo que trajo el otro camino. La condición vive en el
+    `WHERE fuente = ?` del borrado, no en quien lo llama.
+    """
+    from app.modules import storage
+
+    storage.insert_waypoints([
+        {"fuente": "fotos", "archivo": "DEL_ALBUM.jpg", "capturado_en": "2026-07-20T12:00:00",
+         "offset_original": "+02:00", "lat": 38.39, "lon": -0.51, "altitud": None, "camara": None, "importado_en": "2026-07-29T10:00:00+00:00"},
+        {"fuente": "carpeta", "archivo": "DEL_PORTATIL.JPG", "capturado_en": "2026-07-20T12:00:00",
+         "offset_original": "+02:00", "lat": 43.5, "lon": -6.1, "altitud": None, "camara": None, "importado_en": "2026-07-29T10:00:00+00:00"},
+    ])
+
+    borrados = storage.delete_waypoints_ausentes("fotos", ["OTRA.jpg"])
+
+    archivos = sorted(p["archivo"] for p in storage.list_waypoints())
+    assert borrados == 1
+    assert archivos == ["DEL_PORTATIL.JPG"], "el borrado ha cruzado de fuente"
+
+
+def test_una_lista_vacia_nunca_borra_en_storage() -> None:
+    """`NOT IN ()` sin elementos borraría la tabla entera. Se corta antes."""
+    from app.modules import storage
+
+    storage.insert_waypoints([
+        {"fuente": "fotos", "archivo": "A.jpg", "capturado_en": "2026-07-20T12:00:00",
+         "offset_original": "+02:00", "lat": 38.39, "lon": -0.51, "altitud": None, "camara": None, "importado_en": "2026-07-29T10:00:00+00:00"},
+    ])
+
+    assert storage.delete_waypoints_ausentes("fotos", []) == 0
+    assert len(storage.list_waypoints()) == 1
