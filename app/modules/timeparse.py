@@ -138,3 +138,38 @@ def to_local(utc_iso: str, offset_original: str | None) -> datetime:
         return instante
 
     return instante.astimezone(timezone(desfase))
+
+
+def hace_cuanto(iso: str | None, ahora: datetime) -> str:
+    """"hace 3 h" en vez de una marca ISO que hay que restar de cabeza.
+
+    Vive aquí y no en `tools/diagnostico.py`, que es donde se escribió, porque
+    ahora la usan dos consumidores: la consola del servidor y el panel. Y la
+    pregunta que contesta es la misma en los dos sitios —*¿esto sigue
+    llegando?*—, así que dos copias que se separaran darían dos respuestas
+    distintas sobre la misma fuente sin dar ningún error.
+
+    `2026-07-28T21:32:11+00:00` no contesta esa pregunta: hay que mirar la hora,
+    restar el huso y hacer la cuenta. Es exactamente el trabajo que esto ahorra,
+    y la última vez que se leyó mal una marca así se dio por viva una fuente que
+    llevaba un día parada.
+    """
+    if not iso:
+        return "nunca"
+    try:
+        instante = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=timezone.utc)
+
+    segundos = (ahora - instante).total_seconds()
+    if segundos < 0:
+        # Una muestra en el futuro es un reloj mal puesto en el móvil, y hay que
+        # decirlo: si no, se leería como recentísima y tranquilizaría.
+        return f"EN EL FUTURO (+{-segundos / 3600:.0f} h)"
+    if segundos < 90 * 60:
+        return f"hace {segundos / 60:.0f} min"
+    if segundos < 48 * 3600:
+        return f"hace {segundos / 3600:.0f} h"
+    return f"hace {segundos / 86400:.0f} días"

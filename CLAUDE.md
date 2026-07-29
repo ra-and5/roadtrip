@@ -72,6 +72,7 @@ app/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
     chat.py                  El chatbot. Decide QUÉ se le manda al modelo y qué no
     metricas.py              Pasos y batería, resumidos. Y si la serie tiene huecos
+    panel.py                 El cuaderno en una pantalla: el viaje y de qué fiarse
     viaje.py                 El viaje hasta ahora: agregados y últimas notas
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     diario.py                El primer sitio de cada día. Registra; NO analiza
@@ -92,6 +93,7 @@ app/
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
     js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
     js/chat.js               Conversación. El historial lo pone el servidor, no este
+    js/panel.js              El panel. Pinta /api/panel; el GPS solo bajo botón
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
@@ -151,6 +153,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
+| 6b | **El panel** (`/panel`): el viaje, los pasos y la fiabilidad de cada fuente | 🟨 Hecho el 29-07-2026 (decisión 40). Sin validar en el iPhone |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -1387,6 +1390,41 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     esa cadena decide qué cuenta para cerrar la 2d y dos copias que se separen
     harían que una herramienta diga que hay datos reales y otra que no, sin dar
     ningún error.
+
+40. **El panel enseña la fiabilidad JUNTO al dato, no en otra pantalla.** Es el
+    dashboard del §1, y se escribe con su regla delante: un dashboard precioso
+    sobre datos que llegan a ratos es peor que una tabla fea sobre datos ciertos,
+    porque el primero se cree.
+
+    Hasta ahora la pregunta *"¿me puedo fiar de esta cifra?"* solo se contestaba
+    desde una consola del servidor (`tools/diagnostico.py`). El panel la sube a
+    la pantalla que se mira todos los días: cada fuente sale con su veredicto
+    —`demostrada`, `con_huecos`, `sin_datos`, `simulada`— y con la cifra concreta
+    que lo sostiene.
+
+    Cuatro decisiones dentro:
+
+    - **Un día sin muestras se dibuja como HUECO, no como cero.** Un cero dice
+      "no anduvo" y un hueco dice "no lo sé"; pintarlos igual convierte un día
+      sin cobertura en un día de sofá. `metricas.pasos_por_dia` solo trae los
+      días con dato, así que `panel.serie()` rellena el calendario entero.
+    - **La telemetría entra dos veces en `armar()`, y no es un descuido.** Lo
+      simulado se **enseña** (si no, el panel saldría vacío y no se entendería
+      por qué) pero solo las muestras de `atajos-iphone` pueden declarar una
+      fuente demostrada. Leer las dos series juntas anularía la separación que la
+      decisión 36 puso en el esquema.
+    - **Vocabulario propio, distinto del de `contexto.Fuente`.** Allí se responde
+      "¿respondió la consulta?" y aquí "¿se puede construir encima?": una fuente
+      que contesta bien cada vez que se le pregunta puede llevar tres días sin
+      llegar, y colapsarlas dejaría pasar una serie muerta con un `ok`.
+    - **`/api/panel` es un GET sin GPS ni red**: todo sale de SQLite, así que el
+      panel abre entero sin cobertura. El *aquí y ahora* va bajo botón y reutiliza
+      `/api/contexto`, que es lo único que cuesta Nominatim y Open-Meteo.
+
+    Sin IA, a propósito y por decisión del usuario: primero los datos bien
+    enseñados. `hace_cuanto()` sube de `tools/diagnostico.py` a `timeparse.py`
+    porque ahora la usan dos consumidores y dos copias que se separaran darían
+    dos respuestas distintas sobre la misma fuente.
 
 ## 7. Roadmap
 

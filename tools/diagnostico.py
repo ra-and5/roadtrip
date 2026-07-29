@@ -49,6 +49,13 @@ from typing import Iterable
 # raíz del proyecto. Sin esto, `from app.config import Config` falla.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Se importa aquí arriba y no dentro de `main()` como el resto de módulos de la
+# app, y la diferencia importa: los demás se importan tarde a propósito para que
+# una configuración rota salga como una línea FALLO en vez de reventar el script
+# antes de imprimir nada. `timeparse` no lee `Config` ni abre la base de datos
+# —solo hace aritmética de fechas—, así que no puede provocar eso.
+from app.modules.timeparse import hace_cuanto  # noqa: E402
+
 # Por debajo de esto el disco se considera en peligro. 50 MB no es donde la app
 # se rompe, es donde todavía da tiempo a hacer algo: el margen existe para que
 # el aviso llegue ANTES del problema, no a la vez.
@@ -149,36 +156,6 @@ def dato(nombre: str, valor: str) -> None:
     puede salir con un OK y un cronómetro al lado, porque no se ha probado nada.
     """
     print(f"  {nombre:.<34} {valor}")
-
-
-def hace_cuanto(iso: str | None, ahora: datetime) -> str:
-    """"hace 3 h" en vez de una marca ISO que hay que restar de cabeza.
-
-    La pregunta que se hace uno en una consola del servidor es "¿esto sigue
-    llegando?", y `2026-07-28T21:32:11+00:00` no la contesta: hay que mirar la
-    hora, restar el huso y hacer la cuenta. Es exactamente el trabajo que un
-    diagnóstico tiene que ahorrarte, y la última vez que se leyó mal una marca
-    así se dio por viva una fuente que llevaba un día parada.
-    """
-    if not iso:
-        return "nunca"
-    try:
-        instante = datetime.fromisoformat(iso)
-    except ValueError:
-        return iso
-    if instante.tzinfo is None:
-        instante = instante.replace(tzinfo=timezone.utc)
-
-    segundos = (ahora - instante).total_seconds()
-    if segundos < 0:
-        # Una muestra en el futuro es un reloj mal puesto en el móvil, y hay que
-        # decirlo: si no, se leería como recentísima y tranquilizaría.
-        return f"EN EL FUTURO (+{-segundos / 3600:.0f} h)"
-    if segundos < 90 * 60:
-        return f"hace {segundos / 60:.0f} min"
-    if segundos < 48 * 3600:
-        return f"hace {segundos / 3600:.0f} h"
-    return f"hace {segundos / 86400:.0f} días"
 
 
 def main() -> None:

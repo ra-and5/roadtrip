@@ -24,6 +24,7 @@ from app.modules import (
     diario,
     ingest,
     notes,
+    panel,
     ruta,
     storage,
     waypoints,
@@ -121,6 +122,13 @@ def mapa() -> Any:
     return render_template("mapa.html")
 
 
+@app.route("/panel")
+@auth.login_required
+def panel_page() -> Any:
+    """El cuaderno de a bordo. Los datos los pide por `fetch` a /api/panel."""
+    return render_template("panel.html")
+
+
 @app.route("/chat")
 @auth.login_required
 def chat_page() -> Any:
@@ -211,6 +219,19 @@ def api_contexto() -> Any:
     diario.registrar_lugar_del_dia(estado)
 
     return jsonify(estado.to_dict())
+
+
+@app.route("/api/panel", methods=["GET"])
+@auth.login_required
+def api_panel() -> Any:
+    """El cuaderno de a bordo: viaje, pasos y fiabilidad de cada fuente.
+
+    GET y sin cuerpo porque no necesita ni GPS ni red: todo sale de SQLite, así
+    que responde igual con el móvil sin cobertura. `zona` la manda el navegador
+    (`Intl.DateTimeFormat`) porque el día es el local y el servidor va en UTC.
+    """
+    zona = (request.args.get("zona") or "")[:64]
+    return jsonify(panel.construir(zona or "Europe/Madrid").to_dict())
 
 
 @app.route("/api/pois", methods=["POST"])

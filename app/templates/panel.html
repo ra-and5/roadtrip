@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Panel del viaje{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="progreso-cabecera">
+    <h1 id="panel-titulo">El viaje</h1>
+    <span class="muted" id="panel-fecha"></span>
+  </div>
+  <p id="panel-estado" class="status" aria-live="polite">Cargando…</p>
+</div>
+
+<section class="card" id="viaje-card" hidden>
+  <h2>El viaje hasta ahora</h2>
+  <div class="marcadores" id="viaje-marcadores"></div>
+  <p class="muted" id="viaje-tramo"></p>
+</section>
+
+<section class="card" id="cuerpo-card" hidden>
+  <h2>Tu cuerpo</h2>
+  <!-- El aviso de simulado va ARRIBA y no en una nota al pie: una cifra
+       inventada que se lee antes que su advertencia ya ha hecho el daño. -->
+  <p id="cuerpo-simulado" class="aviso" hidden></p>
+  <p class="lead" id="cuerpo-hoy"></p>
+  <div class="barras" id="cuerpo-barras"></div>
+  <p class="muted" id="cuerpo-pie"></p>
+</section>
+
+<section class="card" id="regiones-card" hidden>
+  <h2>Comunidades</h2>
+  <p class="muted" id="regiones-resumen"></p>
+  <ul class="casillas" id="regiones-casillas"></ul>
+</section>
+
+<!-- La pregunta que este proyecto se toma en serio, en pantalla y no solo en
+     una consola del servidor: ¿de cuál de estos datos me puedo fiar? -->
+<section class="card" id="fuentes-card" hidden>
+  <h2>De qué te puedes fiar</h2>
+  <ul class="fuentes" id="fuentes-lista"></ul>
+</section>
+
+<section class="card" id="notas-card" hidden>
+  <h2>Lo último que escribiste</h2>
+  <ul class="notas" id="notas-lista"></ul>
+</section>
+
+<!-- Aparte y bajo botón: es lo único de esta pantalla que cuesta red y GPS. -->
+<section class="card" id="ahora-card">
+  <h2>Aquí y ahora</h2>
+  <button id="ahora-btn" class="secondary">Mirar dónde estoy</button>
+  <p id="ahora-estado" class="status" aria-live="polite"></p>
+  <div id="ahora-contenido" hidden>
+    <p class="lead" id="ahora-lugar"></p>
+    <p id="ahora-tiempo"></p>
+    <p><span class="tag" id="ahora-outdoor"></span> <span class="tag" id="ahora-agua"></span></p>
+    <p class="muted" id="ahora-sol"></p>
+    <p class="muted" id="ahora-luna"></p>
+  </div>
+</section>
+
+<section class="card">
+  <p class="muted"><a href="{{ url_for('index') }}">¿Qué hago aquí? →</a></p>
+  <p class="muted"><a href="{{ url_for('mapa') }}">Ver el mapa del viaje →</a></p>
+  <p class="muted"><a href="{{ url_for('chat_page') }}">Preguntar sobre el viaje →</a></p>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/panel.js') }}"></script>
+{% endblock %}

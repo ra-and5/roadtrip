@@ -457,6 +457,55 @@ button.pequeno {
   border: 1px solid rgba(127, 127, 127, 0.4);
 }
 
+/* ---------------------------------------------------------------------------
+   El panel
+   --------------------------------------------------------------------------- */
+
+.barras {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0.7rem;
+}
+.barra {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+/* Alto fijo para que el porcentaje del tallo tenga contra qué resolverse. */
+.barra-pista { width: 100%; height: 88px; display: flex; align-items: flex-end; }
+.barra-tallo {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+}
+/* Un día sin muestras no es un cero: se dibuja como una silueta vacía para que
+   se vea que falta, no que no anduviste. */
+.barra-hueco {
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 3px, var(--border) 3px, var(--border) 6px
+  );
+  border: 1px dashed var(--border);
+}
+.barra-valor { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.barra-etiqueta { font-size: 0.72rem; color: var(--muted); }
+.barra-hoy .barra-valor { color: var(--ink); font-weight: 600; }
+
+.fuentes { list-style: none; margin: 0; padding: 0; }
+.fuentes li { border-top: 1px solid var(--border); padding: 0.7rem 0; }
+.fuentes li:first-child { border-top: none; padding-top: 0; }
+.fuentes p { margin: 0.2rem 0 0; }
+.fuente-cabecera {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.fuente-cabecera .tag { margin: 0; }
+
 /* Etiqueta para lector de pantalla sin ocuparle sitio a nadie. */
 .sr-only {
   position: absolute;
