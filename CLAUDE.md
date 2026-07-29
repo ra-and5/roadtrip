@@ -118,6 +118,8 @@ python tools/verificar.py                  # las 4 pantallas EN UN NAVEGADOR (si
 python tools/verificar.py --ver            # con ventana, para mirarlo
 python tools/verificar.py --solo mapa      # una pantalla: inicio | perfil | mapa | chat
 tools/verificar_sabotaje.sh                # ¿el guion caza un fallo metido a propósito?
+python tools/medir_pantallas.py            # cuánto tarda cambiar de pantalla (local)
+python tools/medir_pantallas.py --url https://tuapp…   # contra el DESPLEGADO, que es el que decide
 python tools/diagnostico.py                # config, datos, fuentes y contexto
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
 python tools/diagnostico.py -v             # con la traza completa de cada fallo
