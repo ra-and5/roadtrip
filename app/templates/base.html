@@ -12,11 +12,22 @@
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">Compañero de viaje</span>
+    <span class="brand">Compañero</span>
     {% if session.get('authenticated') %}
       <a class="logout" href="{{ url_for('logout') }}">Salir</a>
     {% endif %}
   </header>
+
+  {# Las cuatro pantallas siempre a la vista: cada una contesta una pregunta y
+     no se repiten entre sí. Ahora / Tú / Dónde has estado / Preguntar. #}
+  {% if session.get('authenticated') %}
+  <nav class="nav">
+    <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="activo"{% endif %}>Inicio</a>
+    <a href="{{ url_for('perfil_page') }}" {% if request.endpoint == 'perfil_page' %}class="activo"{% endif %}>Perfil</a>
+    <a href="{{ url_for('mapa') }}" {% if request.endpoint == 'mapa' %}class="activo"{% endif %}>Mapa</a>
+    <a href="{{ url_for('chat_page') }}" {% if request.endpoint == 'chat_page' %}class="activo"{% endif %}>Chat</a>
+  </nav>
+  {% endif %}
 
   <main class="content">
     {% block content %}{% endblock %}

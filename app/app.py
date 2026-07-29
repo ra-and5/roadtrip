@@ -24,7 +24,7 @@ from app.modules import (
     diario,
     ingest,
     notes,
-    panel,
+    perfil,
     ruta,
     storage,
     waypoints,
@@ -65,6 +65,23 @@ storage.init_db()
 # Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
 # el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
 _MAX_ECO_CUERPO = 400
+
+
+@app.after_request
+def sin_cache_en_la_api(respuesta: Any) -> Any:
+    """Ninguna respuesta de `/api/` se cachea. Las páginas y el estático, sí.
+
+    Sin `Cache-Control`, un navegador puede reutilizar un GET por su cuenta
+    (Safari en iOS lo hace), y entonces importas una foto nueva y el mapa sigue
+    enseñando lo de antes **sin dar ningún error**: parece que la importación no
+    llegó cuando lo que pasa es que no se ha vuelto a preguntar.
+
+    Solo la API. El HTML y el JavaScript se siguen cacheando a propósito: es lo
+    que hace que las páginas abran sin cobertura (decisión 28).
+    """
+    if request.path.startswith("/api/"):
+        respuesta.headers["Cache-Control"] = "no-store"
+    return respuesta
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +139,11 @@ def mapa() -> Any:
     return render_template("mapa.html")
 
 
-@app.route("/panel")
+@app.route("/perfil")
 @auth.login_required
-def panel_page() -> Any:
-    """El cuaderno de a bordo. Los datos los pide por `fetch` a /api/panel."""
-    return render_template("panel.html")
+def perfil_page() -> Any:
+    """Cómo estás tú. Los datos los pide por `fetch` a /api/perfil."""
+    return render_template("perfil.html")
 
 
 @app.route("/chat")
@@ -221,9 +238,9 @@ def api_contexto() -> Any:
     return jsonify(estado.to_dict())
 
 
-@app.route("/api/panel", methods=["GET"])
+@app.route("/api/perfil", methods=["GET"])
 @auth.login_required
-def api_panel() -> Any:
+def api_perfil() -> Any:
     """El cuaderno de a bordo: viaje, pasos y fiabilidad de cada fuente.
 
     GET y sin cuerpo porque no necesita ni GPS ni red: todo sale de SQLite, así
@@ -231,7 +248,7 @@ def api_panel() -> Any:
     (`Intl.DateTimeFormat`) porque el día es el local y el servidor va en UTC.
     """
     zona = (request.args.get("zona") or "")[:64]
-    return jsonify(panel.construir(zona or "Europe/Madrid").to_dict())
+    return jsonify(perfil.construir(zona or "Europe/Madrid").to_dict())
 
 
 @app.route("/api/pois", methods=["POST"])

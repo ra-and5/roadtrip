@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}El mapa del viaje{% endblock %}
+{% block title %}Mapa{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
@@ -11,7 +11,7 @@
      completando. -->
 <section class="card" id="progreso-card">
   <div class="progreso-cabecera">
-    <h1>El mapa del viaje</h1>
+    <h1>Mapa</h1>
     <select id="filtro-anio" aria-label="Filtrar por año"></select>
   </div>
 
@@ -49,13 +49,12 @@
 </section>
 
 <section class="card">
-  <h2>El viaje, día a día</h2>
+  <h2>Día a día</h2>
   <p id="notas-estado" class="status" aria-live="polite"></p>
   <p class="muted" id="ruta-avisos" hidden></p>
   <div id="dias-lista"></div>
 </section>
 
-<p class="muted"><a href="{{ url_for('index') }}">← Volver</a></p>
 {% endblock %}
 
 {% block scripts %}

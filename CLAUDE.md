@@ -72,7 +72,7 @@ app/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
     chat.py                  El chatbot. Decide QUÉ se le manda al modelo y qué no
     metricas.py              Pasos y batería, resumidos. Y si la serie tiene huecos
-    panel.py                 El cuaderno en una pantalla: el viaje y de qué fiarse
+    perfil.py                Cómo estás tú: pasos, batería y de qué fiarse
     viaje.py                 El viaje hasta ahora: agregados y últimas notas
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     diario.py                El primer sitio de cada día. Registra; NO analiza
@@ -93,7 +93,7 @@ app/
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
     js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
     js/chat.js               Conversación. El historial lo pone el servidor, no este
-    js/panel.js              El panel. Pinta /api/panel; el GPS solo bajo botón
+    js/perfil.js             El perfil. Pinta /api/perfil; sin GPS y sin red
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
@@ -153,7 +153,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
-| 6b | **El panel** (`/panel`): el viaje, los pasos y la fiabilidad de cada fuente | 🟨 Hecho el 29-07-2026 (decisión 40). Sin validar en el iPhone |
+| 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | 🟨 Hecho el 29-07-2026 (decisiones 40 y 41). Sin validar en el iPhone |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -1391,40 +1391,71 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     harían que una herramienta diga que hay datos reales y otra que no, sin dar
     ningún error.
 
-40. **El panel enseña la fiabilidad JUNTO al dato, no en otra pantalla.** Es el
-    dashboard del §1, y se escribe con su regla delante: un dashboard precioso
-    sobre datos que llegan a ratos es peor que una tabla fea sobre datos ciertos,
-    porque el primero se cree.
+40. **Cuatro pantallas, cuatro preguntas, y ninguna se repite.** La primera
+    versión del panel enseñaba el tiempo (que ya estaba en Inicio) y los
+    kilómetros y las comunidades (que ya estaban en el Mapa). El usuario lo
+    cazó en cuanto lo abrió, y tenía razón: un dato en dos sitios acaba
+    divergiendo, y mientras tanto obliga a mirar dos veces para saber lo mismo.
 
-    Hasta ahora la pregunta *"¿me puedo fiar de esta cifra?"* solo se contestaba
-    desde una consola del servidor (`tools/diagnostico.py`). El panel la sube a
-    la pantalla que se mira todos los días: cada fuente sale con su veredicto
-    —`demostrada`, `con_huecos`, `sin_datos`, `simulada`— y con la cifra concreta
-    que lo sostiene.
+    | Pantalla | La pregunta | Qué NO lleva |
+    |---|---|---|
+    | **Inicio** | ¿Qué hago aquí, ahora? | nada histórico |
+    | **Perfil** | ¿Cómo estoy, y de qué me fío? | ni el tiempo ni el viaje |
+    | **Mapa** | ¿Dónde he estado? | nada del cuerpo |
+    | **Chat** | Preguntar en vez de buscar | — |
 
-    Cuatro decisiones dentro:
+    Es la decisión 32 aplicada a la interfaz: **una definición, varios
+    consumidores.** El contexto se construye una sola vez en `contexto.py`, y
+    cada pantalla pide lo que enseña — Inicio llama a `/api/contexto` (rápido,
+    con GPS, con red), Perfil a `/api/perfil` (SQLite, sin GPS y sin red), el
+    Mapa a `/api/ruta`. Ninguna pide lo que va a enseñar otra.
+
+    La consecuencia práctica es que quitar duplicados se hace en el **payload**
+    y no solo en el HTML: `Perfil` ya no devuelve `viaje` ni `progreso`. Dejar
+    los campos "por si acaso" es como vuelven a colarse en la pantalla.
+
+    Y la fiabilidad va **junto al dato**, que es lo que este proyecto exige y
+    hasta ahora solo se veía desde una consola: cada fuente sale con su veredicto
+    —`demostrada`, `con_huecos`, `sin_datos`, `simulada`— y con la cifra que lo
+    sostiene. Tres decisiones dentro:
 
     - **Un día sin muestras se dibuja como HUECO, no como cero.** Un cero dice
-      "no anduvo" y un hueco dice "no lo sé"; pintarlos igual convierte un día
-      sin cobertura en un día de sofá. `metricas.pasos_por_dia` solo trae los
-      días con dato, así que `panel.serie()` rellena el calendario entero.
-    - **La telemetría entra dos veces en `armar()`, y no es un descuido.** Lo
-      simulado se **enseña** (si no, el panel saldría vacío y no se entendería
-      por qué) pero solo las muestras de `atajos-iphone` pueden declarar una
-      fuente demostrada. Leer las dos series juntas anularía la separación que la
-      decisión 36 puso en el esquema.
+      "no anduvo" y un hueco dice "no lo sé".
+    - **Lo simulado se enseña pero no se certifica a sí mismo.** `armar()` recibe
+      la telemetría dos veces —todas las muestras para pintar, solo las de
+      `atajos-iphone` para dar por buena una fuente—, porque leerlas juntas
+      anularía la separación que la decisión 36 puso en el esquema.
     - **Vocabulario propio, distinto del de `contexto.Fuente`.** Allí se responde
       "¿respondió la consulta?" y aquí "¿se puede construir encima?": una fuente
       que contesta bien cada vez que se le pregunta puede llevar tres días sin
-      llegar, y colapsarlas dejaría pasar una serie muerta con un `ok`.
-    - **`/api/panel` es un GET sin GPS ni red**: todo sale de SQLite, así que el
-      panel abre entero sin cobertura. El *aquí y ahora* va bajo botón y reutiliza
-      `/api/contexto`, que es lo único que cuesta Nominatim y Open-Meteo.
+      llegar.
 
-    Sin IA, a propósito y por decisión del usuario: primero los datos bien
-    enseñados. `hace_cuanto()` sube de `tools/diagnostico.py` a `timeparse.py`
-    porque ahora la usan dos consumidores y dos copias que se separaran darían
-    dos respuestas distintas sobre la misma fuente.
+    Y los nombres dejan de repetir "del viaje" en bucle. La app **es** el viaje;
+    decirlo en cada título no informa de nada.
+
+41. **Ninguna respuesta de `/api/` se cachea. Las páginas, sí.** Salió de un
+    síntoma del usuario: metió una foto en el álbum, ejecutó el atajo y el mapa
+    siguió igual.
+
+    No había ni una cabecera de caché en el proyecto, y un GET sin
+    `Cache-Control` un navegador lo puede reutilizar por su cuenta —Safari en iOS
+    lo hace— con lo que la pantalla enseña la respuesta de antes **sin dar ningún
+    error**: parece que la importación no llegó cuando lo que pasa es que no se
+    ha vuelto a preguntar. Es el fallo mudo de la decisión 11 en el sitio más
+    confuso posible, porque hace dudar del atajo, que es lo caro de depurar.
+
+    Se pone en un `after_request` y no vista por vista: la regla es "todo lo que
+    cuelga de `/api/`", y una lista escrita a mano se quedaría corta en el
+    siguiente endpoint sin avisar (decisión 19).
+
+    **Y solo la API.** El HTML y el JavaScript se siguen cacheando a propósito:
+    es lo que hace que las páginas abran con mala cobertura (decisión 28).
+    Marcarlos `no-store` habría cambiado un fallo por otro peor.
+
+    Corolario que ya está puesto: la fila de *Fotos* del Perfil dice **cuándo fue
+    la última importación**, no cuándo se hizo la foto. La pregunta tras ejecutar
+    el atajo es "¿ha entrado lo que acabo de mandar?", y una foto de hace tres
+    semanas puede llegar hoy.
 
 ## 7. Roadmap
 

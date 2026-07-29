@@ -1,4 +1,4 @@
-"""Tests del panel. Sin red y sin API keys.
+"""Tests del perfil. Sin red y sin API keys.
 
 Lo que se protege aquí, que es lo que hace que la pantalla no mienta:
 
@@ -18,7 +18,7 @@ import pytest
 
 from app.app import app as flask_app
 from app.config import Config
-from app.modules import panel, storage
+from app.modules import perfil, storage
 
 HOY = date(2026, 7, 29)
 AHORA = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
@@ -51,8 +51,8 @@ def _nota(created_at: str, texto: str = "Aquí", region: str = "Asturias") -> di
     }
 
 
-def _armar(reales: list[dict], todas: list[dict] | None = None, **kwargs: Any) -> panel.Panel:
-    return panel.armar(
+def _armar(reales: list[dict], todas: list[dict] | None = None, **kwargs: Any) -> perfil.Perfil:
+    return perfil.armar(
         reales,
         todas if todas is not None else reales,
         kwargs.get("notas", []),
@@ -63,7 +63,7 @@ def _armar(reales: list[dict], todas: list[dict] | None = None, **kwargs: Any) -
     )
 
 
-def _fuente(p: panel.Panel, clave: str) -> panel.EstadoFuente | None:
+def _fuente(p: perfil.Perfil, clave: str) -> perfil.EstadoFuente | None:
     return next((f for f in p.fuentes if f.clave == clave), None)
 
 
@@ -83,7 +83,7 @@ def test_la_serie_llega_hasta_hoy_aunque_la_fuente_se_haya_parado() -> None:
     """Una serie que se paró el viernes tiene que verse parada."""
     p = _armar(_dia_completo("2026-07-25", 9000))
 
-    assert len(p.serie) == panel.DIAS_DE_SERIE
+    assert len(p.serie) == perfil.DIAS_DE_SERIE
     assert p.serie[-1].fecha == HOY.isoformat()
     assert p.serie[-1].es_hoy
     assert p.serie[-1].pasos is None
@@ -98,12 +98,12 @@ def test_lo_simulado_no_puede_declararse_fiable_a_si_mismo() -> None:
 
     p = _armar([], simuladas)
 
-    # Los pasos se enseñan (si no, el panel saldría vacío y no se entendería),
+    # Los pasos se enseñan (si no, el perfil saldría vacío y no se entendería),
     # pero la fuente dice que no hay ni una muestra real.
     assert p.cuerpo.pasos_hoy == 9000
     assert p.hay_simulado
-    assert _fuente(p, "telemetria").estado == panel.SIN_DATOS
-    assert _fuente(p, "simulado").estado == panel.SIMULADA
+    assert _fuente(p, "telemetria").estado == perfil.SIN_DATOS
+    assert _fuente(p, "simulado").estado == perfil.SIMULADA
 
 
 def test_sin_nada_simulado_no_aparece_esa_fila() -> None:
@@ -122,7 +122,7 @@ def test_dias_seguidos_y_completos_dan_la_telemetria_por_demostrada() -> None:
 
     p = _armar(reales)
 
-    assert _fuente(p, "telemetria").estado == panel.DEMOSTRADA
+    assert _fuente(p, "telemetria").estado == perfil.DEMOSTRADA
 
 
 def test_dias_a_medias_no_son_huecos_pero_tampoco_son_fiables() -> None:
@@ -132,7 +132,7 @@ def test_dias_a_medias_no_son_huecos_pero_tampoco_son_fiables() -> None:
     p = _armar(reales)
 
     fuente = _fuente(p, "telemetria")
-    assert fuente.estado == panel.CON_HUECOS
+    assert fuente.estado == perfil.CON_HUECOS
     assert "a medias" in fuente.detalle
 
 
@@ -143,8 +143,8 @@ def test_las_notas_y_las_fotos_son_fuentes_demostradas() -> None:
         puntos=[{"lat": 43.5, "lon": -6.1, "capturado_en": "2026-07-28T10:00:00"}],
     )
 
-    assert _fuente(p, "notas").estado == panel.DEMOSTRADA
-    assert _fuente(p, "fotos").estado == panel.DEMOSTRADA
+    assert _fuente(p, "notas").estado == perfil.DEMOSTRADA
+    assert _fuente(p, "fotos").estado == perfil.DEMOSTRADA
 
 
 def test_dias_registrados_con_huecos_no_pasan_por_completos() -> None:
@@ -152,21 +152,27 @@ def test_dias_registrados_con_huecos_no_pasan_por_completos() -> None:
                          "huecos": 2})
 
     fuente = _fuente(p, "lugar_del_dia")
-    assert fuente.estado == panel.CON_HUECOS
+    assert fuente.estado == perfil.CON_HUECOS
     assert "2 sin registrar" in fuente.detalle
 
 
 # --- El día del viaje --------------------------------------------------------
 
 def test_el_dia_del_viaje_cuenta_calendario_y_no_dias_con_notas() -> None:
-    """Un día de carretera sin notas sigue siendo un día de viaje."""
+    """Dos notas en dos días sueltos, pero el viaje lleva diez días."""
     p = _armar([], notas=[
         _nota("2026-07-20T10:00:00+00:00"),
         _nota("2026-07-29T10:00:00+00:00"),
     ])
 
-    assert p.viaje.dias == 2          # días con algo dentro
     assert p.dia_del_viaje == 10      # del 20 al 29, ambos incluidos
+
+
+def test_una_foto_sola_ya_empieza_el_viaje() -> None:
+    """El primer momento puede ser una foto: no hace falta haber escrito nada."""
+    p = _armar([], puntos=[{"lat": 43.5, "lon": -6.1, "capturado_en": "2026-07-26T14:23:37"}])
+
+    assert p.dia_del_viaje == 4
 
 
 def test_sin_nada_registrado_no_se_inventa_un_dia_del_viaje() -> None:
@@ -188,25 +194,38 @@ def sesion(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     yield cliente
 
 
-def test_el_panel_responde_con_la_base_de_datos_vacia(sesion: Any) -> None:
+def test_el_perfil_responde_con_la_base_de_datos_vacia(sesion: Any) -> None:
     """Es una pantalla de lectura: sin datos enseña huecos, no un 500."""
-    respuesta = sesion.get("/api/panel?zona=Europe/Madrid")
+    respuesta = sesion.get("/api/perfil?zona=Europe/Madrid")
 
     assert respuesta.status_code == 200
     datos = respuesta.get_json()
-    assert len(datos["serie"]) == panel.DIAS_DE_SERIE
+    assert len(datos["serie"]) == perfil.DIAS_DE_SERIE
     assert datos["dia_del_viaje"] is None
     assert {f["clave"] for f in datos["fuentes"]} >= {"telemetria", "notas", "fotos"}
 
 
-def test_una_zona_horaria_absurda_no_tumba_el_panel(sesion: Any) -> None:
-    respuesta = sesion.get("/api/panel?zona=../../etc/passwd")
+def test_una_zona_horaria_absurda_no_tumba_el_perfil(sesion: Any) -> None:
+    respuesta = sesion.get("/api/perfil?zona=../../etc/passwd")
 
     assert respuesta.status_code == 200
 
 
-def test_el_panel_pide_sesion() -> None:
+def test_la_api_no_se_puede_cachear(sesion: Any) -> None:
+    """Sin esto, importas una foto y el mapa sigue enseñando lo de antes.
+
+    Un GET sin `Cache-Control` lo puede reutilizar el navegador por su cuenta
+    (Safari en iOS lo hace), y el fallo es mudo: parece que la importación no
+    llegó. Las páginas SÍ se cachean, que es lo que las hace abrir sin cobertura.
+    """
+    assert sesion.get("/api/perfil").headers["Cache-Control"] == "no-store"
+    assert sesion.get("/api/ruta").headers["Cache-Control"] == "no-store"
+    assert sesion.get("/api/notes").headers["Cache-Control"] == "no-store"
+    assert "no-store" not in sesion.get("/perfil").headers.get("Cache-Control", "")
+
+
+def test_el_perfil_pide_sesion() -> None:
     flask_app.config["TESTING"] = True
-    respuesta = flask_app.test_client().get("/api/panel")
+    respuesta = flask_app.test_client().get("/api/perfil")
 
     assert respuesta.status_code in (302, 401)

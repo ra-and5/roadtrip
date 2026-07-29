@@ -458,8 +458,29 @@ button.pequeno {
 }
 
 /* ---------------------------------------------------------------------------
-   El panel
+   Navegación y perfil
    --------------------------------------------------------------------------- */
+
+.nav {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* Se queda arriba al bajar: en un móvil en marcha, volver a otra pantalla no
+     puede exigir subir hasta el principio de la página. */
+  position: sticky;
+  top: 0;
+  z-index: 500;
+}
+.nav a {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 0.7rem 0.3rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.nav a.activo { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 
 .barras {
   display: flex;

@@ -144,7 +144,7 @@ def hace_cuanto(iso: str | None, ahora: datetime) -> str:
     """"hace 3 h" en vez de una marca ISO que hay que restar de cabeza.
 
     Vive aquí y no en `tools/diagnostico.py`, que es donde se escribió, porque
-    ahora la usan dos consumidores: la consola del servidor y el panel. Y la
+    ahora la usan dos consumidores: la consola del servidor y el perfil. Y la
     pregunta que contesta es la misma en los dos sitios —*¿esto sigue
     llegando?*—, así que dos copias que se separaran darían dos respuestas
     distintas sobre la misma fuente sin dar ningún error.

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Perfil{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="progreso-cabecera">
+    <h1 id="perfil-titulo">Perfil</h1>
+    <span class="muted" id="perfil-fecha"></span>
+  </div>
+  <p id="perfil-estado" class="status" aria-live="polite">Cargando…</p>
+</div>
+
+<section class="card" id="cuerpo-card" hidden>
+  <h2>Tu día</h2>
+  <!-- El aviso de simulado va ARRIBA: una cifra inventada que se lee antes que
+       su advertencia ya ha hecho el daño. -->
+  <p id="cuerpo-simulado" class="aviso" hidden></p>
+  <p class="lead" id="cuerpo-hoy"></p>
+  <div class="barras" id="cuerpo-barras"></div>
+  <p class="muted" id="cuerpo-pie"></p>
+</section>
+
+<!-- La pregunta que este proyecto se toma en serio, en pantalla y no solo en
+     una consola del servidor: ¿de cuál de estos datos me puedo fiar? -->
+<section class="card" id="fuentes-card" hidden>
+  <h2>De qué te puedes fiar</h2>
+  <ul class="fuentes" id="fuentes-lista"></ul>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/perfil.js') }}"></script>
+{% endblock %}
