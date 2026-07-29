@@ -187,20 +187,23 @@ def test_las_tres_fuentes_se_consultan_SIN_hilos() -> None:
     PythonAnywhere con coordenadas nuevas:
 
         las tres fuentes, cacheadas ... 0,05 s cada una
-        construir() .................. 34,20 s
+        construir() con hilos ........ 34,20 s
+        construir() en serie ......... 0,18 s
 
-    Treinta y cuatro segundos para envolver 0,15 s de trabajo: lo caro era
-    montar el pool, no la red. En serie el peor caso es ~1,6 s en frío.
+    No es que los hilos sean caros: un pool de tres con tareas vacías cuesta
+    0,00 s en ese mismo servidor. Lo caro es que las tres fuentes escriben en la
+    caché de SQLite, que en PythonAnywhere vive en un disco de red, y tres
+    hilos peleándose por su bloqueo de escritura es lo que se atasca.
 
     Se comprueba sobre el código y no cronometrando. Un test de tiempo aquí
     diría "tarda poco", que es justo lo que decía el anterior mientras la app
     tardaba medio minuto en el único sitio donde importa. Lo que hay que
     impedir es que vuelvan los hilos, y eso se mira directamente.
 
-    La lección, que vale más que el arreglo: **paralelizar es apostar a que los
-    hilos son baratos**, y eso depende de dónde corre el código, no del código.
-    Si algún día se vuelve a intentar, se mide antes en el servidor con
-    `tools/medir_contexto.py`, no en el portátil.
+    La regla que queda: **no se paraleliza lo que escribe en la misma base de
+    datos**. Y si algún día se vuelve a intentar cualquier paralelismo, se mide
+    antes en el servidor con `tools/medir_contexto.py`, no en el portátil,
+    donde las dos versiones salen a 0,00 s.
     """
     # Se mira el import y no el cuerpo: el porqué de esta decisión está escrito
     # dentro del propio módulo, así que buscar el nombre a secas encontraría la

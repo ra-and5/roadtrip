@@ -163,10 +163,11 @@ def test_el_tiempo_no_monta_hilos(monkeypatch: pytest.MonkeyPatch) -> None:
     """La previsión y el oleaje van en serie, igual que el resto del contexto.
 
     Se intentó al revés —son dos servicios independientes, paralelizarlos es lo
-    que dice el manual— y el manual da por sentado que los hilos son baratos.
-    En el servidor no lo son: medido en PythonAnywhere, montar el pool costaba
-    treinta segundos para envolver 0,15 s de llamadas. El razonamiento entero
-    está en `contexto.construir()`, que es donde se vio.
+    que dice el manual—. El problema no son los hilos: es que estas funciones
+    escriben en la caché de SQLite, y en PythonAnywhere eso es un disco de red
+    donde el bloqueo de escritura se paga carísimo. Medido allí: 34 s para
+    envolver 0,15 s de llamadas, y 0,18 s en serie. El razonamiento entero está
+    en `contexto.construir()`, que es donde se vio.
 
     Y aquí el argumento del paralelismo era todavía más flojo: estas dos
     respuestas llegan en 0,2 s, así que lo que había que ganar eran 0,2 s.

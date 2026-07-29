@@ -459,16 +459,27 @@ def construir(
         efemerides        0.47s en frío   0.05s cacheado
         construir()      34.20s  ← con las tres YA cacheadas
 
-    Treinta y cuatro segundos para envolver 0,15 s de trabajo. El coste no
-    estaba en la red sino en montar el pool: en el plan gratuito los hilos son
-    caros, y aquí se pagaban en cada pulsación. En serie el peor caso es la
-    suma, ~1,6 s en frío, que es veinte veces mejor que lo que ahorraba.
+    Treinta y cuatro segundos para envolver 0,15 s de trabajo. En serie, en el
+    mismo servidor y con el mismo punto: **0,18 s**, y ~1,6 s en frío.
 
-    La lección general, que vale más que el arreglo: **el paralelismo es una
-    apuesta a que los hilos son baratos**, y eso depende del sitio donde corre,
-    no del código. Aquí no lo eran, no daba ningún error, y solo se vio midiendo
-    (`tools/medir_contexto.py`). Antes de volver a paralelizar nada, hay que
-    medirlo en el servidor y no en el portátil.
+    **El motivo NO es que los hilos sean caros.** Esa fue la primera
+    explicación y era falsa; se midió y queda escrita para que nadie la vuelva
+    a deducir: montar un pool de tres y ejecutar tres tareas vacías cuesta
+    0,00 s en ese mismo servidor. Lo que se atasca es lo que hacen dentro —
+    **las tres fuentes leen y escriben la caché de SQLite**, y en PythonAnywhere
+    la base de datos vive en un disco de red. Tres hilos peleándose por el
+    bloqueo de escritura de un fichero remoto es el problema; en serie no
+    existe, porque cada uno abre, escribe y cierra sin competir con nadie.
+
+    La diferencia importa para lo que se haga después: desde el motivo falso la
+    conclusión sería "aquí no se paraleliza nada", y eso descartaría casos donde
+    sí conviene. La regla buena es más estrecha: **no se paraleliza lo que
+    escribe en la misma base de datos.**
+
+    Lo que sí vale como lección general: el paralelismo es una apuesta sobre el
+    entorno, no sobre el código. No daba ningún error —solo una app que se
+    abandona por lenta— y solo se vio midiendo con `tools/medir_contexto.py`
+    **en el servidor**: en el portátil las dos versiones salen a 0,00 s.
 
     Y tenía una segunda mitad, peor que la lentitud: en el plan gratuito hay UN
     worker, así que mientras esta petición estaba en vuelo, abrir Perfil o el
