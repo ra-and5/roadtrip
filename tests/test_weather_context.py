@@ -159,43 +159,63 @@ def test_parse_forecast_tolera_payload_vacio():
 # ---------------------------------------------------------------------------
 
 
-def test_la_prevision_y_el_oleaje_no_se_esperan_la_una_a_la_otra(
+def test_el_tiempo_no_monta_hilos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La previsión y el oleaje van en serie, igual que el resto del contexto.
+
+    Se intentó al revés —son dos servicios independientes, paralelizarlos es lo
+    que dice el manual— y el manual da por sentado que los hilos son baratos.
+    En el servidor no lo son: medido en PythonAnywhere, montar el pool costaba
+    treinta segundos para envolver 0,15 s de llamadas. El razonamiento entero
+    está en `contexto.construir()`, que es donde se vio.
+
+    Y aquí el argumento del paralelismo era todavía más flojo: estas dos
+    respuestas llegan en 0,2 s, así que lo que había que ganar eran 0,2 s.
+    """
+    import inspect
+
+    from app.modules import weather_context
+
+    imports = [
+        l for l in inspect.getsource(weather_context).splitlines()
+        if l.startswith(("import ", "from "))
+    ]
+
+    assert not [l for l in imports if "concurrent.futures" in l], (
+        "han vuelto los hilos: mídelo en el SERVIDOR antes (tools/medir_contexto.py)"
+    )
+
+
+def test_un_fallo_de_la_prevision_no_gasta_la_llamada_del_oleaje(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Son dos servicios distintos y ninguno depende del otro.
+    """La obligatoria va primera, ahora que el orden se paga.
 
-    En serie se pagaba la suma de las dos latencias, y con el timeout puesto
-    eso son doce segundos de peor caso dentro de UNA de las tres fuentes que
-    `contexto.construir()` ya lanza en paralelo. No se veía en el diagnóstico
-    porque mide siempre las mismas coordenadas, que llegan cacheadas; se veía
-    desde el móvil, al abrir la app en un sitio nuevo.
-
-    Se mide con dos dobles que duermen: en serie tardaría 0,6 s y en paralelo
-    algo más de 0,3 s. El margen es ancho a propósito, para que este test no
-    falle por un pico de la máquina que lo corre.
+    Si la previsión falla no hay `Weather` que devolver, así que consultar el
+    oleaje después de saberlo sería gastar una llamada —y en un solo worker, un
+    timeout entero— para acabar lanzando igual.
     """
-    import time
-
     from app.modules import storage, weather_context
+    from app.modules.weather_context import WeatherError
 
-    def _lento_forecast(lat: float, lon: float) -> dict:
-        time.sleep(0.3)
-        return {"current": {}, "daily": {}}
+    llamadas: list[str] = []
 
-    def _lento_marine(lat: float, lon: float) -> Marine:
-        time.sleep(0.3)
+    def _revienta(lat: float, lon: float) -> dict:
+        llamadas.append("forecast")
+        raise WeatherError("El servicio de previsión tardó demasiado.")
+
+    def _marine(lat: float, lon: float) -> Marine:
+        llamadas.append("marine")
         return Marine()
 
-    monkeypatch.setattr(weather_context, "_fetch_forecast", _lento_forecast)
-    monkeypatch.setattr(weather_context, "_fetch_marine", _lento_marine)
+    monkeypatch.setattr(weather_context, "_fetch_forecast", _revienta)
+    monkeypatch.setattr(weather_context, "_fetch_marine", _marine)
     monkeypatch.setattr(storage, "cache_get", lambda *a, **k: None)
     monkeypatch.setattr(storage, "cache_set", lambda *a, **k: None)
 
-    inicio = time.time()
-    weather_context.get_weather(43.5622, -6.1456)
-    tardanza = time.time() - inicio
+    with pytest.raises(WeatherError):
+        weather_context.get_weather(43.5622, -6.1456)
 
-    assert tardanza < 0.5, f"tardó {tardanza:.2f}s: las dos llamadas van en serie"
+    assert llamadas == ["forecast"], f"se gastó la llamada del oleaje: {llamadas}"
 
 
 def test_un_fallo_de_la_prevision_sale_aunque_el_oleaje_vaya_bien(

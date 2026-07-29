@@ -13,7 +13,6 @@ Open-Meteo no requiere API key.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -360,27 +359,17 @@ def get_weather(lat: float, lon: float) -> Weather:
     if cached is not None:
         return _parse_forecast(cached["forecast"], Marine(**cached["marine"]))
 
-    # En PARALELO, y no es micro-optimización. Son dos servicios distintos y
-    # ninguno depende del otro, pero en serie se paga la suma de las dos
-    # latencias — y con el timeout en 6 s eso son 12 s de peor caso dentro de
-    # una sola de las tres fuentes que `contexto.construir()` ya lanza en
-    # paralelo, que es lo que hacía que un sitio NUEVO (nada cacheado) tardase
-    # más de treinta segundos en el servidor mientras el diagnóstico, que mide
-    # siempre las mismas coordenadas ya cacheadas, salía a 0,05 s.
+    # En SERIE, y a propósito. Son dos servicios independientes, así que
+    # paralelizarlos parece la respuesta obvia y fue lo primero que se probó.
+    # Medido en el servidor, montar el pool costaba órdenes de magnitud más que
+    # las dos llamadas juntas: en PythonAnywhere los hilos son caros y estas
+    # respuestas llegan en 0,2 s. Está razonado entero en `contexto.construir()`,
+    # que es donde se vio: 34 s para envolver 0,15 s de trabajo.
     #
-    # Y en PythonAnywhere gratuito eso no era solo lentitud: hay UN worker, así
-    # que mientras esta petición estaba en vuelo, abrir Perfil desde el móvil
-    # daba un «Load failed» que no tenía nada que ver con Perfil.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futuro_forecast = pool.submit(_fetch_forecast, lat, lon)
-        futuro_marine = pool.submit(_fetch_marine, lat, lon)
-        # El oleaje se recoge PRIMERO aunque la previsión sea la importante:
-        # `_fetch_marine` nunca lanza (devuelve un `Marine` con `fallo`), así
-        # que cuando `_fetch_forecast` propague su excepción ya no queda nadie
-        # corriendo y salir del `with` no espera a nada. Es el mismo orden, y
-        # por el mismo motivo, que en `contexto.construir()`.
-        marine = futuro_marine.result()
-        forecast = futuro_forecast.result()
+    # La previsión va primera porque es la obligatoria: si falla, no se gasta la
+    # llamada del oleaje para acabar lanzando igual.
+    forecast = _fetch_forecast(lat, lon)
+    marine = _fetch_marine(lat, lon)
 
     # El `Marine` se guarda tal cual, incluso cuando trae `fallo`. Es
     # deliberado y va en la misma línea que la decisión 12 (no reintentar

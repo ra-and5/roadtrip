@@ -41,7 +41,6 @@ degradación sin tocar la red, que es la regla del proyecto.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -449,14 +448,34 @@ def construir(
     del proyecto es que lo que no se enseña no se paga. Lo enciende el chatbot,
     que sí las necesita para razonar sobre el viaje entero.
 
-    Las dos consultas van **en paralelo**. No es micro-optimización: es la
-    diferencia entre una pantalla que aparece y una que se espera. En serie se
-    paga la suma de las latencias; en paralelo, la mayor de las dos. Son dos
-    llamadas de red independientes, así que dos hilos bastan (esperan a la red,
-    no gastan CPU).
+    **Las tres fuentes van EN SERIE, y eso es una corrección medida.** Iban en
+    paralelo con un `ThreadPoolExecutor`, que sobre el papel es lo correcto —tres
+    llamadas de red independientes, y en paralelo se paga la mayor en vez de la
+    suma—. En el servidor de verdad era catastrófico, y estos son los números
+    tomados en PythonAnywhere con coordenadas nuevas:
 
-    Las coordenadas se validan ANTES de lanzar los hilos. Si no, unas
-    coordenadas basura lanzarían dos peticiones a servicios ajenos para acabar
+        reverse_geocode   0.56s en frío   0.05s cacheado
+        get_weather       0.57s en frío   0.05s cacheado
+        efemerides        0.47s en frío   0.05s cacheado
+        construir()      34.20s  ← con las tres YA cacheadas
+
+    Treinta y cuatro segundos para envolver 0,15 s de trabajo. El coste no
+    estaba en la red sino en montar el pool: en el plan gratuito los hilos son
+    caros, y aquí se pagaban en cada pulsación. En serie el peor caso es la
+    suma, ~1,6 s en frío, que es veinte veces mejor que lo que ahorraba.
+
+    La lección general, que vale más que el arreglo: **el paralelismo es una
+    apuesta a que los hilos son baratos**, y eso depende del sitio donde corre,
+    no del código. Aquí no lo eran, no daba ningún error, y solo se vio midiendo
+    (`tools/medir_contexto.py`). Antes de volver a paralelizar nada, hay que
+    medirlo en el servidor y no en el portátil.
+
+    Y tenía una segunda mitad, peor que la lentitud: en el plan gratuito hay UN
+    worker, así que mientras esta petición estaba en vuelo, abrir Perfil o el
+    Mapa desde el móvil devolvía un error que no tenía nada que ver con ellos.
+
+    Las coordenadas se validan ANTES de salir a la red, para que unas
+    coordenadas basura no cuesten tres peticiones a servicios ajenos y acaben
     devolviendo un 400 igualmente.
 
     Raises:
@@ -478,36 +497,29 @@ def construir(
     # que ocurre unos minutos al día.
     referencia = ahora or datetime.now(ZoneInfo(_ZONA_POR_DEFECTO))
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futuro_lugar = pool.submit(reverse_geocode, lat, lon)
-        futuro_tiempo = pool.submit(get_weather, lat, lon)
-        futuro_luna = pool.submit(efemerides, lat, lon, referencia)
+    # La ubicación va PRIMERA, y ahora que es en serie eso importa más que
+    # antes: es la única obligatoria, así que si falla se sale sin haber gastado
+    # las otras dos llamadas. Al revés se pagaría la red entera para acabar
+    # lanzando igual.
+    ubicacion = reverse_geocode(lat, lon)
 
-        # Las opcionales se recogen PRIMERO aunque la ubicación sea la
-        # importante. Al revés, un fallo de Nominatim propagaría la excepción
-        # con los otros hilos aún en vuelo, y salir del `with` esperaría a que
-        # terminasen: un 502 que tarda diez segundos en llegar. Recogiendo antes
-        # lo que nunca lanza, cuando la excepción sale ya no queda nadie
-        # corriendo.
-        tiempo: Weather | None = None
-        fallo_tiempo = ""
-        try:
-            tiempo = futuro_tiempo.result()
-        except WeatherError as exc:
-            fallo_tiempo = str(exc)
-        except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba el contexto
-            fallo_tiempo = "Error inesperado al consultar la previsión."
+    tiempo: Weather | None = None
+    fallo_tiempo = ""
+    try:
+        tiempo = get_weather(lat, lon)
+    except WeatherError as exc:
+        fallo_tiempo = str(exc)
+    except Exception:  # noqa: BLE001 - una fuente opcional nunca tumba el contexto
+        fallo_tiempo = "Error inesperado al consultar la previsión."
 
-        efem: Efemerides | None = None
-        fallo_luna = ""
-        try:
-            efem = futuro_luna.result()
-        except LunaError as exc:
-            fallo_luna = str(exc)
-        except Exception:  # noqa: BLE001
-            fallo_luna = "Error inesperado al consultar las efemérides."
-
-        ubicacion = futuro_lugar.result()
+    efem: Efemerides | None = None
+    fallo_luna = ""
+    try:
+        efem = efemerides(lat, lon, referencia)
+    except LunaError as exc:
+        fallo_luna = str(exc)
+    except Exception:  # noqa: BLE001
+        fallo_luna = "Error inesperado al consultar las efemérides."
 
     metricas_ = None
     viaje_ = None

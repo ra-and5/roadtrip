@@ -178,29 +178,73 @@ def test_el_modulo_de_contexto_no_conoce_a_los_proveedores(sin_red: Any) -> None
     assert not [l for l in imports if "llm_providers" in l or "ai_orchestrator" in l]
 
 
-def test_las_tres_fuentes_se_consultan_en_paralelo(monkeypatch: pytest.MonkeyPatch) -> None:
-    """En serie se paga la suma de las latencias; en paralelo, la mayor.
+def test_las_tres_fuentes_se_consultan_SIN_hilos() -> None:
+    """Las tres van en serie, y es una corrección medida — no un descuido.
 
-    Con márgenes anchos a propósito: lo que se protege es que nadie convierta
-    esto en código secuencial, no medir milisegundos. Tres fuentes de 0,3 s
-    tardan 0,9 s en serie y ~0,3 s en paralelo.
+    Este test decía lo contrario: exigía paralelismo, porque sobre el papel es
+    lo correcto (tres llamadas de red independientes, y en paralelo se paga la
+    mayor en vez de la suma). En el servidor real era catastrófico. Medido en
+    PythonAnywhere con coordenadas nuevas:
+
+        las tres fuentes, cacheadas ... 0,05 s cada una
+        construir() .................. 34,20 s
+
+    Treinta y cuatro segundos para envolver 0,15 s de trabajo: lo caro era
+    montar el pool, no la red. En serie el peor caso es ~1,6 s en frío.
+
+    Se comprueba sobre el código y no cronometrando. Un test de tiempo aquí
+    diría "tarda poco", que es justo lo que decía el anterior mientras la app
+    tardaba medio minuto en el único sitio donde importa. Lo que hay que
+    impedir es que vuelvan los hilos, y eso se mira directamente.
+
+    La lección, que vale más que el arreglo: **paralelizar es apostar a que los
+    hilos son baratos**, y eso depende de dónde corre el código, no del código.
+    Si algún día se vuelve a intentar, se mide antes en el servidor con
+    `tools/medir_contexto.py`, no en el portátil.
     """
+    # Se mira el import y no el cuerpo: el porqué de esta decisión está escrito
+    # dentro del propio módulo, así que buscar el nombre a secas encontraría la
+    # explicación de por qué NO se usa.
+    imports = [
+        l for l in inspect.getsource(contexto).splitlines()
+        if l.startswith(("import ", "from "))
+    ]
 
-    def _lento(devuelve: Any) -> Any:
+    assert not [l for l in imports if "concurrent.futures" in l], (
+        "han vuelto los hilos: mídelo en el SERVIDOR antes (tools/medir_contexto.py)"
+    )
+
+
+def test_si_la_ubicacion_falla_no_se_gastan_las_otras_dos_llamadas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El orden importa ahora que es en serie, y antes daba igual.
+
+    La ubicación es la única obligatoria: si no se resuelve, no hay contexto.
+    Consultarla primero significa que un Nominatim caído cuesta una llamada y
+    no tres, y en un solo worker eso es la diferencia entre soltarlo enseguida
+    y tenerlo ocupado tres timeouts seguidos.
+    """
+    llamadas: list[str] = []
+
+    def _falla(*args: Any) -> Any:
+        llamadas.append("ubicacion")
+        raise LocationError("Nominatim no responde.")
+
+    def _anota(nombre: str, devuelve: Any) -> Any:
         def _f(*args: Any) -> Any:
-            time.sleep(0.3)
+            llamadas.append(nombre)
             return devuelve
         return _f
 
-    monkeypatch.setattr(contexto, "reverse_geocode", _lento(_place()))
-    monkeypatch.setattr(contexto, "get_weather", _lento(_weather()))
-    monkeypatch.setattr(contexto, "efemerides", _lento(Efemerides()))
+    monkeypatch.setattr(contexto, "reverse_geocode", _falla)
+    monkeypatch.setattr(contexto, "get_weather", _anota("tiempo", _weather()))
+    monkeypatch.setattr(contexto, "efemerides", _anota("luna", Efemerides()))
 
-    inicio = time.monotonic()
-    contexto.construir(43.5622, -6.1456)
-    transcurrido = time.monotonic() - inicio
+    with pytest.raises(LocationError):
+        contexto.construir(43.5622, -6.1456)
 
-    assert transcurrido < 0.55, f"parece que van en serie: {transcurrido:.2f} s"
+    assert llamadas == ["ubicacion"], f"se gastó red de más: {llamadas}"
 
 
 # ---------------------------------------------------------------------------
