@@ -24,7 +24,7 @@
    * desplegable de resultados, que sí depende de haber buscado. */
   const SECTIONS = [
     "place-card", "warnings-card", "weather-card", "luna-card",
-    "metricas-card", "reco-card",
+    "reco-card",
   ];
 
   function setStatus(message, kind) {
@@ -218,16 +218,6 @@
     show("luna-card");
   }
 
-  /* El hueco de pasos y batería. Mientras la 2d no cierre, la tarjeta explica
-   * POR QUÉ está vacía en vez de no existir: un hueco declarado se entiende,
-   * uno ausente parece que se ha olvidado. */
-  function renderMetricas(metricas, fuente) {
-    if (metricas) return;               // el día que haya datos, aquí van
-    if (!fuente || fuente.estado !== "no_consultada") return;
-    text("metricas-motivo", "Todavía no: " + fuente.motivo);
-    show("metricas-card");
-  }
-
   function renderRecommendation(reco) {
     if (!reco) return;
     text("reco-summary", reco.resumen);
@@ -353,7 +343,6 @@
     renderWarnings(ctx.warnings);
     renderWeather(ctx.tiempo);
     renderLuna(ctx.luna);
-    renderMetricas(ctx.metricas, ctx.fuentes && ctx.fuentes.metricas);
     renderEstadoPois(ctx.fuentes && ctx.fuentes.pois);
   }
 
@@ -364,9 +353,15 @@
    * haber partido el endpoint en dos. */
   async function verContexto() {
     contextoBtn.disabled = true;
-    hideAll();
 
+    /* `hideAll()` va DENTRO del try, y no es colocación caprichosa: cuando una
+     * tarjeta se mueve de pantalla y su id deja de existir aquí, esto lanza. Si
+     * lanzara fuera del try no habría ni catch que lo cuente ni finally que
+     * suelte el botón: la pantalla se quedaba con el botón muerto y el estado
+     * en blanco, sin decir nada (decisión 11). Pasó con `metricas-card` al
+     * llevarse las métricas a Perfil. */
     try {
+      hideAll();
       setStatus("Obteniendo posición del GPS…");
       const position = await getPosition();
       lastCoords = position.coords;
@@ -411,9 +406,9 @@
   async function run(refresh) {
     btn.disabled = true;
     refreshBtn.disabled = true;
-    hideAll();
 
     try {
+      hideAll();                       // dentro del try, ver `verContexto()`
       let coords = lastCoords;
       if (!coords || !refresh) {
         setStatus("Obteniendo posición del GPS…");
