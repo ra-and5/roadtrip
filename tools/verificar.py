@@ -131,6 +131,17 @@ class Errores:
         """
         self.consola = [(m, u) for m, u in self.consola if fragmento not in m]
 
+    def descartar_de(self, origen: str) -> None:
+        """Lo mismo, pero por la PÁGINA que los emitió.
+
+        Hace falta para el 401 del login, que se provoca a propósito probando
+        una contraseña mala. Por texto no se puede descartar: «Failed to load
+        resource … 401» es lo que escribiría también una sesión caducada en
+        cualquier otra pantalla, y taparlo ahí sería esconder un fallo de
+        verdad.
+        """
+        self.consola = [(m, u) for m, u in self.consola if origen not in u]
+
     def propios(self) -> list[str]:
         """Los errores de consola que NO vienen de un recurso externo bloqueado.
 
@@ -139,8 +150,11 @@ class Errores:
         texto ("Failed to load resource") que daría un 500 nuestro. Filtrar por
         texto habría escondido el segundo para callar el primero.
         """
+        # El mensaje sale con su URL pegada: "Failed to load resource" a secas no
+        # dice qué recurso, y era justo lo que había que averiguar a mano cada
+        # vez que saltaba.
         return [
-            mensaje
+            f"{mensaje}  [{origen or 'sin origen'}]"
             for mensaje, origen in self.consola
             if not origen or "127.0.0.1" in origen
         ]
@@ -216,11 +230,16 @@ def notas_en_servidor(sesion: Any) -> int:
 # Comprobaciones: Inicio
 # ---------------------------------------------------------------------------
 
-def entrar(page: Any) -> str:
+def entrar(page: Any, errores: Errores) -> str:
     page.goto(f"{BASE}/login")
     page.fill("#password", "esta-no-es")
     page.click("button[type=submit]")
     esperar(lambda: "incorrecta" in page.content(), "la contraseña mala no dio error")
+    # El 401 de la contraseña mala lo provoca este guion. En la pasada completa
+    # se lo tragaba por accidente el `limpiar()` de la cola offline; con `--solo`
+    # salía como fallo de la pantalla que tocara, que es un aviso falso justo en
+    # la herramienta que existe para que los avisos signifiquen algo.
+    errores.descartar_de("/login")
 
     page.fill("#password", CONTRASENA)
     page.click("button[type=submit]")
@@ -404,6 +423,19 @@ def perfil(page: Any) -> str:
     # certifica como medido algo que nos hemos inventado (decisión 36).
     if not page.locator("#cuerpo-simulado").is_visible():
         raise Fallo("hay datos simulados y no sale el aviso de que lo son")
+
+    # Las barras son el dato, no un adorno: el veredicto puede salir perfecto y
+    # la serie no pintarse, que es exactamente el síntoma con el que se abre una
+    # sesión de depuración ("no se actualizan las barras"). Se sembraron tres
+    # días con pasos, así que hoy tiene que traer una cifra y no un hueco.
+    barras = page.locator("#cuerpo-barras .barra")
+    if barras.count() != 7:
+        raise Fallo(f"la serie tiene {barras.count()} barras y son 7 días")
+    hoy = page.locator("#cuerpo-barras .barra-hoy .barra-valor").inner_text()
+    if "k" not in hoy:
+        raise Fallo(f"hoy hay muestras sembradas y la barra dice {hoy!r}")
+    if "pasos hoy" not in page.inner_text("#cuerpo-hoy"):
+        raise Fallo(f"el titular no da los pasos: {page.inner_text('#cuerpo-hoy')!r}")
 
     # Perfil no puede repetir lo que ya enseñan Inicio o el Mapa.
     cuerpo = page.inner_text("body")
@@ -686,7 +718,7 @@ def main() -> int:
             errores.escuchar(page)
 
             corredor.bloque("ARRANQUE")
-            corredor.check("login", lambda: entrar(page))
+            corredor.check("login", lambda: entrar(page, errores))
             corredor.check("estáticos versionados", lambda: estaticos_versionados(page))
             corredor.check("la API no se cachea", lambda: api_sin_cache(sesion))
 
