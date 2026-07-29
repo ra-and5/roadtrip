@@ -180,3 +180,121 @@ def test_sin_virtualenv_no_se_mide_el_python_del_sistema(
     monkeypatch.setattr(diagnostico.sys, "base_prefix", "/usr")
 
     assert diagnostico._raiz_venv() is None
+
+
+# ---------------------------------------------------------------------------
+# El veredicto final
+# ---------------------------------------------------------------------------
+
+
+def test_un_contexto_lento_no_dice_que_falle_la_ubicacion() -> None:
+    """El fallo que se vio en el servidor y mandó a depurar lo que no era.
+
+    `contexto.construir()` devolvió su ubicación y sus 6/6 fuentes, y solo
+    incumplió el contrato de tiempo. El veredicto anunciaba, dos líneas más
+    abajo, "la ubicación no se puede resolver". Eso no es un matiz: es la
+    herramienta de diagnóstico nombrando mal el fallo, que es peor que callarse.
+    """
+    lineas = diagnostico.veredicto(ok=True, contexto_ok=False, todo_fino=False, lento="33.8s")
+    texto = " ".join(lineas)
+
+    assert "33.8s" in texto
+    assert "ubicación no se puede resolver" not in texto
+    assert "medir_contexto" in texto, "hay que decir con qué se averigua cuál es"
+
+
+def test_sin_ubicacion_si_se_dice_que_la_app_no_sirve() -> None:
+    """Y el caso de verdad grave no se puede haber ablandado al arreglar el otro."""
+    lineas = diagnostico.veredicto(ok=False, contexto_ok=False, todo_fino=False, lento="")
+
+    assert "no será utilizable" in " ".join(lineas)
+
+
+def test_una_fuente_opcional_caida_es_modo_degradado_y_no_un_fallo() -> None:
+    """Degradar es un estado diseñado a propósito (decisión 9), no un roto."""
+    lineas = diagnostico.veredicto(ok=True, contexto_ok=True, todo_fino=False, lento="")
+
+    assert "degradado" in " ".join(lineas)
+
+
+def test_con_todo_en_verde_no_se_avisa_de_nada() -> None:
+    assert diagnostico.veredicto(
+        ok=True, contexto_ok=True, todo_fino=True, lento=""
+    ) == ["Todo correcto."]
+
+
+# ---------------------------------------------------------------------------
+# Dónde se mide
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    from app.config import Config
+    from app.modules import storage
+
+    monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(Config, "DB_PATH", tmp_path / "test.db")
+    storage.init_db()
+    return storage
+
+
+def test_sin_ningun_dato_se_dice_que_el_punto_es_de_EJEMPLO(bd: Any) -> None:
+    """El aprobado falso que costó una mañana.
+
+    El diagnóstico medía siempre las mismas coordenadas fijas, que llevaban
+    meses cacheadas, y decía que `contexto.construir()` tardaba 0,05 s mientras
+    la app tardaba 34 s desde el móvil. Las dos cifras eran ciertas: el móvil
+    pedía el sitio donde estabas, que no se había consultado nunca. Un punto de
+    prueba que nunca cambia deja de probar la parte que falla.
+
+    Cuando no hay más remedio que usarlo, al menos tiene que decirse, o
+    «Diagnóstico para 43.5622, -6.1456» se lee como un dato del GPS.
+    """
+    lat, lon, origen = diagnostico.ultimo_sitio_conocido()
+
+    assert (lat, lon) == diagnostico._COORDS_DE_EJEMPLO
+    assert "SIN DATOS" in origen and "no es donde estás" in origen
+
+
+def test_se_prefiere_el_ultimo_sitio_donde_se_abrio_la_app(bd: Any) -> None:
+    """Es lo que más se parece a lo que hace la app de verdad."""
+    bd.insert_lugar_del_dia({
+        "fecha_local": "2026-07-29",
+        "lat": 38.3712,
+        "lon": -0.4123,
+        "place_name": "San Vicente del Raspeig",
+        "region": "Comunidad Valenciana",
+        "momento_local": "2026-07-29T13:00:00",
+        "registrado_en": "2026-07-29T11:00:00+00:00",
+    })
+
+    lat, lon, origen = diagnostico.ultimo_sitio_conocido()
+
+    assert (round(lat, 4), round(lon, 4)) == (38.3712, -0.4123)
+    assert "San Vicente" in origen
+
+
+def test_la_telemetria_SIMULADA_no_sirve_para_elegir_donde_medir(bd: Any) -> None:
+    """Sus coordenadas están inventadas: volveríamos al punto fijo (decisión 36).
+
+    La separación de series vive en el esquema justamente para que nada
+    construya sobre lo simulado sin querer, y elegir dónde medir es construir.
+    """
+    from app.modules import metricas
+
+    bd.insert_telemetry([{
+        "fuente": "simulado",
+        "medido_en": "2026-07-29T10:00:00+00:00",
+        "offset_original": "+02:00",
+        "recibido_en": "2026-07-29T10:00:00+00:00",
+        "lat": 1.0,
+        "lon": 1.0,
+        "pasos": 100,
+        "bateria": 50,
+    }])
+
+    lat, lon, origen = diagnostico.ultimo_sitio_conocido()
+
+    assert (lat, lon) != (1.0, 1.0), "se ha usado una coordenada inventada"
+    assert metricas.FUENTE_REAL not in origen

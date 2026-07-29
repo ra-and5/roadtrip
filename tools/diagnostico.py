@@ -148,6 +148,45 @@ def check(nombre: str, fn) -> bool:
     return True
 
 
+def veredicto(*, ok: bool, contexto_ok: bool, todo_fino: bool, lento: str) -> list[str]:
+    """Las líneas finales, que son lo único que mucha gente lee.
+
+    Es una función y no cuatro `print` dentro de `main()` por la razón de
+    siempre: aquí se **decide** qué se le dice a alguien que está mirando un
+    servidor, y eso merece pruebas. Y hacía falta, porque estaba mal: cuando el
+    contexto se construía entero pero tardaba de más, el veredicto anunciaba
+    "la ubicación no se puede resolver" **con la ubicación resuelta y 6/6
+    fuentes impresas dos líneas más arriba**. Mandaba a depurar el GPS, que era
+    lo único que no tenía nada que ver.
+
+    Args:
+        ok: las comprobaciones obligatorias (base de datos, ubicación) pasaron.
+        contexto_ok: `contexto.construir()` pasó, tiempo incluido.
+        todo_fino: además, las fuentes opcionales respondieron.
+        lento: cuánto tardó el contexto, si incumplió el contrato. Vacío si no.
+    """
+    if ok and contexto_ok and todo_fino:
+        return ["Todo correcto."]
+    if ok and contexto_ok:
+        # Este es el mensaje importante: recuerda que la app está diseñada
+        # para seguir sirviendo aunque falten fuentes opcionales.
+        return [
+            "La app FUNCIONA en modo degradado: la ubicación se resuelve y",
+            "las fuentes que fallan se sustituyen por un aviso en la interfaz.",
+        ]
+    if lento:
+        # Se construyó, con su ubicación y sus fuentes. Lo que falla es el
+        # tiempo, y decirlo así evita mandar a mirar el GPS, que está bien.
+        return [
+            f"El contexto se construye ENTERO, pero tardó {lento} y el contrato",
+            "es de un segundo. La app se abre, pero se abandona por lenta.",
+            "  python tools/medir_contexto.py   dice cuál de las tres fuentes es",
+            "Si las tres salen rápidas ahí, no era la red: el servidor estaba",
+            "ahogado en ese momento (la cuota de CPU del plan gratuito). Repite.",
+        ]
+    return ["La ubicación no se puede resolver: la app no será utilizable."]
+
+
 def dato(nombre: str, valor: str) -> None:
     """Una línea informativa: ni pasa ni falla, solo se lee.
 
@@ -158,6 +197,56 @@ def dato(nombre: str, valor: str) -> None:
     print(f"  {nombre:.<34} {valor}")
 
 
+# Cudillero. Solo se usa si no hay ni un dato propio, y entonces se dice.
+_COORDS_DE_EJEMPLO = (43.5622, -6.1456)
+
+
+def ultimo_sitio_conocido() -> tuple[float, float, str]:
+    """Dónde se estuvo por última vez, según lo que hay guardado.
+
+    Existe porque medir siempre el mismo punto inventado da aprobados falsos, y
+    eso costó una mañana: el diagnóstico decía que `contexto.construir()`
+    tardaba 0,05 s mientras la app tardaba 34 s desde el móvil. Las dos cifras
+    eran ciertas — la del diagnóstico salía de unas coordenadas fijas que
+    llevaban meses cacheadas, y el móvil pedía el sitio donde estabas, que no
+    se había consultado nunca. Un punto de prueba que nunca cambia deja de
+    probar la parte que falla.
+
+    Se prueba en orden de "cuánto se parece a lo que hace la app":
+
+    1. `lugar_del_dia` — el sitio donde de verdad se abrió la pantalla.
+    2. la telemetría **real** — dónde estaba el móvil. Nunca la simulada: sus
+       coordenadas están inventadas y volveríamos al problema (decisión 36).
+    3. los puntos de las fotos — dónde se estuvo, aunque sea de otro día.
+
+    Devuelve también de dónde salió, porque una cifra sin su procedencia es lo
+    que hacía que "Diagnóstico para 43.5622, -6.1456" pareciera un dato del GPS.
+    """
+    from app.modules import metricas, storage
+
+    try:
+        for dia in storage.list_lugares_del_dia(limit=1):
+            if dia.get("lat") is not None and dia.get("lon") is not None:
+                sitio = dia.get("place_name") or "sin nombre"
+                return float(dia["lat"]), float(dia["lon"]), f"último día: {sitio}"
+
+        for muestra in storage.list_telemetria(limit=200):
+            if muestra.get("fuente") != metricas.FUENTE_REAL:
+                continue
+            if muestra.get("lat") is not None and muestra.get("lon") is not None:
+                return float(muestra["lat"]), float(muestra["lon"]), "última telemetría real"
+
+        puntos = [p for p in storage.list_waypoints() if p.get("lat") is not None]
+        if puntos:
+            ultimo = puntos[-1]
+            return float(ultimo["lat"]), float(ultimo["lon"]), f"última foto: {ultimo['archivo']}"
+    except Exception:  # noqa: BLE001 - un diagnóstico no puede morir eligiendo dónde medir
+        pass
+
+    lat, lon = _COORDS_DE_EJEMPLO
+    return lat, lon, "SIN DATOS PROPIOS todavía: punto de ejemplo, no es donde estás"
+
+
 def main() -> None:
     # OJO: no se puede filtrar "lo que empieza por '-'" como si fueran flags.
     # Todo el norte de España tiene longitud NEGATIVA (-4.29, -6.14...), así
@@ -166,11 +255,14 @@ def main() -> None:
     _FLAGS = {"-v", "--todos"}
     todos = "--todos" in sys.argv
     args = [a for a in sys.argv[1:] if a not in _FLAGS]
-    lat, lon = (float(args[0]), float(args[1])) if len(args) >= 2 else (43.5622, -6.1456)
+    if len(args) >= 2:
+        lat, lon, origen = float(args[0]), float(args[1]), "coordenadas dadas a mano"
+    else:
+        lat, lon, origen = ultimo_sitio_conocido()
 
     ahora_utc = datetime.now(timezone.utc)
-    print(f"\nDiagnóstico para {lat}, {lon}"
-          f"   ({ahora_utc.astimezone().strftime('%d-%m-%Y %H:%M %Z')})")
+    print(f"\nDiagnóstico para {lat}, {lon}   ({origen})"
+          f"\n   ({ahora_utc.astimezone().strftime('%d-%m-%Y %H:%M %Z')})")
     print("=" * 66)
 
     # 1. Configuración: si esto falla, nada más va a funcionar.
@@ -514,6 +606,15 @@ def main() -> None:
     #      el error que este proyecto ya evitó a propósito.
     print("\nEL CONTEXTO   (la pieza que alimenta pantalla, recomendador y chat)")
 
+    # Se anota si el contexto se CONSTRUYÓ pero incumplió el contrato de tiempo.
+    # Sin esto, el veredicto final trataba las dos formas de suspender como una
+    # sola y anunciaba "la ubicación no se puede resolver" con la ubicación
+    # resuelta y 6/6 fuentes en la línea de arriba. Una herramienta de
+    # diagnóstico que nombra mal el fallo manda a depurar lo que no era: es el
+    # fallo silencioso de la decisión 11 dentro de la propia herramienta que
+    # existe para cazarlo.
+    lento: list[str] = []
+
     def _contexto() -> str:
         t0 = time.time()
         estado = contexto.construir(lat, lon)
@@ -529,23 +630,24 @@ def main() -> None:
         if caidas:
             resumen += f" (caídas: {', '.join(caidas)})"
         if tardanza > 2:
+            lento.append(f"{tardanza:.1f}s")
             raise RuntimeError(
-                f"ha tardado {tardanza:.1f}s, y el contrato es <1s. Alguien ha "
-                f"metido una fuente lenta en el camino normal: {resumen}"
+                f"ha tardado {tardanza:.1f}s, y el contrato es <1s. O alguien ha "
+                f"metido una fuente lenta en el camino normal, o el servidor está "
+                f"ahogado. Para saber cuál: python tools/medir_contexto.py. "
+                f"El contexto SÍ se construyó: {resumen}"
             )
         return resumen
     contexto_ok = check("contexto.construir()", _contexto)
 
     print("\n" + "=" * 66)
-    if ok and contexto_ok and weather_ok and pois_ok and ai_ok:
-        print("Todo correcto.")
-    elif ok and contexto_ok:
-        # Este es el mensaje importante: recuerda que la app está diseñada
-        # para seguir sirviendo aunque falten fuentes opcionales.
-        print("La app FUNCIONA en modo degradado: la ubicación se resuelve y")
-        print("las fuentes que fallan se sustituyen por un aviso en la interfaz.")
-    else:
-        print("La ubicación no se puede resolver: la app no será utilizable.")
+    for linea in veredicto(
+        ok=ok,
+        contexto_ok=contexto_ok,
+        todo_fino=weather_ok and pois_ok and ai_ok,
+        lento=lento[0] if lento else "",
+    ):
+        print(linea)
     print()
 
     # Degradado sale 0: es un estado de funcionamiento diseñado a propósito

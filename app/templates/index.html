@@ -64,17 +64,8 @@
   <p class="muted" id="reco-meta"></p>
 </section>
 
-<!-- El hueco de pasos y batería: preparado y VACÍO mientras la Fase 2d no
-     cierre. No es un olvido ni una tarjeta a medias — es la regla del proyecto:
-     un dato no entra en la pantalla hasta que ha demostrado que llega solo y
-     sin huecos. Construir un perfil sobre una fuente que aún no se ha
-     demostrado es trabajo que hay que tirar, y peor, produce conclusiones
-     equivocadas sin dar ningún error. El día que la 2d cierre, esta tarjeta se
-     rellena sin tocar la pantalla. -->
-<section id="metricas-card" class="card" hidden>
-  <h2>Tu día</h2>
-  <p class="muted" id="metricas-motivo"></p>
-</section>
+<!-- Los pasos y la batería NO están aquí: son el Perfil. Esta pantalla contesta
+     "¿qué hago aquí?" y todo lo que no ayude a decidirlo ahora mismo sobra. -->
 
 <!-- Overpass está muerto o saturado casi siempre (31,3 s medidos desde el
      servidor para no devolver nada), así que buscar sitios es una decisión
@@ -112,9 +103,6 @@
     <ul class="cola" id="nota-cola-lista"></ul>
   </div>
 
-  <p class="muted"><a href="{{ url_for('panel_page') }}">El panel del viaje →</a></p>
-  <p class="muted"><a href="{{ url_for('mapa') }}">Ver el mapa del viaje →</a></p>
-  <p class="muted"><a href="{{ url_for('chat_page') }}">Preguntar sobre el viaje →</a></p>
 </section>
 {% endblock %}
 

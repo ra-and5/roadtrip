@@ -97,6 +97,7 @@ si algún día hacen falta, pero **no son el plan**:
 // Content-Type: application/json
 {
   "fuente": "fotos",
+  "completo": true,                           // este envío ES el álbum, no una lista de altas
   "puntos": [
     { "archivo": "IMG_4638",                  // el nombre. Es la clave anti-duplicados
       "capturado_en": "2026-07-20T15:15:39+02:00",  // hora de la cámara, con huso
@@ -110,7 +111,34 @@ Este cuerpo exacto está **probado contra el servidor** (`{"guardados": 4}` la
 primera vez, `{"duplicados": 4}` la segunda). Ocupa 475 bytes con cuatro fotos,
 de los 128 KB que acepta el servidor.
 
-Cuatro cosas que no son evidentes:
+### `"completo": true` — lo que hace que quitar una foto la quite del mapa
+
+Sin esta bandera el importador **solo suma**: sacas una foto del álbum `Viaje` y
+su punto se queda en el mapa para siempre. Y eso rompe lo que hace útil al
+álbum — quitar una foto es decir *«esta no cuenta»*, y una curación que solo
+suma no es una curación.
+
+Con la bandera, un envío **es el estado del álbum**: lo que no viene, se borra.
+
+Va explícita en vez de ser el comportamiento normal porque el precio de
+equivocarse no es simétrico: una foto de más se ve y se quita, y una foto de
+menos es **historia borrada**. Un lote parcial —una prueba a mano, un atajo a
+medio montar— no puede llevarse el viaje por delante sin decirlo. Quien manda el
+álbum entero lo sabe; los demás no tienen que saber nada.
+
+Dos protecciones que ya no dependen de acordarse:
+
+- **Una lista vacía se rechaza con un 400** antes de llegar al borrado. Es el
+  caso que más miedo da: un atajo roto que manda cero puntos.
+- **El borrado se acota a la `fuente`.** El álbum del iPhone no puede tocar lo
+  que entró por `tools/importar_fotos.py`.
+
+⚠️ **Y una consecuencia del límite del paso 1.** El atajo manda como mucho 300
+fotos. Si el álbum crece por encima, un envío deja de ser el álbum entero y el
+borrado se llevaría lo que no cupo. Por eso la respuesta y el log dicen
+`eliminados`: un número raro ahí es la señal de que hay que subir ese límite.
+
+Cuatro cosas más que no son evidentes:
 
 - **`capturado_en` es la hora que marcaba el reloj de la cámara**, no un
   instante en UTC. Al revés que `medido_en` en la telemetría, aquí no se
@@ -181,7 +209,7 @@ y hay dos sitios donde equivocarse no da ningún error.
 | 19 | `Terminar repetición` | — | — | 🔁 |
 | — | **↑ fin del bucle ↑** | | | |
 | 20 | `Combinar` | chip `PUNTOS` | con `Personalizar` → `,` | 📝 amarillo |
-| 21 | `Texto` | `{"fuente":"fotos","puntos":[«Texto combinado»]}` | — | 📝 amarillo |
+| 21 | `Texto` | `{"fuente":"fotos","completo":true,"puntos":[«Texto combinado»]}` | — | 📝 amarillo |
 | 22 | `Obtener contenido de la URL` | ver abajo | — | ⬇️ verde |
 | 23 | `Mostrar aviso` | chip `Contenido de URL` | — | 🟨 |
 
@@ -407,12 +435,53 @@ Truco de diagnóstico que ahorra mucho tiempo: **quita la cabecera
 URL; si sale `{"error":"no_autorizado"}` o un `405`, la petición llega bien y el
 problema está en el token o en el cuerpo.
 
-### Y una de orden, que no es una trampa pero cuesta igual
+### 10. El envío colocado ANTES del texto: cuerpo vacío, y todo lo demás correcto
 
-**El envío tiene que ir DESPUÉS del `Texto` que construye el cuerpo.** Atajos
-deja añadir una acción que referencia la salida de otra que va más abajo, sin
-avisar de nada. Al ejecutarse, el `Archivo` apunta a algo que todavía no existe
-y sale una petición con el cuerpo roto.
+La que más ha costado, y estaba escrita aquí como "una de orden, que no es una
+trampa". Sí lo es: costó una mañana entera el 29-07-2026.
+
+**Síntoma, y es engañoso en las dos direcciones:**
+
+- El servidor **recibe** la petición y **acepta el token** — o sea, la URL está
+  bien, el `Bearer` está bien, y el móvil llega. Todo lo difícil funciona.
+- Responde `400`: *el cuerpo tiene que ser `{"fuente": ..., "puntos": [...]}`*.
+  Un mensaje correcto y una pista falsa: manda a revisar el JSON, que está
+  perfecto.
+- Y al ejecutar el atajo **se ve el JSON completo y bien formado**, lo que
+  confirma la pista falsa.
+
+**Lo que pasa:** Atajos deja que una acción referencie la salida de otra que va
+**más abajo**, sin avisar de nada. Si el `Obtener contenido de la URL` está
+colocado antes del `Texto` que arma el cuerpo, al ejecutarse el campo `Archivo`
+apunta a algo que todavía no existe, y **sale una petición con el cuerpo vacío**.
+El JSON que ves al final es el `Detener y generar`, un cuerpo que nunca se envió.
+
+Orden correcto, y hay que mirarlo aunque todo "parezca" bien:
+
+```
+Combinar PUNTOS con ","
+Texto: {"fuente":"fotos","completo":true,"puntos":[Texto combinado]}   ← primero el cuerpo
+Obtener contenido de .../api/waypoints                   ← DESPUÉS el envío
+Detener y generar                                        (opcional, para ver la respuesta)
+```
+
+**Cómo se caza en dos minutos**, desde una consola del servidor:
+
+```bash
+tail -5 /var/log/TU_USUARIO.pythonanywhere.com.error.log
+```
+
+| Lo que sale | Qué significa |
+|---|---|
+| `Puntos importados: N guardados, M duplicados` | entró; recarga el mapa |
+| `Cuerpo recibido (recortado):` **vacío** | esta trampa: el envío va antes del texto |
+| `Importación de puntos rechazada: credencial inválida` | el token del atajo no casa con `INGEST_TOKEN_HASH` |
+| nada | la petición no sale del móvil: mira la URL (trampa 9) |
+
+Esa tabla se puede leer porque el servidor registra también los **aciertos**.
+Antes solo escribía los fallos, así que el silencio no distinguía "no envió" de
+"envió y se guardó" — que es lo que convirtió esto en una mañana en vez de dos
+ejecuciones.
 
 ---
 

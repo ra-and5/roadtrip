@@ -133,6 +133,20 @@ class Config:
     # entero de fallos y sigue siendo un bucle de inserción trivial.
     INGEST_MAX_SAMPLES: int = int(_env("INGEST_MAX_SAMPLES", default="500"))
 
+    # Nombres de los atajos de iOS, para poder lanzarlos DESDE la app.
+    #
+    # iOS expone `shortcuts://run-shortcut?name=…`, así que un enlace normal
+    # abre Atajos y lo ejecuta. Eso convierte "espera a la próxima
+    # automatización" en "pulsa y ya está", que es la diferencia entre un mapa
+    # que refleja el viaje y uno que refleja el viaje de anteayer.
+    #
+    # Van por variable de entorno y no escritos en el código porque el nombre lo
+    # elige quien monta el atajo en SU móvil, y una errata aquí no da error: el
+    # enlace abre Atajos y no encuentra nada. Vacío = el botón no se enseña,
+    # que es mejor que un botón que no hace nada.
+    SHORTCUT_FOTOS: str = _env("SHORTCUT_FOTOS", default="")
+    SHORTCUT_TELEMETRIA: str = _env("SHORTCUT_TELEMETRIA", default="")
+
     # Techo del cuerpo de CUALQUIER petición, aplicado por Flask ANTES de
     # parsear el JSON. Ese "antes" es todo el motivo: el límite de muestras se
     # comprueba sobre una lista ya deserializada, y deserializar es justo donde
@@ -234,9 +248,20 @@ class Config:
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
     OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
 
-    # Timeout para CUALQUIER llamada HTTP saliente. Sin timeout, una API caída
-    # cuelga el worker de Flask indefinidamente y la app deja de responder.
-    HTTP_TIMEOUT: float = float(_env("HTTP_TIMEOUT", default="10"))
+    # Timeout de las fuentes RÁPIDAS del contexto: Nominatim, Open-Meteo y
+    # met.no. (Overpass tiene el suyo, mucho más largo, porque es lento por
+    # naturaleza y va detrás de un botón; y la generación del LLM también.)
+    #
+    # Sin timeout, una API caída cuelga el worker de Flask indefinidamente. Y
+    # seis segundos y no diez porque el número que importa no es "cuánto
+    # aguanto una API lenta" sino cuánto tarda la pantalla cuando algo va mal:
+    # las tres fuentes van en paralelo, así que este valor **es** el peor caso
+    # de `contexto.construir()`. Las tres responden por debajo del segundo
+    # cuando están sanas, así que seis segundos ya son de sobra generosos, y
+    # los cuatro de diferencia solo servían para alargar la agonía. En el plan
+    # gratuito eso además se paga doble: hay UN worker, y mientras el contexto
+    # espera, cualquier otra pantalla que se abra desde el móvil falla.
+    HTTP_TIMEOUT: float = float(_env("HTTP_TIMEOUT", default="6"))
 
     # Cuántos decimales conservamos al cachear por coordenada.
     # 3 decimales ~= 110 m. Suficiente para "estoy en el mismo sitio".

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}El mapa del viaje{% endblock %}
+{% block title %}Mapa{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
@@ -11,11 +11,28 @@
      completando. -->
 <section class="card" id="progreso-card">
   <div class="progreso-cabecera">
-    <h1>El mapa del viaje</h1>
+    <h1>Mapa</h1>
     <select id="filtro-anio" aria-label="Filtrar por año"></select>
   </div>
 
   <div class="marcadores" id="progreso-cifras"></div>
+
+  {# El servidor no puede ir a buscar las fotos: viven en el iPhone, y iOS no
+     tiene ningún disparador de "he metido una foto en el álbum". Así que o se
+     espera a la automatización, o se pide a mano. Este enlace abre Atajos y lo
+     ejecuta, que convierte "mañana estará" en "pulsa y recarga".
+
+     Solo aparece si SHORTCUT_FOTOS tiene nombre: un botón que no hace nada es
+     peor que no tenerlo. #}
+  {% if shortcut_fotos %}
+  <p class="atajo">
+    <a class="button secondary"
+       href="shortcuts://run-shortcut?name={{ shortcut_fotos|urlencode }}">
+      Enviar fotos nuevas del álbum
+    </a>
+    <span class="muted">Abre Atajos. Al volver, recarga para verlas.</span>
+  </p>
+  {% endif %}
 
   <div id="tablero">
     <p class="muted" id="tablero-resumen"></p>
@@ -49,13 +66,12 @@
 </section>
 
 <section class="card">
-  <h2>El viaje, día a día</h2>
+  <h2>Día a día</h2>
   <p id="notas-estado" class="status" aria-live="polite"></p>
   <p class="muted" id="ruta-avisos" hidden></p>
   <div id="dias-lista"></div>
 </section>
 
-<p class="muted"><a href="{{ url_for('index') }}">← Volver</a></p>
 {% endblock %}
 
 {% block scripts %}

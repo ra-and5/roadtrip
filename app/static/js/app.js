@@ -24,7 +24,7 @@
    * desplegable de resultados, que sí depende de haber buscado. */
   const SECTIONS = [
     "place-card", "warnings-card", "weather-card", "luna-card",
-    "metricas-card", "reco-card",
+    "reco-card",
   ];
 
   function setStatus(message, kind) {
@@ -57,6 +57,25 @@
       default:
         return "Error de geolocalización: " + (err.message || "desconocido");
     }
+  }
+
+  /* Traduce CUALQUIER fallo a algo que se pueda leer en una gasolinera.
+   *
+   * Existe por un mensaje concreto: cuando un `fetch` no llega, Safari lanza un
+   * TypeError cuyo texto es «Load failed», y eso es exactamente lo que salía en
+   * rojo en el iPhone. No dice qué pasó, no dice qué hacer, y encima suena a
+   * error de programación cuando lo normal es que sea el servidor ocupado o la
+   * cobertura. En el plan gratuito hay UN worker, así que basta con que otra
+   * pantalla esté esperando para que esta falle así. */
+  function mensajeDeError(err) {
+    if (typeof err.code === "number") return geolocationErrorMessage(err);
+    if (err.name === "AbortError") {
+      return "El servidor tardó demasiado. Puede estar ocupado con otra consulta; inténtalo otra vez.";
+    }
+    if (err.name === "TypeError") {
+      return "No se pudo conectar con el servidor. Comprueba la cobertura e inténtalo otra vez.";
+    }
+    return err.message || "Error inesperado.";
   }
 
   function getPosition() {
@@ -218,16 +237,6 @@
     show("luna-card");
   }
 
-  /* El hueco de pasos y batería. Mientras la 2d no cierre, la tarjeta explica
-   * POR QUÉ está vacía en vez de no existir: un hueco declarado se entiende,
-   * uno ausente parece que se ha olvidado. */
-  function renderMetricas(metricas, fuente) {
-    if (metricas) return;               // el día que haya datos, aquí van
-    if (!fuente || fuente.estado !== "no_consultada") return;
-    text("metricas-motivo", "Todavía no: " + fuente.motivo);
-    show("metricas-card");
-  }
-
   function renderRecommendation(reco) {
     if (!reco) return;
     text("reco-summary", reco.resumen);
@@ -353,7 +362,6 @@
     renderWarnings(ctx.warnings);
     renderWeather(ctx.tiempo);
     renderLuna(ctx.luna);
-    renderMetricas(ctx.metricas, ctx.fuentes && ctx.fuentes.metricas);
     renderEstadoPois(ctx.fuentes && ctx.fuentes.pois);
   }
 
@@ -364,22 +372,45 @@
    * haber partido el endpoint en dos. */
   async function verContexto() {
     contextoBtn.disabled = true;
-    hideAll();
 
+    /* `hideAll()` va DENTRO del try, y no es colocación caprichosa: cuando una
+     * tarjeta se mueve de pantalla y su id deja de existir aquí, esto lanza. Si
+     * lanzara fuera del try no habría ni catch que lo cuente ni finally que
+     * suelte el botón: la pantalla se quedaba con el botón muerto y el estado
+     * en blanco, sin decir nada (decisión 11). Pasó con `metricas-card` al
+     * llevarse las métricas a Perfil. */
     try {
+      hideAll();
       setStatus("Obteniendo posición del GPS…");
       const position = await getPosition();
       lastCoords = position.coords;
 
       setStatus("Consultando…");
-      const response = await fetch("/api/contexto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        }),
-      });
+
+      /* Con todo cacheado esto tarda centésimas, y en un sitio nuevo lo que
+       * tarde la fuente más lenta. Pasado ese margen no es que vaya lento: es
+       * que algo va mal, y entonces vale más soltar el botón y decirlo que
+       * dejar la pantalla girando sin fin. Es lo mismo que ya hacían las
+       * recomendaciones y el chat; esta llamada se había quedado sin ello. */
+      const controller = new AbortController();
+      const timer = setTimeout(function () {
+        controller.abort();
+      }, 15000);
+
+      let response;
+      try {
+        response = await fetch("/api/contexto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (response.status === 401) {
         window.location.href = "/login";
@@ -399,10 +430,7 @@
       renderContexto(data, position.coords);
       setStatus("");
     } catch (err) {
-      setStatus(
-        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message,
-        "error"
-      );
+      setStatus(mensajeDeError(err), "error");
     } finally {
       contextoBtn.disabled = false;
     }
@@ -411,9 +439,9 @@
   async function run(refresh) {
     btn.disabled = true;
     refreshBtn.disabled = true;
-    hideAll();
 
     try {
+      hideAll();                       // dentro del try, ver `verContexto()`
       let coords = lastCoords;
       if (!coords || !refresh) {
         setStatus("Obteniendo posición del GPS…");
@@ -446,13 +474,7 @@
       setStatus("");
       refreshBtn.hidden = false;
     } catch (err) {
-      const message =
-        err.name === "AbortError"
-          ? "La consulta tardó demasiado. Inténtalo otra vez."
-          : typeof err.code === "number"
-          ? geolocationErrorMessage(err)
-          : err.message;
-      setStatus(message, "error");
+      setStatus(mensajeDeError(err), "error");
     } finally {
       btn.disabled = false;
       refreshBtn.disabled = false;
@@ -497,10 +519,7 @@
       renderPois(data.pois);
       renderEstadoPois(data.fuente);
     } catch (err) {
-      text(
-        "pois-estado",
-        typeof err.code === "number" ? geolocationErrorMessage(err) : err.message
-      );
+      text("pois-estado", mensajeDeError(err));
     } finally {
       poisBtn.disabled = false;
     }

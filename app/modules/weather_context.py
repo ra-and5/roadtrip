@@ -359,6 +359,16 @@ def get_weather(lat: float, lon: float) -> Weather:
     if cached is not None:
         return _parse_forecast(cached["forecast"], Marine(**cached["marine"]))
 
+    # En SERIE, y a propósito. Son dos servicios independientes, así que
+    # paralelizarlos parece la respuesta obvia y fue lo primero que se probó.
+    # No es que los hilos sean caros —eso se midió y es falso—: es que estas
+    # funciones escriben en la caché de SQLite, y en PythonAnywhere la base de
+    # datos vive en un disco de red donde el bloqueo de escritura se paga muy
+    # caro. Está razonado entero en `contexto.construir()`, que es donde se vio:
+    # 34 s para envolver 0,15 s de trabajo.
+    #
+    # La previsión va primera porque es la obligatoria: si falla, no se gasta la
+    # llamada del oleaje para acabar lanzando igual.
     forecast = _fetch_forecast(lat, lon)
     marine = _fetch_marine(lat, lon)
 

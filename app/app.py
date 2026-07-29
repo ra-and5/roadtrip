@@ -11,6 +11,8 @@ Si una vista empieza a crecer, la lógica se va a un módulo.
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import timedelta
 from typing import Any
 
@@ -24,7 +26,7 @@ from app.modules import (
     diario,
     ingest,
     notes,
-    panel,
+    perfil,
     ruta,
     storage,
     waypoints,
@@ -62,9 +64,66 @@ app.config["MAX_CONTENT_LENGTH"] = Config.MAX_CONTENT_LENGTH
 # workers levante PythonAnywhere.
 storage.init_db()
 
+# El log de la app baja a INFO, y no es un detalle de configuración: sin esto
+# Flask filtra a WARNING en producción, así que las líneas que dicen "esto ha
+# ido bien" no se escriben nunca. Y eso dejaba un agujero concreto — ante un
+# mapa que no cambiaba, el log solo tenía rechazos, así que no había forma de
+# distinguir "el atajo no envió nada" de "envió y se guardó", que son problemas
+# opuestos y se arreglan en sitios distintos. Un log donde solo aparecen los
+# errores no sirve para saber si algo llegó.
+#
+# El volumen no es un problema: aquí hay un usuario y unas pocas líneas por
+# ingesta. Nada de esto registra cuerpos ni cabeceras (ver el 401 de la
+# ingesta): un token en un log es un token comprometido.
+app.logger.setLevel(logging.INFO)
+
 # Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
 # el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
 _MAX_ECO_CUERPO = 400
+
+
+@app.after_request
+def sin_cache_en_la_api(respuesta: Any) -> Any:
+    """Ninguna respuesta de `/api/` se cachea. Las páginas y el estático, sí.
+
+    Sin `Cache-Control`, un navegador puede reutilizar un GET por su cuenta
+    (Safari en iOS lo hace), y entonces importas una foto nueva y el mapa sigue
+    enseñando lo de antes **sin dar ningún error**: parece que la importación no
+    llegó cuando lo que pasa es que no se ha vuelto a preguntar.
+
+    Solo la API. El HTML y el JavaScript se siguen cacheando a propósito: es lo
+    que hace que las páginas abran sin cobertura (decisión 28).
+    """
+    if request.path.startswith("/api/"):
+        respuesta.headers["Cache-Control"] = "no-store"
+    return respuesta
+
+
+@app.url_defaults
+def versionar_estaticos(endpoint: str, values: dict) -> None:
+    """`?v=<mtime>` en cada estático, o un despliegue puede quedarse invisible.
+
+    Es la otra mitad de la decisión 41. Allí se decidió que el HTML y el
+    JavaScript SÍ se cachean, a propósito, porque es lo que hace que las páginas
+    abran con mala cobertura. Lo que faltaba era poder invalidarlos: en
+    PythonAnywhere los estáticos los sirve nginx y salen **sin `Cache-Control` ni
+    `ETag`**, solo con `Last-Modified` (comprobado con `curl -I`), así que el
+    navegador aplica caché heurística y puede seguir con el archivo viejo días
+    después de desplegar. No da ningún error: la pantalla simplemente se comporta
+    como la versión anterior, y se depura el despliegue en vez del código.
+
+    `mtime` y no un hash del contenido: `git pull` reescribe la fecha, que es
+    exactamente el momento en que la caché debe romperse, y no obliga a leer cada
+    archivo en cada render.
+    """
+    if endpoint != "static" or "filename" not in values:
+        return
+    try:
+        values["v"] = int(os.stat(os.path.join(app.static_folder, values["filename"])).st_mtime)
+    except OSError:
+        # Un estático que no existe ya da 404 al pedirlo. Convertirlo aquí en un
+        # 500 cambiaría un fallo localizado por uno que tumba la página entera.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -119,14 +178,14 @@ def mapa() -> Any:
     las chinchetas salen de nuestro servidor. Lo único que no cargará son los
     tiles, que vienen de OpenStreetMap.
     """
-    return render_template("mapa.html")
+    return render_template("mapa.html", shortcut_fotos=Config.SHORTCUT_FOTOS)
 
 
-@app.route("/panel")
+@app.route("/perfil")
 @auth.login_required
-def panel_page() -> Any:
-    """El cuaderno de a bordo. Los datos los pide por `fetch` a /api/panel."""
-    return render_template("panel.html")
+def perfil_page() -> Any:
+    """Cómo estás tú. Los datos los pide por `fetch` a /api/perfil."""
+    return render_template("perfil.html", shortcut_telemetria=Config.SHORTCUT_TELEMETRIA)
 
 
 @app.route("/chat")
@@ -221,9 +280,9 @@ def api_contexto() -> Any:
     return jsonify(estado.to_dict())
 
 
-@app.route("/api/panel", methods=["GET"])
+@app.route("/api/perfil", methods=["GET"])
 @auth.login_required
-def api_panel() -> Any:
+def api_perfil() -> Any:
     """El cuaderno de a bordo: viaje, pasos y fiabilidad de cada fuente.
 
     GET y sin cuerpo porque no necesita ni GPS ni red: todo sale de SQLite, así
@@ -231,7 +290,7 @@ def api_panel() -> Any:
     (`Intl.DateTimeFormat`) porque el día es el local y el servidor va en UTC.
     """
     zona = (request.args.get("zona") or "")[:64]
-    return jsonify(panel.construir(zona or "Europe/Madrid").to_dict())
+    return jsonify(perfil.construir(zona or "Europe/Madrid").to_dict())
 
 
 @app.route("/api/pois", methods=["POST"])
@@ -591,13 +650,59 @@ def api_waypoints() -> Any:
         app.logger.warning("Importación de puntos rechazada: credencial inválida")
         return jsonify({"error": "no_autorizado"}), 401
 
-    payload = request.get_json(silent=True)
+    # `force=True` para NO exigir la cabecera `Content-Type: application/json`.
+    #
+    # No es dejadez, es la trampa que costó una mañana entera: Atajos manda el
+    # JSON perfecto y, si el cuerpo va como *Archivo* o como *Texto*, sale sin
+    # esa cabecera. Flask entonces devuelve `None` sin mirar el cuerpo, y el
+    # endpoint contestaba «el cuerpo tiene que ser {...}» sobre un cuerpo que
+    # ERA exactamente eso. Un mensaje de error correcto y una pista falsa a la
+    # vez, que es lo que más se tarda en depurar.
+    #
+    # Exigir la cabecera no protege de nada aquí: al otro lado no hay un
+    # navegador —donde el `Content-Type` participa en las reglas de CORS— sino
+    # una máquina con un token, y la petición ya ha pasado por él. Lo que hace
+    # el rigor en este punto es romper el atajo por un desplegable mal puesto en
+    # la pantalla de un móvil.
+    payload = request.get_json(silent=True, force=True)
 
     try:
         resultado = waypoints.import_waypoints(payload)
     except WaypointError as exc:
-        return jsonify({"error": str(exc)}), 400
+        # El cuerpo se rechaza entero, así que hay que decir por qué: al otro
+        # lado hay un atajo escrito a mano en la pantalla de un móvil.
+        app.logger.warning("Importación de puntos rechazada: %s", exc)
+        cuerpo: dict[str, Any] = {"error": str(exc)}
 
+        if payload is None:
+            # Igual que en la ingesta: cuando el cuerpo ni siquiera es JSON, lo
+            # único que ayuda es ver QUÉ llegó. Sin esto se depura a ciegas
+            # desde un iPhone, y la causa suele ser una variable de Atajos que
+            # llegó vacía sin que nadie avisara.
+            crudo = request.get_data(as_text=True)
+            cuerpo["recibido"] = redact(crudo[:_MAX_ECO_CUERPO])
+            if len(crudo) > _MAX_ECO_CUERPO:
+                cuerpo["recibido"] += "..."
+            app.logger.warning("Cuerpo recibido (recortado): %s", cuerpo["recibido"])
+
+        return jsonify(cuerpo), 400
+
+    # Se registra también cuando va BIEN, y esa es la parte que faltaba. Antes
+    # solo quedaba rastro de los rechazos, así que ante un mapa que no cambia no
+    # había forma de distinguir «el atajo no envió nada» de «envió y se guardó»
+    # — y son problemas opuestos. Costó una mañana averiguarlo mirando el log y
+    # encontrando silencio, que es el peor resultado posible de una búsqueda.
+    #
+    # Va a INFO y no a WARNING porque no es un aviso; y lleva las tres cifras
+    # porque «duplicados: 6» es la respuesta normal al reenviar el álbum entero
+    # y no un problema.
+    app.logger.info(
+        "Puntos importados: %d guardados, %d duplicados, %d descartados, %d eliminados",
+        resultado.guardados,
+        resultado.duplicados,
+        resultado.descartados,
+        resultado.eliminados,
+    )
     return jsonify(resultado.to_dict())
 
 
@@ -625,7 +730,11 @@ def api_telemetria() -> Any:
         app.logger.warning("Ingesta rechazada: credencial ausente o inválida")
         return jsonify({"error": "no_autorizado"}), 401
 
-    payload = request.get_json(silent=True)
+    # `force=True` por lo mismo que en los puntos: Atajos manda el JSON bien y
+    # sin `Content-Type` si el cuerpo va como *Archivo*, y entonces Flask
+    # devolvía `None` sin llegar a mirarlo. Aquí hoy funciona, pero es el mismo
+    # cliente y la misma trampa esperando al primer cambio en el atajo.
+    payload = request.get_json(silent=True, force=True)
 
     try:
         resultado = ingest.ingest(payload)
@@ -655,6 +764,16 @@ def api_telemetria() -> Any:
 
         return jsonify(cuerpo), 400
 
+    # Igual que en los puntos: queda escrito también cuando va bien. Que
+    # `duplicadas` sea casi siempre mayor que `guardadas` no es un problema, es
+    # la señal de que la ventana solapada funciona (decisión 23), y desde el log
+    # es la forma de comprobar que la automatización sigue corriendo sola.
+    app.logger.info(
+        "Telemetría recibida: %d guardadas, %d duplicadas, %d descartadas",
+        resultado.guardadas,
+        resultado.duplicadas,
+        resultado.descartadas,
+    )
     return jsonify(resultado.to_dict())
 
 

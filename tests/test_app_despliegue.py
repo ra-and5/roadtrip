@@ -180,3 +180,104 @@ def test_la_app_aplica_los_tres_flags_de_la_cookie() -> None:
     assert flask_app.config["SESSION_COOKIE_SECURE"] is Config.SESSION_COOKIE_SECURE
     assert flask_app.config["SESSION_COOKIE_HTTPONLY"] is True
     assert flask_app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
+
+
+# ---------------------------------------------------------------------------
+# Los estáticos llevan versión
+# ---------------------------------------------------------------------------
+
+
+def test_los_estaticos_salen_con_version() -> None:
+    """Sin `?v=`, un despliegue puede quedarse invisible en el móvil.
+
+    En PythonAnywhere los estáticos los sirve nginx sin `Cache-Control` ni
+    `ETag`, así que Safari los reutiliza por heurística: pulsas *Reload*, el
+    servidor ya tiene el código nuevo, y el iPhone sigue ejecutando el viejo.
+    No da ningún error, solo una pantalla que se comporta como la versión
+    anterior — y entonces se depura el despliegue en vez del código.
+    """
+    with flask_app.test_request_context():
+        from flask import url_for
+
+        url = url_for("static", filename="js/app.js")
+
+    assert "?v=" in url, url
+    assert url.startswith("/static/js/app.js"), "la ruta no puede cambiar: nginx sirve por ruta"
+
+
+def test_la_version_cambia_cuando_cambia_el_archivo(tmp_path: Any) -> None:
+    """Que la query exista no basta: tiene que moverse al desplegar."""
+    import os
+
+    ruta = os.path.join(flask_app.static_folder, "js/app.js")
+    antes_mtime = os.stat(ruta).st_mtime
+
+    with flask_app.test_request_context():
+        from flask import url_for
+
+        antes = url_for("static", filename="js/app.js")
+        os.utime(ruta, (antes_mtime + 100, antes_mtime + 100))
+        try:
+            despues = url_for("static", filename="js/app.js")
+        finally:
+            os.utime(ruta, (antes_mtime, antes_mtime))
+
+    assert antes != despues, "el `?v=` no se mueve al cambiar el archivo"
+
+
+def test_un_estatico_inexistente_no_tumba_la_pagina() -> None:
+    """Un `filename` que no existe ya da 404 al pedirlo.
+
+    Convertirlo en una excepción al RENDERIZAR cambiaría un fallo localizado
+    (una imagen que no carga) por uno que deja la pantalla entera en blanco.
+    """
+    with flask_app.test_request_context():
+        from flask import url_for
+
+        url = url_for("static", filename="no/existe.js")
+
+    assert "no/existe.js" in url
+    assert "?v=" not in url
+
+
+# ---------------------------------------------------------------------------
+# El botón que lanza un atajo de iOS
+# ---------------------------------------------------------------------------
+
+
+def _html(ruta: str) -> str:
+    flask_app.config["TESTING"] = True
+    cliente = flask_app.test_client()
+    with cliente.session_transaction() as sesion:
+        sesion["authenticated"] = True
+    return cliente.get(ruta).get_data(as_text=True)
+
+
+def test_sin_nombre_configurado_no_hay_boton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un botón que abre Atajos y no encuentra nada es peor que no tenerlo.
+
+    Y falla en silencio: iOS abre la app de Atajos y ahí se acaba, sin decir
+    que el nombre no existe. Por eso el defecto es no enseñarlo.
+    """
+    from app import app as modulo_app
+
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_FOTOS", "")
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_TELEMETRIA", "")
+
+    assert "shortcuts://" not in _html("/mapa")
+    assert "shortcuts://" not in _html("/perfil")
+
+
+def test_el_nombre_del_atajo_va_escapado_en_la_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Los nombres llevan espacios y tildes, y así llegan tal cual a la URL.
+
+    Sin escapar, "Enviar fotos Viaje" corta la URL en el primer espacio y el
+    enlace abre Atajos sin nombre — otra vez un fallo mudo.
+    """
+    from app import app as modulo_app
+
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_FOTOS", "Enviar fotos Viaje")
+
+    html = _html("/mapa")
+
+    assert "shortcuts://run-shortcut?name=Enviar%20fotos%20Viaje" in html

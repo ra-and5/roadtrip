@@ -100,6 +100,13 @@ button:disabled { opacity: 0.55; cursor: progress; }
 .status { margin: 1rem 0 0; min-height: 1.5em; color: var(--muted); font-size: 0.95rem; }
 .status.error, .error { color: var(--error); font-weight: 500; }
 
+/* `.ok` lo usaban ya las notas y el mapa, y no tenía ninguna regla: el mensaje
+   salía en gris de texto secundario, igual que un "cargando…". Justo al revés
+   de lo que hace falta — «2 fotos nuevas» o «Nota enviada» son la confirmación
+   de que lo que acabas de hacer ha llegado, y si no se distinguen del ruido,
+   se comprueba a mano igualmente. */
+.status.ok { color: var(--accent); font-weight: 600; }
+
 .result { margin-top: 1.4rem; border-top: 1px solid var(--border); padding-top: 1.1rem; }
 
 .details {
@@ -126,6 +133,31 @@ button.secondary {
   border: 1px solid var(--border);
   margin-top: 0.6rem;
 }
+
+/* Lanzar un atajo de iOS es navegar a `shortcuts://`, así que tiene que ser un
+   enlace de verdad y no un botón: un `<button>` con JavaScript detrás abriría
+   la misma URL, pero perdería el pulsado largo, "abrir en otra pestaña" y que
+   Safari lo reconozca como navegación. Se le da el aspecto del botón para que
+   no parezca de otra familia. */
+a.button {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  border-radius: 8px;
+}
+a.button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.atajo { margin: 1rem 0 0; }
+.atajo .muted { display: block; margin-top: 0.4rem; text-align: center; }
 
 .lead { font-size: 1.05rem; margin: 0 0 0.8rem; }
 
@@ -458,8 +490,29 @@ button.pequeno {
 }
 
 /* ---------------------------------------------------------------------------
-   El panel
+   Navegación y perfil
    --------------------------------------------------------------------------- */
+
+.nav {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* Se queda arriba al bajar: en un móvil en marcha, volver a otra pantalla no
+     puede exigir subir hasta el principio de la página. */
+  position: sticky;
+  top: 0;
+  z-index: 500;
+}
+.nav a {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 0.7rem 0.3rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.nav a.activo { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 
 .barras {
   display: flex;

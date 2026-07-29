@@ -152,3 +152,92 @@ def test_parse_forecast_tolera_payload_vacio():
     weather = _parse_forecast({}, Marine())
     assert weather.temperature_c is None
     assert weather.summary() == "sin datos"
+
+
+# ---------------------------------------------------------------------------
+# La previsión y el oleaje van EN PARALELO
+# ---------------------------------------------------------------------------
+
+
+def test_el_tiempo_no_monta_hilos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La previsión y el oleaje van en serie, igual que el resto del contexto.
+
+    Se intentó al revés —son dos servicios independientes, paralelizarlos es lo
+    que dice el manual—. El problema no son los hilos: es que estas funciones
+    escriben en la caché de SQLite, y en PythonAnywhere eso es un disco de red
+    donde el bloqueo de escritura se paga carísimo. Medido allí: 34 s para
+    envolver 0,15 s de llamadas, y 0,18 s en serie. El razonamiento entero está
+    en `contexto.construir()`, que es donde se vio.
+
+    Y aquí el argumento del paralelismo era todavía más flojo: estas dos
+    respuestas llegan en 0,2 s, así que lo que había que ganar eran 0,2 s.
+    """
+    import inspect
+
+    from app.modules import weather_context
+
+    imports = [
+        l for l in inspect.getsource(weather_context).splitlines()
+        if l.startswith(("import ", "from "))
+    ]
+
+    assert not [l for l in imports if "concurrent.futures" in l], (
+        "han vuelto los hilos: mídelo en el SERVIDOR antes (tools/medir_contexto.py)"
+    )
+
+
+def test_un_fallo_de_la_prevision_no_gasta_la_llamada_del_oleaje(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La obligatoria va primera, ahora que el orden se paga.
+
+    Si la previsión falla no hay `Weather` que devolver, así que consultar el
+    oleaje después de saberlo sería gastar una llamada —y en un solo worker, un
+    timeout entero— para acabar lanzando igual.
+    """
+    from app.modules import storage, weather_context
+    from app.modules.weather_context import WeatherError
+
+    llamadas: list[str] = []
+
+    def _revienta(lat: float, lon: float) -> dict:
+        llamadas.append("forecast")
+        raise WeatherError("El servicio de previsión tardó demasiado.")
+
+    def _marine(lat: float, lon: float) -> Marine:
+        llamadas.append("marine")
+        return Marine()
+
+    monkeypatch.setattr(weather_context, "_fetch_forecast", _revienta)
+    monkeypatch.setattr(weather_context, "_fetch_marine", _marine)
+    monkeypatch.setattr(storage, "cache_get", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "cache_set", lambda *a, **k: None)
+
+    with pytest.raises(WeatherError):
+        weather_context.get_weather(43.5622, -6.1456)
+
+    assert llamadas == ["forecast"], f"se gastó la llamada del oleaje: {llamadas}"
+
+
+def test_un_fallo_de_la_prevision_sale_aunque_el_oleaje_vaya_bien(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paralelizar no puede tragarse la excepción que sí importa.
+
+    El oleaje es opcional y nunca lanza; la previsión es obligatoria. Al
+    recoger primero el futuro que no lanza, la excepción de la previsión tiene
+    que seguir saliendo igual.
+    """
+    from app.modules import storage, weather_context
+    from app.modules.weather_context import WeatherError
+
+    def _revienta(lat: float, lon: float) -> dict:
+        raise WeatherError("El servicio de previsión tardó demasiado.")
+
+    monkeypatch.setattr(weather_context, "_fetch_forecast", _revienta)
+    monkeypatch.setattr(weather_context, "_fetch_marine", lambda lat, lon: Marine())
+    monkeypatch.setattr(storage, "cache_get", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "cache_set", lambda *a, **k: None)
+
+    with pytest.raises(WeatherError):
+        weather_context.get_weather(43.5622, -6.1456)

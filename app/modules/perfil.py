@@ -1,11 +1,13 @@
-"""El panel: cuánto llevas de viaje y si te puedes fiar de esas cifras.
+"""El perfil: cómo estás tú, y de qué datos te puedes fiar.
 
-Función de entrada: `construir(zona) -> Panel`.
+Función de entrada: `construir(zona) -> Perfil`.
 
-No calcula nada por su cuenta: resume lo que ya resumen `metricas`, `viaje`,
-`notes.progreso()` y `diario`. Sin red, sin GPS y sin LLM — todo sale de SQLite.
-El *aquí y ahora* (lugar, tiempo, luna) es otra pregunta y ya tiene su endpoint:
-lo pide el navegador a `/api/contexto`.
+Responde a *tú*: pasos, batería y si esas cifras se sostienen. **El viaje no
+entra aquí** —notas, kilómetros, comunidades y trayecto son el Mapa— y el
+*aquí y ahora* —lugar, tiempo, luna— es Inicio, que ya lo pide a
+`/api/contexto`. Cada pantalla contesta una pregunta y solo una.
+
+Sin red, sin GPS y sin LLM: todo sale de SQLite.
 """
 
 from __future__ import annotations
@@ -25,9 +27,8 @@ from app.modules.metricas import (
     resumir,
 )
 from app.modules.timeparse import hace_cuanto
-from app.modules.viaje import Viaje, armar as armar_viaje
 
-__all__ = ["Barra", "EstadoFuente", "Panel", "armar", "construir", "serie"]
+__all__ = ["Barra", "EstadoFuente", "Perfil", "armar", "construir", "serie"]
 
 # Los mismos 7 días que `metricas.DIAS_DE_CONTEXTO`: pedir más aquí dibujaría
 # huecos permanentes al principio, porque `metricas` no los trae.
@@ -88,15 +89,13 @@ class EstadoFuente:
 
 
 @dataclass(frozen=True)
-class Panel:
-    """Todo lo que enseña el panel, ya resuelto."""
+class Perfil:
+    """Todo lo que enseña el perfil, ya resuelto."""
 
     hoy: str
     dia_del_viaje: int | None = None
     cuerpo: Metricas = field(default_factory=Metricas)
     serie: list[Barra] = field(default_factory=list)
-    viaje: Viaje = field(default_factory=Viaje)
-    progreso: dict[str, Any] = field(default_factory=dict)
     fuentes: list[EstadoFuente] = field(default_factory=list)
     # Sube hasta aquí para poder marcar los pasos en la propia cifra, no en un
     # campo aparte que nadie mira (decisión 37).
@@ -108,8 +107,6 @@ class Panel:
             "dia_del_viaje": self.dia_del_viaje,
             "cuerpo": self.cuerpo.to_dict(),
             "serie": [b.to_dict() for b in self.serie],
-            "viaje": self.viaje.to_dict(),
-            "progreso": self.progreso,
             "fuentes": [f.to_dict() for f in self.fuentes],
             "hay_simulado": self.hay_simulado,
         }
@@ -180,11 +177,11 @@ def armar(
     hoy: date,
     *,
     ahora: datetime | None = None,
-) -> Panel:
-    """Arma el panel con las listas ya leídas. Función PURA.
+) -> Perfil:
+    """Arma el perfil con las listas ya leídas. Función PURA.
 
     La telemetría entra dos veces a propósito: `muestras_todas` es lo que se
-    enseña (si no, con solo datos simulados el panel saldría vacío) y
+    enseña (si no, con solo datos simulados el perfil saldría vacío) y
     `muestras_reales` es lo único que puede declarar una fuente demostrada.
     Pasar la misma lista a los dos haría que una simulación certificara su propia
     fiabilidad (decisión 36).
@@ -192,7 +189,6 @@ def armar(
     ahora = ahora or datetime.now(timezone.utc)
 
     cuerpo = resumir(muestras_todas, hoy)
-    viaje = armar_viaje(notas, puntos)
 
     fuentes = [_fuente_telemetria(cobertura(muestras_reales, hoy), ahora)]
 
@@ -205,19 +201,24 @@ def armar(
         ))
 
     fuentes.append(EstadoFuente(
-        "notas", "Notas del viaje",
+        "notas", "Notas",
         DEMOSTRADA if notas else SIN_DATOS,
-        f"{len(notas)} notas · la última "
+        f"{len(notas)} escritas · la última "
         f"{hace_cuanto(max(n['created_at'] for n in notas), ahora)}"
         if notas else "Todavía no has escrito ninguna.",
     ))
 
+    # La hora que importa aquí es la de la IMPORTACIÓN y no la de la captura: la
+    # pregunta es "¿ha entrado lo que acabo de mandar con el atajo?", y una foto
+    # de hace tres semanas puede llegar hoy.
     con_gps = sum(1 for p in puntos if p.get("lat") is not None)
+    importaciones = [p["importado_en"] for p in puntos if p.get("importado_en")]
     fuentes.append(EstadoFuente(
-        "fotos", "Fotos del viaje",
+        "fotos", "Fotos",
         DEMOSTRADA if puntos else SIN_DATOS,
-        f"{len(puntos)} puntos · {con_gps} con GPS"
-        if puntos else "Ninguna foto importada todavía.",
+        f"{len(puntos)} · {con_gps} con GPS · última importación "
+        f"{hace_cuanto(max(importaciones) if importaciones else None, ahora)}"
+        if puntos else "Ninguna importada todavía.",
     ))
 
     huecos_dias = dias_registrados.get("huecos")
@@ -230,28 +231,28 @@ def armar(
         if total_dias else "Se registra solo al abrir la app cada día.",
     ))
 
-    # Días de calendario desde el primer momento registrado. No es `viaje.dias`,
-    # que cuenta los días CON algo dentro: un día de carretera sin notas sigue
-    # siendo día de viaje.
-    primer_dia = _fecha_de(viaje.primera)
-    dia_del_viaje = (hoy - primer_dia).days + 1 if primer_dia else None
+    # Días de calendario desde el primer momento registrado, no días CON algo
+    # dentro: un día de carretera sin notas sigue siendo día de viaje.
+    dias = [d for iso in
+            [n.get("created_at_local") or n.get("created_at") for n in notas]
+            + [p.get("capturado_en") for p in puntos]
+            if (d := _fecha_de(iso))]
+    dia_del_viaje = (hoy - min(dias)).days + 1 if dias else None
     if dia_del_viaje is not None and dia_del_viaje < 1:
         dia_del_viaje = None  # reloj del móvil adelantado; "día 0" parece un bug
 
-    return Panel(
+    return Perfil(
         hoy=hoy.isoformat(),
         dia_del_viaje=dia_del_viaje,
         cuerpo=cuerpo,
         serie=serie(cuerpo, hoy),
-        viaje=viaje,
-        progreso=notes.progreso(notas),
         fuentes=fuentes,
         hay_simulado=cuerpo.es_simulado,
     )
 
 
-def construir(zona: str = _ZONA_POR_DEFECTO, *, ahora: datetime | None = None) -> Panel:
-    """Lee la base de datos y arma el panel.
+def construir(zona: str = _ZONA_POR_DEFECTO, *, ahora: datetime | None = None) -> Perfil:
+    """Lee la base de datos y arma el perfil.
 
     La zona llega de fuera porque el día es el LOCAL (decisión 29). Nunca lanza:
     lo que no se pueda leer sale vacío y su fuente lo dice.
@@ -276,7 +277,7 @@ def construir(zona: str = _ZONA_POR_DEFECTO, *, ahora: datetime | None = None) -
         puntos = storage.list_waypoints()
         dias_registrados = diario.resumen()
     except Exception:  # noqa: BLE001 - una pantalla de lectura no tumba nada
-        return Panel(hoy=hoy.isoformat())
+        return Perfil(hoy=hoy.isoformat())
 
     return armar(
         muestras_reales, muestras_todas, notas, puntos, dias_registrados, hoy,

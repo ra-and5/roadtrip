@@ -72,7 +72,7 @@ app/
     contexto.py              El estado del viaje. UNA definición, tres consumidores
     chat.py                  El chatbot. Decide QUÉ se le manda al modelo y qué no
     metricas.py              Pasos y batería, resumidos. Y si la serie tiene huecos
-    panel.py                 El cuaderno en una pantalla: el viaje y de qué fiarse
+    perfil.py                Cómo estás tú: pasos, batería y de qué fiarse
     viaje.py                 El viaje hasta ahora: agregados y últimas notas
     luna.py                  Fase e iluminación en Python; salida y puesta de met.no
     diario.py                El primer sitio de cada día. Registra; NO analiza
@@ -93,7 +93,7 @@ app/
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
     js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
     js/chat.js               Conversación. El historial lo pone el servidor, no este
-    js/panel.js              El panel. Pinta /api/panel; el GPS solo bajo botón
+    js/perfil.js             El perfil. Pinta /api/perfil; sin GPS y sin red
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
 ```
 
@@ -127,6 +127,10 @@ python tools/simular_telemetria.py         # siembra 7 días de telemetría SIMU
 python tools/simular_telemetria.py 14      # 14 días
 python tools/simular_telemetria.py --ver   # enseña lo que haría, sin guardar nada
 python tools/simular_telemetria.py --limpiar  # borra lo simulado; no toca lo real
+tools/logs.sh                              # (EN EL SERVIDOR) qué ha hecho la app
+tools/logs.sh -f                           # en directo, mientras ejecutas el atajo
+tools/logs.sh fotos                        # solo las importaciones de fotos
+python tools/medir_contexto.py             # dónde se va el tiempo de construir()
 python tools/ver_notas.py                  # notas del viaje + progreso del mapa
 python tools/ver_notas.py 50               # las 50 últimas
 python tools/ver_notas.py --borrar 3,4     # borra notas malas por id
@@ -153,7 +157,8 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 4 | Miniaturas, perfil, PWA y resumen narrativo | ⬜ Pendiente — encargo en [`docs/prompt-fase4.md`](docs/prompt-fase4.md) |
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
-| 6b | **El panel** (`/panel`): el viaje, los pasos y la fiabilidad de cada fuente | 🟨 Hecho el 29-07-2026 (decisión 40). Sin validar en el iPhone |
+| 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
+| 7 | Verificar todo, navegación fluida, el diario, y la PWA | ⬜ Pendiente — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -279,16 +284,17 @@ sistema no fingió haber verificado nada.
 **Los encargos de cada fase viven en `docs/prompt-*.md`.** No son tareas
 pendientes: son el registro de **qué se pidió**, que es lo que permite luego
 contrastarlo con lo que se hizo. Los de fases terminadas se quedan como están.
-Hoy hay cinco: [`prompt-despliegue.md`](docs/prompt-despliegue.md) y
-[`prompt-fase3.md`](docs/prompt-fase3.md) (hechos),
+Hoy hay seis: [`prompt-despliegue.md`](docs/prompt-despliegue.md),
+[`prompt-fase3.md`](docs/prompt-fase3.md), [`prompt-fase5.md`](docs/prompt-fase5.md)
+y [`prompt-fase6.md`](docs/prompt-fase6.md) (hechos),
 [`prompt-fase4.md`](docs/prompt-fase4.md) (hecho a medias: la 3b se cerró desde
-su §1, el resto sigue pendiente), y
-[`prompt-fase5.md`](docs/prompt-fase5.md), que es **el que describe el trabajo
+su §1, y las miniaturas y la PWA pasan a la 7), y
+[`prompt-fase7.md`](docs/prompt-fase7.md), que es **el que describe el trabajo
 que viene**.
 
 **Si vienes con el contexto en blanco, el orden de lectura es:** este documento
-→ [`prompt-fase6.md`](docs/prompt-fase6.md), que es **el que describe el trabajo
-que viene** → y solo si toca esa parte, [`prompt-fase5.md`](docs/prompt-fase5.md)
+→ [`prompt-fase7.md`](docs/prompt-fase7.md), que es **el que describe el trabajo
+que viene** → y solo si toca esa parte, [`prompt-fase6.md`](docs/prompt-fase6.md)
 o [`prompt-fase4.md`](docs/prompt-fase4.md).
 
 **Cuenta de PythonAnywhere gratuita.** Importa para el diseño, no solo para la
@@ -1391,88 +1397,272 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     harían que una herramienta diga que hay datos reales y otra que no, sin dar
     ningún error.
 
-40. **El panel enseña la fiabilidad JUNTO al dato, no en otra pantalla.** Es el
-    dashboard del §1, y se escribe con su regla delante: un dashboard precioso
-    sobre datos que llegan a ratos es peor que una tabla fea sobre datos ciertos,
-    porque el primero se cree.
+40. **Cuatro pantallas, cuatro preguntas, y ninguna se repite.** La primera
+    versión del panel enseñaba el tiempo (que ya estaba en Inicio) y los
+    kilómetros y las comunidades (que ya estaban en el Mapa). El usuario lo
+    cazó en cuanto lo abrió, y tenía razón: un dato en dos sitios acaba
+    divergiendo, y mientras tanto obliga a mirar dos veces para saber lo mismo.
 
-    Hasta ahora la pregunta *"¿me puedo fiar de esta cifra?"* solo se contestaba
-    desde una consola del servidor (`tools/diagnostico.py`). El panel la sube a
-    la pantalla que se mira todos los días: cada fuente sale con su veredicto
-    —`demostrada`, `con_huecos`, `sin_datos`, `simulada`— y con la cifra concreta
-    que lo sostiene.
+    | Pantalla | La pregunta | Qué NO lleva |
+    |---|---|---|
+    | **Inicio** | ¿Qué hago aquí, ahora? | nada histórico |
+    | **Perfil** | ¿Cómo estoy, y de qué me fío? | ni el tiempo ni el viaje |
+    | **Mapa** | ¿Dónde he estado? | nada del cuerpo |
+    | **Chat** | Preguntar en vez de buscar | — |
 
-    Cuatro decisiones dentro:
+    Es la decisión 32 aplicada a la interfaz: **una definición, varios
+    consumidores.** El contexto se construye una sola vez en `contexto.py`, y
+    cada pantalla pide lo que enseña — Inicio llama a `/api/contexto` (rápido,
+    con GPS, con red), Perfil a `/api/perfil` (SQLite, sin GPS y sin red), el
+    Mapa a `/api/ruta`. Ninguna pide lo que va a enseñar otra.
+
+    La consecuencia práctica es que quitar duplicados se hace en el **payload**
+    y no solo en el HTML: `Perfil` ya no devuelve `viaje` ni `progreso`. Dejar
+    los campos "por si acaso" es como vuelven a colarse en la pantalla.
+
+    Y la fiabilidad va **junto al dato**, que es lo que este proyecto exige y
+    hasta ahora solo se veía desde una consola: cada fuente sale con su veredicto
+    —`demostrada`, `con_huecos`, `sin_datos`, `simulada`— y con la cifra que lo
+    sostiene. Tres decisiones dentro:
 
     - **Un día sin muestras se dibuja como HUECO, no como cero.** Un cero dice
-      "no anduvo" y un hueco dice "no lo sé"; pintarlos igual convierte un día
-      sin cobertura en un día de sofá. `metricas.pasos_por_dia` solo trae los
-      días con dato, así que `panel.serie()` rellena el calendario entero.
-    - **La telemetría entra dos veces en `armar()`, y no es un descuido.** Lo
-      simulado se **enseña** (si no, el panel saldría vacío y no se entendería
-      por qué) pero solo las muestras de `atajos-iphone` pueden declarar una
-      fuente demostrada. Leer las dos series juntas anularía la separación que la
-      decisión 36 puso en el esquema.
+      "no anduvo" y un hueco dice "no lo sé".
+    - **Lo simulado se enseña pero no se certifica a sí mismo.** `armar()` recibe
+      la telemetría dos veces —todas las muestras para pintar, solo las de
+      `atajos-iphone` para dar por buena una fuente—, porque leerlas juntas
+      anularía la separación que la decisión 36 puso en el esquema.
     - **Vocabulario propio, distinto del de `contexto.Fuente`.** Allí se responde
       "¿respondió la consulta?" y aquí "¿se puede construir encima?": una fuente
       que contesta bien cada vez que se le pregunta puede llevar tres días sin
-      llegar, y colapsarlas dejaría pasar una serie muerta con un `ok`.
-    - **`/api/panel` es un GET sin GPS ni red**: todo sale de SQLite, así que el
-      panel abre entero sin cobertura. El *aquí y ahora* va bajo botón y reutiliza
-      `/api/contexto`, que es lo único que cuesta Nominatim y Open-Meteo.
+      llegar.
 
-    Sin IA, a propósito y por decisión del usuario: primero los datos bien
-    enseñados. `hace_cuanto()` sube de `tools/diagnostico.py` a `timeparse.py`
-    porque ahora la usan dos consumidores y dos copias que se separaran darían
-    dos respuestas distintas sobre la misma fuente.
+    Y los nombres dejan de repetir "del viaje" en bucle. La app **es** el viaje;
+    decirlo en cada título no informa de nada.
+
+41. **Ninguna respuesta de `/api/` se cachea. Las páginas, sí.** Salió de un
+    síntoma del usuario: metió una foto en el álbum, ejecutó el atajo y el mapa
+    siguió igual.
+
+    No había ni una cabecera de caché en el proyecto, y un GET sin
+    `Cache-Control` un navegador lo puede reutilizar por su cuenta —Safari en iOS
+    lo hace— con lo que la pantalla enseña la respuesta de antes **sin dar ningún
+    error**: parece que la importación no llegó cuando lo que pasa es que no se
+    ha vuelto a preguntar. Es el fallo mudo de la decisión 11 en el sitio más
+    confuso posible, porque hace dudar del atajo, que es lo caro de depurar.
+
+    Se pone en un `after_request` y no vista por vista: la regla es "todo lo que
+    cuelga de `/api/`", y una lista escrita a mano se quedaría corta en el
+    siguiente endpoint sin avisar (decisión 19).
+
+    **Y solo la API.** El HTML y el JavaScript se siguen cacheando a propósito:
+    es lo que hace que las páginas abran con mala cobertura (decisión 28).
+    Marcarlos `no-store` habría cambiado un fallo por otro peor.
+
+    Corolario que ya está puesto: la fila de *Fotos* del Perfil dice **cuándo fue
+    la última importación**, no cuándo se hizo la foto. La pregunta tras ejecutar
+    el atajo es "¿ha entrado lo que acabo de mandar?", y una foto de hace tres
+    semanas puede llegar hoy.
+
+    **Y la otra mitad, que faltaba: los estáticos llevan `?v=<mtime>`.** Aquí se
+    decidió que el HTML y el JavaScript SÍ se cachean; lo que no había era forma
+    de invalidarlos. En PythonAnywhere los sirve nginx **sin `Cache-Control` ni
+    `ETag`**, solo con `Last-Modified` (comprobado con `curl -I`), así que Safari
+    aplica caché heurística y puede seguir con el archivo viejo días después de
+    desplegar: pulsas *Reload*, el servidor ya tiene el código nuevo, y el móvil
+    ejecuta el de antes. No da ningún error — la pantalla se comporta como la
+    versión anterior — y entonces se depura el despliegue en vez del código, o
+    peor, se valida a ciegas una versión que no es. Lo resuelve un
+    `@app.url_defaults` que añade la query a todo `url_for('static', ...)`, sin
+    tocar plantillas. `mtime` y no un hash del contenido: `git pull` reescribe la
+    fecha, que es exactamente el momento en que la caché debe romperse.
+
+42. **Un id muerto en el JavaScript no lo caza ninguna prueba de Python.** Al
+    llevarse las métricas a Perfil (decisión 40) desapareció `metricas-card` de
+    `index.html`, pero `app.js` lo seguía escondiendo en `hideAll()`. Resultado:
+    pulsar *¿Dónde estoy?* —**el botón principal de la app**— lanzaba un
+    `TypeError`, y como `hideAll()` estaba **fuera** del `try`, no había ni catch
+    que lo contara ni finally que soltara el botón: se quedaba deshabilitado
+    para siempre y la pantalla en blanco, **sin un solo mensaje**. Los 511 tests
+    pasaban, porque eran todos de Python y el HTML lo pinta el navegador.
+
+    Dos arreglos, y el segundo importa más: se va el id muerto, y `hideAll()`
+    entra en el `try`, de modo que el próximo fallo de esta familia salga escrito
+    en la interfaz en vez de dejar la app muda.
+
+    Y `tests/test_frontend_ids.py`, que comprueba que cada id nombrado por el
+    JavaScript existe en la plantilla que lo sirve. Se verificó que **falla** al
+    reintroducir el bug, que es la única forma de saber que un test sirve.
+
+    La lección general: **la frontera entre Python y el navegador no tiene red**,
+    y es justo por donde pasan los renombrados. Cada vez que algo se mueva de
+    pantalla, es el sitio donde mirar.
+
+43. **No se paraleliza lo que escribe en la misma base de datos.** Es la
+    corrección más cara del proyecto y la que más fácil sería volver a cometer,
+    porque el código paralelo era "el correcto".
+
+    `contexto.construir()` lanzaba sus tres fuentes con un `ThreadPoolExecutor`:
+    tres llamadas de red independientes, y en paralelo se paga la mayor en vez de
+    la suma. En el portátil, impecable. Medido en PythonAnywhere con coordenadas
+    nuevas:
+
+    ```
+    reverse_geocode   0.56s en frío   0.05s cacheado
+    get_weather       0.57s en frío   0.05s cacheado
+    efemerides        0.47s en frío   0.05s cacheado
+    construir()      34.20s  ← con las tres YA cacheadas
+    ```
+
+    Treinta y cuatro segundos para envolver 0,15 s de trabajo. **En serie: 0,18 s**
+    en el mismo servidor.
+
+    **El motivo NO es que los hilos sean caros**, que fue la primera explicación
+    y era falsa: montar un pool de tres y ejecutar tres tareas vacías cuesta
+    0,00 s ahí mismo. Lo que se atasca es lo que hacen dentro — las tres fuentes
+    leen y **escriben** la caché de SQLite, y en PythonAnywhere la base de datos
+    vive en un disco de red donde el bloqueo de escritura se paga carísimo. Queda
+    escrito el error y no solo la conclusión, porque desde el motivo falso la
+    regla sería "aquí no se paraleliza nada" y eso descartaría casos donde sí
+    conviene.
+
+    **Por qué no se vio antes, que es la parte reutilizable:** el diagnóstico
+    medía siempre las mismas coordenadas, ya cacheadas, y decía 0,05 s. El móvil
+    pedía el sitio donde estabas, que no se había consultado nunca. La misma
+    función, dos números que se diferencian en un factor de setecientos. **Un
+    punto de prueba que nunca cambia deja de probar la parte que falla**, así que
+    `tools/diagnostico.py` usa ahora el último sitio conocido —de `lugar_del_dia`,
+    de la telemetría **real**, o de la última foto— y dice de dónde salió.
+
+    Y tenía una segunda mitad peor que la lentitud: en el plan gratuito hay **UN
+    worker**, así que mientras esa petición esperaba, abrir Perfil o el Mapa
+    fallaba con un «Load failed» que no tenía nada que ver con ellos. De ahí
+    salen tres cosas más: el timeout de las fuentes rápidas baja de 10 s a 6 s
+    (con todo en serie, ese número **es** el peor caso de la pantalla, y las
+    cuatro APIs responden en 0,2-0,3 s), el contexto gana el `AbortController`
+    que las recomendaciones y el chat ya tenían, y ese texto crudo de Safari se
+    traduce en las cuatro pantallas, porque «Load failed» no dice qué pasó ni qué
+    hacer y suena a pantalla rota.
+
+    Corolario para cuando se quiera volver a intentar: **se mide en el servidor**
+    (`tools/medir_contexto.py`), no en el portátil, donde las dos versiones salen
+    a 0,00 s.
+
+44. **El log registra también los aciertos, o el silencio no significa nada.**
+    Metes una foto en el álbum, ejecutas el atajo, el mapa no cambia. Miras el
+    log y no hay ninguna línea. ¿El atajo no envió, o envió y se guardó? Las dos
+    cosas se ven igual y se arreglan en sitios opuestos. Costó una mañana.
+
+    Ahora las importaciones y las ingestas dejan rastro con sus cifras. Que en
+    los puntos salga `duplicados: 6` es la respuesta normal al reenviar el álbum
+    entero, y que en la telemetría las duplicadas sean mayoría es la señal de que
+    la ventana solapada funciona (decisión 23): son justo los números que hay que
+    poder mirar para saber que la automatización sigue viva.
+
+    Hizo falta bajar el logger a `INFO`: **Flask filtra a WARNING en producción**,
+    así que esas líneas se habrían escrito en el vacío — el mismo arreglo dando
+    la sensación de estar hecho sin estarlo.
+
+    Y cuando el cuerpo no es JSON, el 400 devuelve **qué llegó**, como ya hacía
+    la ingesta. Fue lo que resolvió el caso: el cuerpo llegaba **vacío**. Nada de
+    esto registra cabeceras — un token en un log es un token comprometido.
+
+    Del mismo trabajo salió `force=True` al parsear: Atajos manda el cuerpo como
+    *Archivo* y entonces va sin `Content-Type`, y Flask devolvía `None` sin
+    mirarlo. Exigir esa cabecera no protege de nada aquí (al otro lado hay una
+    máquina con token, no un navegador con CORS); lo único que hacía era romper
+    la ingesta por un desplegable mal puesto en la pantalla de un móvil.
+
+45. **El álbum es un ESTADO, no una lista de altas.** `INSERT OR IGNORE` nunca
+    borra, así que sacar una foto de `Viaje` la dejaba en el mapa para siempre. Y
+    eso rompe lo que hace útil al álbum: quitar una foto es decir *"esta no
+    cuenta"*, y **una curación que solo suma no es una curación** (decisión 30).
+
+    Con `"completo": true` en el cuerpo, un envío pasa a ser el estado del álbum:
+    lo que no viene, se borra.
+
+    Va detrás de una bandera explícita y no como comportamiento normal porque
+    **el precio de equivocarse no es simétrico**: una foto de más se ve y se
+    quita; una foto de menos es historia borrada. Un lote parcial —una prueba a
+    mano, otro camino de importación, un atajo a medio montar— no puede llevarse
+    el viaje por delante sin decirlo.
+
+    Tres protecciones que no dependen de que nadie se acuerde: una lista vacía se
+    rechaza con un 400 **antes** de llegar al borrado (el caso que más miedo da:
+    un atajo roto mandando cero puntos); `delete_waypoints_ausentes` con lista
+    vacía devuelve 0 sin tocar nada, porque un `NOT IN ()` sin elementos vaciaría
+    la tabla; y el borrado se acota a la `fuente`, así que el álbum del iPhone no
+    puede tocar lo que entró por la carpeta del portátil. El borrado va **después**
+    de insertar: si el insert falla, no se ha borrado nada.
+
+    `eliminados` sale en la respuesta y en el log, y no es adorno: el atajo manda
+    como mucho 300 fotos, así que si el álbum crece por encima un envío deja de
+    ser el álbum entero, y ese número es la única señal de que el límite se quedó
+    corto.
+
+46. **Las pantallas se recargan al volver a la pestaña, con anti-rebote.** iOS
+    **no tiene ningún disparador de "he metido una foto en el álbum"**, así que
+    el envío siempre lo dispara algo. Se añadió un botón que lanza el atajo desde
+    la app (`shortcuts://run-shortcut?name=…`, con el nombre en una variable de
+    entorno porque lo elige quien monta el atajo), y entonces apareció el hueco
+    obvio: pulsas, iOS te lleva a Atajos, vuelves… y la pantalla sigue con lo de
+    antes, justo cuando quieres comprobar si ha entrado.
+
+    `visibilitychange` recarga los **datos** y no la página: las respuestas de
+    `/api/` salen con `no-store` (decisión 41), así que traen lo nuevo, y el mapa
+    conserva el zoom en vez de volver a pedir los tiles.
+
+    El anti-rebote de 3 s no es cosmético: cambiar de app y volver es un gesto
+    constante en un móvil y hay **un solo worker**; sin él, cada vistazo dejaría
+    esperando detrás a la petición que importa. Medido en Chrome: cinco vistazos
+    seguidos hacen una petición.
+
+    Y el cambio se **dice** —"2 fotos nuevas", "+1650 pasos"—, porque un contador
+    que sube de 4 a 6 no se nota cuando acabas de venir de otra app y no te sabes
+    el número de antes. Importa más de lo que parece: **cuando el envío falla, el
+    síntoma es exactamente que ese número no cambia.** La primera carga nunca
+    anuncia nada, que sin un valor anterior todo sería nuevo.
 
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
 
-Decidido el 28-07-2026, tras cerrar la 3b. Cada paso desbloquea el siguiente;
-saltárselos cuesta rehacer trabajo.
+Los cinco pasos que se decidieron el 28-07-2026 tras cerrar la 3b **están todos
+hechos**: partir `/api/recommendations` en dos, limpiar la pantalla principal, la
+luna, el perfil y el chatbot. Se quedan escritos en
+[`prompt-fase5.md`](docs/prompt-fase5.md) y [`prompt-fase6.md`](docs/prompt-fase6.md).
 
-**0. Comprobar si la telemetría llega sin huecos.** Cinco minutos en una consola
-del servidor (`python tools/ver_telemetria.py 50`). No es burocracia: **decide si
-los pasos y la batería pueden aparecer en pantalla o no**. Mientras no esté
-demostrado, no entran.
+**Lo que viene ahora está en [`prompt-fase7.md`](docs/prompt-fase7.md)**, y el
+orden sale de lo que costó el 29-07-2026:
 
-**1. Partir `/api/recommendations` en dos.** Hoy una sola petición hace ubicación
-+ tiempo + POIs + LLM, y eso tiene tres consecuencias que se arreglan de una vez:
-no se puede mirar el tiempo sin pagar tokens, la pantalla tarda ~13 s por culpa
-del modelo, y **no existe ninguna forma de pedir "el contexto" sin pedir también
-una recomendación**. Separar en un `/api/contexto` rápido, gratis y sin LLM, y
-dejar `/api/recommendations` para cuando lo pidas.
+**1. Una verificación que pase por el navegador.** Los 534 tests son de Python, y
+ninguno habría cazado que el botón principal estaba muerto por un id huérfano
+(decisión 42). Hasta que exista un guion que recorra las cuatro pantallas y falle
+solo, cada despliegue se valida a mano y a ratos.
 
-Esto **no es refactorizar por gusto**: esa función de contexto es exactamente la
-pieza que pide el §6 del encargo de la Fase 4 para el chatbot, y la que alimenta
-el dashboard. Se escribe una vez y sirve para las tres caras del §1.
+**2. Que cambiar de pantalla sea instantáneo.** Hoy cada salto es una carga
+entera. Y antes de elegir cómo arreglarlo hay que **medirlo**, que es la lección
+de la decisión 43: el número que importa no es el que sale en el portátil.
 
-**2. Limpiar la pantalla principal.** Quitar las coordenadas crudas de la tarjeta
-de ubicación (el nombre del pueblo, la comunidad y la altitud sí; `38.39099,
--0.52101 · ±1020 m` no le dice nada a nadie). Y resolver el aviso de POIs —ver
-abajo, porque no es "ocultar el aviso"—.
+**3. El diario y las miniaturas.** Es lo que convierte el mapa en el álbum del
+viaje. ~8 KB por miniatura, mil fotos son 8 MB de los 512 del plan, y reutiliza
+entera la tubería que ya funciona.
 
-**3. La luna.** Fase, iluminación, salida y puesta, junto al amanecer y el
-anochecer que ya están. Se calcula **en Python, sin red y sin API**: es
-astronomía determinista, así que encaja con la regla de tests sin red y con la
-decisión 5 (la lógica vive en Python, no en el prompt). Es el dato de mayor
-valor por línea escrita que queda pendiente.
+**4. Personalizar el mapa.** Ahora sí toca: la regla del proyecto era *primero
+que los datos sean ciertos*, y eso ya está —el álbum se refleja de verdad
+(decisión 45) y las pantallas se actualizan solas (decisión 46)—.
 
-**4. El dashboard**, con las fuentes que hayan pasado el paso 0.
-
-**5. El chatbot**, sobre la función de contexto del paso 1.
+**5. La PWA instalable.** Con el aviso escrito en el encargo: un service worker
+vuelve a plantear enteras las decisiones 28 y 41, así que no entra sin un plan
+para invalidarlo.
 
 > **Sobre "quitar los avisos que no funcionan".** El aviso de POIs salta casi
 > siempre porque Overpass está muerto (decisión 22), y como ruido constante es
 > inútil. Pero **la solución no es callar el aviso**: la decisión 9 dice que una
 > app que oculta que le falta la mitad del contexto no es fiable, es opaca. Lo
-> honesto es **quitar la fuente que no funciona del camino normal** —dejar de
-> llamar a Overpass, o degradarlo a algo que no bloquee ni avise— para que no
-> haya nada que avisar. Ocultar el síntoma dejaría la app diciendo "aquí no hay
-> nada que ver" cuando lo que pasa es "no he podido consultarlo", que es el
-> error que ya se evitó a propósito al descartar el espejo suizo.
+> honesto es **quitar la fuente que no funciona del camino normal** —hecho en la
+> decisión 33: Overpass salió del camino normal y quedó detrás de un botón—.
+> Ocultar el síntoma dejaría la app diciendo "aquí no hay nada que ver" cuando lo
+> que pasa es "no he podido consultarlo".
 
 ### Lo demás, sin orden fijo
 
