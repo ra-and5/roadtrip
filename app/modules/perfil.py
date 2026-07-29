@@ -49,17 +49,23 @@ SIMULADA = "simulada"
 
 @dataclass(frozen=True)
 class Barra:
-    """Un día de la serie de pasos.
+    """Un día de la serie de pasos. Tres estados, no dos.
 
     `pasos=None` es un día sin muestras y NO un cero: un cero dice "no anduvo" y
     un hueco dice "no lo sé". Pintarlos igual convierte un día sin cobertura en
     un día de sofá.
+
+    Y falta el tercero, que es el más traicionero porque es un número creíble:
+    `parcial=True` significa que esa cifra es un SUELO —el día perdió su último
+    envío, o todavía no ha terminado— así que se anduvo eso *o más*. Enseñarlo
+    como total no da ningún error: solo un día que parece de descanso.
     """
 
     fecha: str
     etiqueta: str
     pasos: int | None
     es_hoy: bool
+    parcial: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +73,7 @@ class Barra:
             "etiqueta": self.etiqueta,
             "pasos": self.pasos,
             "es_hoy": self.es_hoy,
+            "parcial": self.parcial,
         }
 
 
@@ -120,14 +127,20 @@ def serie(metricas: Metricas, hoy: date, *, dias: int = DIAS_DE_SERIE) -> list[B
     serie que se paró el viernes tiene que verse parada.
     """
     por_dia = {fecha: pasos for fecha, pasos in metricas.pasos_por_dia}
+    parciales = set(metricas.dias_parciales)
     barras = []
     for atras in range(dias - 1, -1, -1):
         dia = hoy - timedelta(days=atras)
+        iso = dia.isoformat()
         barras.append(Barra(
-            fecha=dia.isoformat(),
+            fecha=iso,
             etiqueta=_DIAS_CORTOS[dia.weekday()],
-            pasos=por_dia.get(dia.isoformat()),
+            pasos=por_dia.get(iso),
             es_hoy=atras == 0,
+            # Solo tiene sentido sobre un día CON dato: un día sin muestras ya
+            # se distingue por `pasos=None` y llamarlo además parcial sería
+            # decir dos veces lo mismo con dos palabras distintas.
+            parcial=iso in parciales and iso in por_dia,
         ))
     return barras
 
@@ -226,7 +239,8 @@ def armar(
     fuentes.append(EstadoFuente(
         "lugar_del_dia", "Dónde amaneces",
         SIN_DATOS if not total_dias else DEMOSTRADA if not huecos_dias else CON_HUECOS,
-        f"{total_dias} días registrados"
+        f"{total_dias} día{'s' if total_dias != 1 else ''} registrado"
+        f"{'s' if total_dias != 1 else ''}"
         + (f" · {huecos_dias} sin registrar" if huecos_dias else "")
         if total_dias else "Se registra solo al abrir la app cada día.",
     ))

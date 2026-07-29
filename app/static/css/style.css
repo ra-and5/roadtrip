@@ -543,6 +543,13 @@ button.pequeno {
   );
   border: 1px dashed var(--border);
 }
+/* Un día parcial SÍ tiene dato, pero es un suelo: se anduvo eso o más. Se
+   dibuja sólido —el número es cierto— con el borde superior abierto, que dice
+   "esto sigue hacia arriba" sin inventarse cuánto. */
+.barra-parcial {
+  border-top: 2px dashed var(--bg);
+  opacity: 0.75;
+}
 .barra-valor { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .barra-etiqueta { font-size: 0.72rem; color: var(--muted); }
 .barra-hoy .barra-valor { color: var(--ink); font-weight: 600; }

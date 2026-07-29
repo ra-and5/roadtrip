@@ -326,12 +326,20 @@ def test_sin_muestra_de_hoy_no_se_dice_que_no_ha_andado() -> None:
     assert "no se sabe cuánto ha andado" in prompt.lower()
 
 
-def test_la_media_diaria_no_cuenta_el_dia_en_curso() -> None:
+def test_la_media_diaria_no_cuenta_los_dias_parciales() -> None:
     """Hoy va a medias por definición: a las 11:00 llevas 2.000 pasos. Meterlo
     en la media la hunde, y luego "vas por debajo de tu media" sale calculado a
-    favor de sí mismo."""
+    favor de sí mismo.
+
+    El día en curso se declara por NOMBRE en `dias_parciales` y no se adivina
+    descartando el último elemento. La versión que adivinaba fallaba de dos
+    formas mudas: si hoy aún no ha llegado ninguna muestra tiraba AYER, que es
+    un día bueno; y un día que perdió su envío de las 23:55 entraba como
+    completo con un total truncado, arrastrando la media hacia abajo.
+    """
     metricas = Metricas(
         pasos_por_dia=[("2026-07-26", 10000), ("2026-07-27", 12000), ("2026-07-28", 500)],
+        dias_parciales=("2026-07-28",),
         hay_datos=True,
     )
 

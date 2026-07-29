@@ -67,6 +67,87 @@ def _fuente(p: perfil.Perfil, clave: str) -> perfil.EstadoFuente | None:
     return next((f for f in p.fuentes if f.clave == clave), None)
 
 
+# --- Días parciales: un suelo no es un total ---------------------------------
+
+def test_perder_el_ultimo_envio_del_dia_deja_un_suelo_y_se_marca() -> None:
+    """El caso caro, y es MUDO: la cifra que queda es plausible.
+
+    La columna de pasos es un acumulado (decisión 25), así que el total del día
+    lo trae su último envío. Si ese envío se pierde —estás en un valle a las
+    23:55— lo que queda es lo que llevabas a las 18:00: un SUELO. Pintado como
+    total, ese día parece de descanso y arrastra la media hacia abajo sin dar
+    ningún error.
+    """
+    muestras = _dia_completo("2026-07-27", 15000) + [
+        _muestra("2026-07-28", 6, 900),
+        _muestra("2026-07-28", 18, 12900),  # y ya no llega nada más ese día
+    ]
+
+    p = _armar(muestras)
+    por_fecha = {b.fecha: b for b in p.serie}
+
+    assert por_fecha["2026-07-28"].pasos == 12900
+    assert por_fecha["2026-07-28"].parcial
+    assert not por_fecha["2026-07-27"].parcial
+    # Y lo que de verdad se estaba estropeando: la media solo cuenta el día
+    # cerrado, en vez de promediar 15.000 con un 12.900 que no es el total.
+    assert p.cuerpo.media_diaria == 15000
+
+
+def test_perder_los_envios_de_ENMEDIO_no_trunca_el_dia() -> None:
+    """La otra mitad, y es la que impide pasarse de celoso.
+
+    Un acumulado se cura solo: perder las 10:00 y las 14:00 no pierde nada
+    porque el de las 23:55 ya trae el total. Marcar ese día como parcial sería
+    tirar un día bueno de la media y avisar de un problema que no existe.
+    Comprobado sobre la serie simulada del 27-07-2026.
+    """
+    muestras = [
+        _muestra("2026-07-27", 6, 600),
+        _muestra("2026-07-27", 21, 10051),  # 23:55 locales: el día está cerrado
+        _muestra("2026-07-28", 6, 900),
+        _muestra("2026-07-28", 21, 14974),
+    ]
+
+    p = _armar(muestras)
+    por_fecha = {b.fecha: b for b in p.serie}
+
+    assert not por_fecha["2026-07-27"].parcial
+    assert not por_fecha["2026-07-28"].parcial
+    assert p.cuerpo.media_diaria == round((10051 + 14974) / 2)
+
+
+def test_hoy_siempre_es_parcial_aunque_haya_llegado_todo() -> None:
+    """A las 12:00 llevas los pasos de media mañana, no los del día."""
+    p = _armar(_dia_completo("2026-07-29", 5000))
+
+    hoy = next(b for b in p.serie if b.es_hoy)
+    assert hoy.parcial
+
+
+def test_sin_muestra_de_hoy_ayer_no_se_cae_de_la_media() -> None:
+    """La media descartaba el ÚLTIMO elemento dando por hecho que era hoy.
+
+    Pero `pasos_por_dia` solo trae los días CON dato: si hoy no ha llegado nada
+    todavía, el último elemento es ayer, y se estaba tirando un día completo.
+    """
+    muestras = _dia_completo("2026-07-27", 10000) + _dia_completo("2026-07-28", 12000)
+
+    p = _armar(muestras)
+
+    assert p.cuerpo.media_diaria == 11000
+
+
+def test_un_dia_sin_dato_no_se_llama_ademas_parcial() -> None:
+    """`pasos=None` ya dice "no lo sé". Marcarlo también parcial sería decir dos
+    veces lo mismo con dos palabras que significan cosas distintas."""
+    p = _armar(_dia_completo("2026-07-28", 9000))
+
+    vacio = next(b for b in p.serie if b.fecha == "2026-07-25")
+    assert vacio.pasos is None
+    assert not vacio.parcial
+
+
 # --- La serie de pasos -------------------------------------------------------
 
 def test_un_dia_sin_muestras_es_un_hueco_y_no_un_cero() -> None:

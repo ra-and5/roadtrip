@@ -73,6 +73,9 @@
     renderBarras(perfil.serie);
 
     const pie = [];
+    /* "días completos" ya no es una etiqueta optimista: `media_diaria` descarta
+     * por nombre los días parciales, así que la frase y el cálculo dicen lo
+     * mismo. Antes prometía completos y contaba días truncados. */
     if (cuerpo.media_diaria) pie.push("Media de los días completos: " + miles(cuerpo.media_diaria));
     if (cuerpo.bateria !== null && cuerpo.bateria !== undefined) {
       pie.push("Batería del móvil: " + cuerpo.bateria + " %");
@@ -95,11 +98,16 @@
       const col = document.createElement("div");
       col.className = "barra" + (barra.es_hoy ? " barra-hoy" : "");
 
+      const sinDatos = barra.pasos === null || barra.pasos === undefined;
+
       const valor = document.createElement("span");
       valor.className = "barra-valor";
       /* Un día sin muestras se dibuja como hueco y no como cero: un cero dice
-       * "no anduvo" y un hueco dice "no lo sé". */
-      valor.textContent = barra.pasos === null ? "—" : Math.round(barra.pasos / 100) / 10 + "k";
+       * "no anduvo" y un hueco dice "no lo sé". Y un día parcial lleva "≥"
+       * porque su cifra es un suelo: se anduvo eso o más. */
+      valor.textContent = sinDatos
+        ? "—"
+        : (barra.parcial ? "≥" : "") + Math.round(barra.pasos / 100) / 10 + "k";
       col.appendChild(valor);
 
       /* El tallo va dentro de una pista de alto fijo para que el porcentaje
@@ -107,10 +115,17 @@
       const pista = document.createElement("div");
       pista.className = "barra-pista";
       const tallo = document.createElement("div");
-      tallo.className = "barra-tallo" + (barra.pasos === null ? " barra-hueco" : "");
-      tallo.style.height = maximo && barra.pasos
-        ? Math.max(Math.round((barra.pasos / maximo) * 100), 4) + "%"
-        : "100%";
+      tallo.className = "barra-tallo" +
+        (sinDatos ? " barra-hueco" : "") +
+        (!sinDatos && barra.parcial ? " barra-parcial" : "");
+      /* El alto se decide por `sinDatos`, NO por si `barra.pasos` es cierto.
+       * Con la comprobación anterior un día de CERO pasos caía en la rama del
+       * 100 % y se dibujaba sólido y a tope: el peor día del viaje pintado como
+       * el mejor, sin dar ningún error. Un hueco sí ocupa el alto entero, pero
+       * con la trama de `barra-hueco`, que se lee como silueta y no como dato. */
+      tallo.style.height = sinDatos || !maximo
+        ? "100%"
+        : Math.max(Math.round((barra.pasos / maximo) * 100), 4) + "%";
       pista.appendChild(tallo);
       col.appendChild(pista);
 
@@ -119,8 +134,16 @@
       pie.textContent = barra.etiqueta;
       col.appendChild(pie);
 
-      col.title = barra.fecha +
-        (barra.pasos === null ? ": sin datos" : ": " + miles(barra.pasos) + " pasos");
+      col.title = barra.fecha + (
+        sinDatos
+          ? ": sin datos"
+          : ": " + (barra.parcial ? "al menos " : "") + miles(barra.pasos) + " pasos" +
+            (barra.parcial
+              ? barra.es_hoy
+                ? " (el día no ha terminado)"
+                : " (faltó el último envío del día)"
+              : "")
+      );
       caja.appendChild(col);
     });
   }

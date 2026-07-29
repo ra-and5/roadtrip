@@ -40,7 +40,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.modules import storage
 
-__all__ = ["Cobertura", "Metricas", "cobertura", "dia_local", "obtener", "resumir"]
+__all__ = [
+    "Cobertura", "Metricas", "cobertura", "dia_local", "instante_local",
+    "obtener", "resumir",
+]
 
 # Cuántos días atrás se miran para dar contexto al día de hoy. Una semana es lo
 # que hace falta para que "hoy has andado poco" signifique algo, y lo que cabe
@@ -59,6 +62,19 @@ FUENTE_REAL = "atajos-iphone"
 # decide si la Fase 2d se puede cerrar.
 ENVIOS_ESPERADOS_POR_DIA = 6
 
+# A partir de esta hora LOCAL se considera que el día ya está contado.
+#
+# El criterio NO es cuántos envíos llegaron, y esa es la parte que no se ve
+# venir. La columna es un acumulado (decisión 25), así que perder los envíos de
+# enmedio no pierde nada: el de las 23:55 ya trae el total del día. Lo único que
+# trunca un día es perder el ÚLTIMO. Medido sobre la serie simulada: el
+# 27-07-2026 perdió los envíos de las 10:00 y las 14:00 y su total es exacto.
+#
+# Un día cuya última muestra es de las 14:00 no da "los pasos de ese día": da un
+# SUELO. Y eso no da ningún error —es un número plausible— así que la única
+# forma de no mentir es marcarlo.
+HORA_CIERRE_LOCAL = 22
+
 
 @dataclass(frozen=True)
 class Metricas:
@@ -72,6 +88,11 @@ class Metricas:
     pasos_hoy: int | None = None
     # Máximo de cada día, del más antiguo al más reciente: [(fecha, pasos)].
     pasos_por_dia: list[tuple[str, int]] = field(default_factory=list)
+    # Los días de `pasos_por_dia` cuyo total es un SUELO y no un total: hoy, que
+    # aún no ha terminado, y los que perdieron su último envío. Un número que
+    # es un suelo presentado como total es plausible y falso, que es la peor
+    # combinación (decisión 11).
+    dias_parciales: tuple[str, ...] = ()
     bateria: int | None = None
     ultima_medida: str | None = None
     muestras_hoy: int = 0
@@ -80,13 +101,21 @@ class Metricas:
 
     @property
     def media_diaria(self) -> int | None:
-        """Media de los días COMPLETOS, sin contar hoy.
+        """Media de los días COMPLETOS de verdad.
 
         Hoy va a medias por definición —son las 11:00 y llevas 2.000 pasos—, así
         que meterlo en la media la hunde y luego "hoy vas por debajo de tu
         media" sale mal calculado a favor de sí mismo.
+
+        Antes se descartaba el ÚLTIMO elemento dando por hecho que era hoy, y
+        eso fallaba de dos formas mudas: si hoy aún no ha llegado ninguna
+        muestra, el último elemento es AYER y se tiraba un día bueno; y un día
+        que perdió su envío de las 23:55 entraba como completo arrastrando la
+        media hacia abajo. Ahora se descarta por nombre, con la lista que
+        `resumir()` ya calcula.
         """
-        completos = [pasos for _, pasos in self.pasos_por_dia[:-1]]
+        parciales = set(self.dias_parciales)
+        completos = [p for fecha, p in self.pasos_por_dia if fecha not in parciales]
         if not completos:
             return None
         return round(sum(completos) / len(completos))
@@ -95,6 +124,7 @@ class Metricas:
         return {
             "pasos_hoy": self.pasos_hoy,
             "pasos_por_dia": [{"fecha": f, "pasos": p} for f, p in self.pasos_por_dia],
+            "dias_parciales": list(self.dias_parciales),
             "media_diaria": self.media_diaria,
             "bateria": self.bateria,
             "ultima_medida": self.ultima_medida,
@@ -104,12 +134,11 @@ class Metricas:
         }
 
 
-def dia_local(muestra: dict[str, Any]) -> date | None:
-    """El día LOCAL de una muestra, deshaciendo la canonización a UTC.
+def instante_local(muestra: dict[str, Any]) -> datetime | None:
+    """El instante LOCAL de una muestra, deshaciendo la canonización a UTC.
 
-    Es pública porque la usan dos cosas —el resumen de pasos y la cobertura— y
-    reescribirla en la segunda sería reintroducir el bug de la decisión 29 en
-    la mitad del código que no lo tiene.
+    Devuelve la hora de pared del móvil: el `tzinfo` sigue siendo UTC porque lo
+    que interesa son los dígitos del reloj, no el instante absoluto.
 
     `medido_en` está en UTC y `offset_original` guarda el desfase con el que
     llegó, precisamente para poder volver atrás. Sin esto, todo lo que ocurra
@@ -128,12 +157,24 @@ def dia_local(muestra: dict[str, Any]) -> date | None:
             delta = timedelta(hours=int(horas), minutes=int(minutos or 0))
             if desfase.startswith("-"):
                 delta = -delta
-            return (instante.astimezone(timezone.utc) + delta).date()
+            return instante.astimezone(timezone.utc) + delta
         except ValueError:
             # Un desfase corrupto no puede tirar la métrica entera: se cae al
             # día UTC, que es lo que había antes de intentar afinar.
             pass
-    return instante.date()
+    return instante
+
+
+def dia_local(muestra: dict[str, Any]) -> date | None:
+    """El día LOCAL de una muestra.
+
+    Es pública porque la usan dos cosas —el resumen de pasos y la cobertura— y
+    reescribirla en la segunda sería reintroducir el bug de la decisión 29 en
+    la mitad del código que no lo tiene. Por el mismo motivo delega en
+    `instante_local()` en vez de repetir la aritmética del desfase.
+    """
+    instante = instante_local(muestra)
+    return instante.date() if instante else None
 
 
 def resumir(muestras: list[dict[str, Any]], hoy: date) -> Metricas:
@@ -147,12 +188,25 @@ def resumir(muestras: list[dict[str, Any]], hoy: date) -> Metricas:
 
     # Máximo por día: la columna es un acumulado, no incrementos.
     por_dia: dict[date, int] = {}
+    # La hora local de la última muestra de cada día, que es lo que decide si su
+    # total está cerrado o es solo un suelo.
+    ultima_hora: dict[date, int] = {}
     for muestra in muestras:
         pasos = muestra.get("pasos")
-        dia = dia_local(muestra)
-        if pasos is None or dia is None:
+        instante = instante_local(muestra)
+        if pasos is None or instante is None:
             continue
+        dia = instante.date()
         por_dia[dia] = max(por_dia.get(dia, 0), int(pasos))
+        ultima_hora[dia] = max(ultima_hora.get(dia, -1), instante.hour)
+
+    # Hoy siempre es parcial: son las 11:00 y el día no ha terminado. Los demás
+    # lo son si su última muestra llegó antes de la hora de cierre.
+    parciales = tuple(
+        dia.isoformat()
+        for dia in sorted(por_dia)
+        if dia >= hoy or ultima_hora.get(dia, -1) < HORA_CIERRE_LOCAL
+    )
 
     # La batería es una lectura PUNTUAL, así que vale la última y no el máximo.
     # Confundirlo daría siempre ~100 %: el pico de la noche que cargó.
@@ -161,6 +215,7 @@ def resumir(muestras: list[dict[str, Any]], hoy: date) -> Metricas:
     return Metricas(
         pasos_hoy=por_dia.get(hoy),
         pasos_por_dia=[(d.isoformat(), p) for d, p in sorted(por_dia.items())],
+        dias_parciales=parciales,
         bateria=ultima.get("bateria"),
         ultima_medida=ultima.get("medido_en"),
         muestras_hoy=sum(1 for m in muestras if dia_local(m) == hoy),
