@@ -23,7 +23,9 @@ Qué significa cada columna, que es lo que hace útil la tabla:
 
     html       lo que tarda el servidor en devolver el documento
     estáticos  el JavaScript y el CSS (en caliente sale ~0: los cachea el
-               navegador, decisión 41)
+               navegador, decisiones 41 y 48)
+    arranque   del documento entero a PEDIR los datos: leer el JavaScript de la
+               caché, parsearlo y ejecutarlo. Sin llamada de datos, todo cae aquí
     api        el `fetch` que hace la pantalla para traerse sus datos
     pintar     lo que va desde que llegan los datos hasta que se ven
     TOTAL      desde que se pulsa hasta que la pantalla dice algo
@@ -153,13 +155,23 @@ def _medir(
     t_api = max((r["fin"] - r["ini"] for r in llamadas), default=0.0)
     fin_datos = max((r["fin"] for r in llamadas), default=nav["html"])
 
+    # Desde que el documento está entero hasta que la pantalla PIDE sus datos:
+    # leer el JavaScript de la caché, parsearlo y ejecutarlo (en el Mapa, además,
+    # arrancar Leaflet). Existe esta columna porque sin ella la tabla tenía un
+    # agujero de 1,8 s en el Mapa que no aparecía en ningún sitio, y un hueco sin
+    # nombre se le acaba echando a la red — que es justo lo que ya se había
+    # arreglado. Sin llamada de datos (Inicio) todo el arranque cae aquí.
+    inicio_datos = min((r["ini"] for r in llamadas), default=visto)
+    arranque = max(inicio_datos - nav["html"], 0.0)
+
     return {
         "html": html,
         "estaticos": t_estaticos,
+        "arranque": arranque,
         "api": t_api,
-        # Lo que queda tras la última respuesta: parsear, construir el DOM y
-        # dibujar. Es la parte que NO arregla ninguna caché de red.
-        "pintar": max(visto - fin_datos, 0.0),
+        # Lo que queda tras la última respuesta: construir el DOM y dibujar. Es
+        # la parte que NO arregla ninguna caché de red.
+        "pintar": max(visto - fin_datos, 0.0) if llamadas else 0.0,
         "total": visto,
     }
 
@@ -199,6 +211,7 @@ def _fila(nombre: str, muestras: list[dict[str, float]]) -> str:
         f"  {nombre:<12}"
         f"{_mediana(muestras, 'html'):7.0f}"
         f"{_mediana(muestras, 'estaticos'):11.0f}"
+        f"{_mediana(muestras, 'arranque'):10.0f}"
         f"{_mediana(muestras, 'api'):8.0f}"
         f"{_mediana(muestras, 'pintar'):9.0f}"
         f"{_mediana(muestras, 'total'):9.0f}"
@@ -304,7 +317,7 @@ def main() -> int:
                 print(f"\n{estado}"
                       + ("   (caché del navegador vacía)" if estado == "en frío" else ""))
                 print(f"  {'pantalla':<12}{'html':>7}{'estáticos':>11}"
-                      f"{'api':>8}{'pintar':>9}{'TOTAL':>9}")
+                      f"{'arranque':>10}{'api':>8}{'pintar':>9}{'TOTAL':>9}")
 
                 for nombre, ruta, marcador, api in PANTALLAS:
                     muestras: list[dict[str, float]] = []
