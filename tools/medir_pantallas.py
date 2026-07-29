@@ -236,20 +236,28 @@ def main() -> int:
 
     try:
         with sync_playwright() as pw:
-            navegador = pw.chromium.launch()
+            # Lo de fuera se bloquea con un PROXY que no existe, no
+            # interceptando peticiones. Y esa es la decisión que hace que esta
+            # herramienta sirva: en Playwright, poner una sola ruta desactiva la
+            # caché HTTP del contexto entero, así que el medidor impedía
+            # exactamente lo que venía a medir. La fila "en caliente" salía con
+            # 3550 ms de estáticos y 205.913 bytes transferidos **teniendo
+            # puesto un `max-age` de un año**, y no daba ningún error: solo un
+            # número que decía que el arreglo no había servido de nada.
+            # Con el proxy, medido: 0 bytes y 0 ms en caliente.
+            navegador = pw.chromium.launch(proxy={"server": "per-context"})
+            bloqueo = (
+                {"server": "http://127.0.0.1:9",   # puerto descarte: no escucha nadie
+                 "bypass": base.split("//", 1)[-1].split("/", 1)[0]}
+                if not args.con_tiles else None
+            )
             contexto = navegador.new_context(
                 locale="es-ES", timezone_id="Europe/Madrid",
                 geolocation={"latitude": 43.5622, "longitude": -6.1456, "accuracy": 18},
                 permissions=["geolocation"],
                 viewport={"width": 414, "height": 896},
+                proxy=bloqueo,
             )
-            if not args.con_tiles:
-                propio = base.split("//", 1)[-1].split("/", 1)[0]
-                contexto.route(
-                    "**/*",
-                    lambda route: route.continue_()
-                    if propio in route.request.url else route.abort(),
-                )
 
             page = contexto.new_page()
             cdp = contexto.new_cdp_session(page)

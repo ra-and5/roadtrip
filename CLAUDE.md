@@ -1742,12 +1742,31 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Eso no lo arregla ninguna caché del navegador, y se mira cuando esta medida
     esté confirmada.
 
-    Y dos artefactos del propio medidor, corregidos, porque los dos daban un
+    Y tres artefactos del propio medidor, corregidos, porque los tres daban un
     número que parecía bueno: `estáticos` se calculaba como el intervalo del
     primer recurso al último —y Leaflet pide los iconos de las chinchetas mucho
     después de arrancar, así que ese hueco se contaba como red—, e **Inicio se
     daba por pintado antes de cargar su JavaScript**, porque su marcador está en
     el HTML. Un medidor con un sesgo no avisa de nada: confirma lo que ya creías.
+
+    El tercero es el peor y merece quedar escrito aparte, porque **el medidor
+    impedía justo lo que venía a medir**: en Playwright, poner **una sola ruta
+    de interceptación desactiva la caché HTTP del contexto entero**. Con
+    `context.route("**/*", …)` para bloquear los tiles, los estáticos se volvían
+    a descargar en cada navegación, así que la primera medida tras el arreglo
+    decía **3550 ms y 205.913 bytes en caliente** — con un `max-age` de un año
+    puesto y funcionando. El veredicto habría sido "la caché no sirvió de nada"
+    y era falso.
+
+    Lo de fuera se bloquea ahora con un **proxy que no escucha nadie**
+    (`http://127.0.0.1:9`, con `bypass` para el propio host), que corta igual y
+    no toca la caché: medido, 0 bytes y 0 ms en caliente. `tools/verificar.py`
+    hace lo mismo por el mismo motivo — con interceptación, la app se comportaba
+    allí de una forma que no tiene en ningún navegador de verdad.
+
+    La regla general, que vale para cualquier medida futura: **un instrumento
+    que altera lo que mide no da un error, da una conclusión.** Es la decisión
+    11 aplicada a las herramientas en vez de al código.
 
 ## 7. Roadmap
 

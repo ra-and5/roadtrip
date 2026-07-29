@@ -631,7 +631,8 @@ def main() -> int:
         sesion = sesion_http()
         with sync_playwright() as pw:
             navegador = pw.chromium.launch(
-                headless=not args.ver, slow_mo=250 if args.lento else 0
+                headless=not args.ver, slow_mo=250 if args.lento else 0,
+                proxy={"server": "per-context"},
             )
             contexto = navegador.new_context(
                 locale="es-ES",
@@ -642,16 +643,17 @@ def main() -> int:
                 geolocation={"latitude": LAT, "longitude": LON, "accuracy": 18},
                 permissions=["geolocation"],
                 viewport={"width": 414, "height": 896},  # tamaño de iPhone
-            )
-
-            # Nada sale de esta máquina. Si algún día una pantalla depende de un
-            # CDN, esto lo convierte en un fallo visible en vez de en una app
-            # que solo funciona con cobertura.
-            contexto.route(
-                "**/*",
-                lambda route: route.continue_()
-                if "127.0.0.1" in route.request.url
-                else route.abort(),
+                # Nada sale de esta máquina: todo lo que no sea 127.0.0.1 va a un
+                # proxy que no escucha nadie. Si algún día una pantalla depende de
+                # un CDN, esto lo convierte en un fallo visible en vez de en una
+                # app que solo funciona con cobertura.
+                #
+                # Se bloquea con un proxy y no interceptando peticiones porque
+                # **una sola ruta desactiva la caché HTTP del contexto entero**
+                # (medido: en caliente pasaba de 0 a 205.913 bytes). Con
+                # interceptación, la app se comportaba aquí de una forma que no
+                # tiene en ningún navegador de verdad.
+                proxy={"server": "http://127.0.0.1:9", "bypass": "127.0.0.1"},
             )
 
             page = contexto.new_page()
