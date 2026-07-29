@@ -59,7 +59,8 @@ sobre datos ciertos, porque el primero se cree.
 - **Explicar el porqué, no el qué.** Los comentarios del código justifican
   decisiones no obvias. El "qué hace" ya lo dice el código.
 - **Tests sin red.** La suite no debe necesitar conexión ni API keys: tiene que
-  poder correr en un camper sin cobertura.
+  poder correr en un camper sin cobertura. Vale igual para `tools/verificar.py`,
+  que además corta la red del navegador a propósito (decisión 47).
 - **Nunca hardcodear secretos.** Todo por variables de entorno.
 
 ## 3. Arquitectura
@@ -113,6 +114,10 @@ pip install -r requirements.txt            # producción (lo que va al servidor)
 pip install -r requirements-dev.txt        # + pytest, para desarrollar
 python run.py                              # servidor local (127.0.0.1:5000)
 python -m pytest -q                        # tests (sin red, sin API keys)
+python tools/verificar.py                  # las 4 pantallas EN UN NAVEGADOR (sin red)
+python tools/verificar.py --ver            # con ventana, para mirarlo
+python tools/verificar.py --solo mapa      # una pantalla: inicio | perfil | mapa | chat
+tools/verificar_sabotaje.sh                # ¿el guion caza un fallo metido a propósito?
 python tools/diagnostico.py                # config, datos, fuentes y contexto
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
 python tools/diagnostico.py -v             # con la traza completa de cada fallo
@@ -158,7 +163,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 | 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
-| 7 | Verificar todo, navegación fluida, el diario, y la PWA | ⬜ Pendiente — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
+| 7 | Verificar todo, navegación fluida, el diario, y la PWA | 🟨 **§1 hecho**: `tools/verificar.py` recorre las cuatro pantallas en Chromium y `tools/verificar_sabotaje.sh` demuestra que caza cinco fallos metidos a propósito (decisión 47). Falta el §2 en adelante — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
 Lo que hay: notas de **solo texto** con cola offline en IndexedDB, mapa con
@@ -1622,6 +1627,67 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     síntoma es exactamente que ese número no cambia.** La primera carga nunca
     anuncia nada, que sin un valor anterior todo sería nuevo.
 
+47. **La verificación pasa por el navegador, y se demuestra saboteándola.** Es
+    el §1 de la Fase 7 y sale de la decisión 42: los 534 tests son de Python, y
+    ninguno habría cazado que el botón principal de la app estaba muerto por un
+    id huérfano. Lo que faltaba no eran más tests unitarios, era abrir la
+    página.
+
+    `tools/verificar.py` arranca la app, entra, y recorre las cuatro pantallas
+    en Chromium: los tres botones de Inicio, los cuatro caminos de la cola de
+    notas, el filtro y el *revivir* del Mapa, el reintento del Perfil tras un
+    503 y una conversación entera en el Chat. Once segundos de principio a fin.
+
+    Cuatro decisiones dentro, y la primera es la que más se va a cuestionar:
+
+    - **Es un guion en `tools/`, no una carpeta más de `pytest`.**
+      `tests/conftest.py` corta `socket.connect` para toda la suite, y Playwright
+      necesita hablar por TCP con el navegador y con el servidor de prueba.
+      Meterlo en la suite obligaba a un `conftest` que levantara esa prohibición
+      justo donde vive la garantía de "los tests corren sin cobertura". Fuera de
+      `pytest` el problema no existe y `python -m pytest -q` sigue siendo lo que
+      era.
+    - **Sin red y sin API keys, en dos capas.** `tools/servidor_de_prueba.py`
+      dobla `requests` con respuestas enlatadas y sustituye `build_provider` por
+      un proveedor falso, así que verificar no cuesta un token; y el navegador
+      **aborta toda petición que no vaya a 127.0.0.1**. Lo segundo no es
+      redundante: es lo que convierte "no hay cobertura" en un caso que se
+      prueba en vez de en una suposición. Se dobla al nivel del HTTP y no de las
+      funciones del módulo para que los parseadores reales entren en el
+      recorrido.
+    - **Cero excepciones de JavaScript en cada pantalla.** Es la única
+      comprobación que caza fallos que nadie previó —un id huérfano, un
+      renombrado a medias—, que es exactamente lo que pasó. Los errores de
+      consola se filtran **por la URL de origen** y no por el texto del mensaje:
+      un tile bloqueado a propósito y un 500 nuestro escriben literalmente la
+      misma línea ("Failed to load resource"), así que filtrar por texto habría
+      escondido el segundo para callar el primero. Y los dos errores que provoca
+      el propio guion —cortar la red, forzar un 503— se descartan **uno a uno y
+      por su texto exacto**, nunca vaciando la consola.
+    - **Un guion de verificación que nunca ha fallado está sin estrenar.**
+      `tools/verificar_sabotaje.sh` rompe la app a propósito cinco veces —un id
+      muerto en el JavaScript (el bug de la decisión 42 tal cual), un id
+      renombrado en una plantilla, una ruta de la API movida, el contenedor del
+      mapa sin id, la lista de fuentes fuera del Perfil— y exige que el guion
+      falle en las cinco. Los cinco salen cazados. Es lo mismo que se hizo con
+      `test_frontend_ids.py`: comprobar que el test falla al reintroducir el bug.
+
+    **Y encontró un fallo mudo a la primera, que es lo que justifica todo lo
+    anterior:** el aviso de «el fondo del mapa no carga» se pintaba y se borraba
+    solo. Leaflet emite `load` cuando ha **terminado de intentarlo**, con tiles
+    buenos o sin ellos, así que el `tilesFallidos = 0` del manejador borraba el
+    aviso en el mismo instante en que se había puesto. Sin cobertura el mapa
+    salía gris y callado — justo lo que la decisión 28 dice que no puede pasar—
+    y no daba ningún error. Se arregla escuchando `tileload`, que es un tile que
+    **sí** ha cargado.
+
+    **Lo que este guion NO cierra, y hay que decirlo:** corre en un Chromium de
+    escritorio, así que no dice nada del GPS real de iOS, de la purga de
+    IndexedDB a los siete días, ni de lo que tarda la app en el servidor con un
+    solo worker (decisión 43: eso se mide donde corre). Cierra la distancia
+    entre "la suite pasa" y "la página funciona", no la de "va en mi portátil"
+    a "va en el iPhone".
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
@@ -1634,10 +1700,10 @@ luna, el perfil y el chatbot. Se quedan escritos en
 **Lo que viene ahora está en [`prompt-fase7.md`](docs/prompt-fase7.md)**, y el
 orden sale de lo que costó el 29-07-2026:
 
-**1. Una verificación que pase por el navegador.** Los 534 tests son de Python, y
-ninguno habría cazado que el botón principal estaba muerto por un id huérfano
-(decisión 42). Hasta que exista un guion que recorra las cuatro pantallas y falle
-solo, cada despliegue se valida a mano y a ratos.
+**1. Una verificación que pase por el navegador.** ✅ **Hecho** el 29-07-2026:
+`tools/verificar.py` y `tools/verificar_sabotaje.sh` (decisión 47). Encontró de
+salida un fallo mudo real —el aviso de tiles caídos se borraba solo—, que es la
+prueba de que hacía falta.
 
 **2. Que cambiar de pantalla sea instantáneo.** Hoy cada salto es una carga
 entera. Y antes de elegir cómo arreglarlo hay que **medirlo**, que es la lección

@@ -7,3 +7,11 @@
 -r requirements.txt
 
 pytest==9.1.1
+
+# Conduce el navegador de `tools/verificar.py`. Aquí y NO en
+# requirements.txt: el navegador que descarga aparte ocupa ~150 MB y en el
+# servidor no se abre ninguna página, se sirven.
+#
+# Tras instalarlo hace falta bajar el navegador, una sola vez:
+#   python -m playwright install chromium
+playwright==1.61.0

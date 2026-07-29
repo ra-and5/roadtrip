@@ -123,7 +123,12 @@
         avisoEl.hidden = false;
       }
     });
-    capa.on("load", function () {
+    /* `tileload` (un tile que SÍ ha cargado) y no `load` (la capa ha terminado
+     * de intentarlo). Leaflet da por terminada la carga aunque todos los tiles
+     * hayan fallado, así que con `load` el aviso se ponía y se borraba en el
+     * mismo instante: sin cobertura el mapa salía gris y callado, que es justo
+     * lo que este aviso existe para impedir. */
+    capa.on("tileload", function () {
       tilesFallidos = 0;
       avisoEl.hidden = true;
     });
