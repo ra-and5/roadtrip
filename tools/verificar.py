@@ -150,7 +150,26 @@ class Errores:
 # El servidor
 # ---------------------------------------------------------------------------
 
+def puerto_ocupado() -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", PUERTO)) == 0
+
+
 def arrancar_servidor(datos: Path) -> subprocess.Popen[bytes]:
+    # El puerto se mira ANTES de arrancar. Si ya hay algo escuchando —una
+    # verificación anterior que no acabó de morir—, el hijo muere con «Address
+    # already in use» y el bucle de abajo daría por bueno al servidor VIEJO: su
+    # base de datos y, lo que de verdad importa, SU CÓDIGO. Entonces esto deja de
+    # verificar lo que hay en disco, y no da ningún error — sale verde sobre la
+    # versión de antes, o rojo por datos que no son los sembrados.
+    if puerto_ocupado():
+        raise Fallo(
+            f"el puerto {PUERTO} ya está ocupado: hay otra verificación "
+            f"corriendo o una anterior dejó el servidor vivo.\n"
+            f"     Suéltalo con:  pkill -f servidor_de_prueba.py"
+        )
+
     proceso = subprocess.Popen(
         [sys.executable, str(RAIZ / "tools" / "servidor_de_prueba.py"),
          "--puerto", str(PUERTO), "--datos", str(datos)],
@@ -163,10 +182,8 @@ def arrancar_servidor(datos: Path) -> subprocess.Popen[bytes]:
         if proceso.poll() is not None:
             salida = (proceso.stderr.read() if proceso.stderr else b"").decode()
             raise Fallo(f"el servidor de prueba murió al arrancar:\n{salida}")
-        with socket.socket() as s:
-            s.settimeout(0.3)
-            if s.connect_ex(("127.0.0.1", PUERTO)) == 0:
-                return proceso
+        if puerto_ocupado():
+            return proceso
         time.sleep(0.2)
 
     proceso.kill()
@@ -623,7 +640,16 @@ def main() -> int:
     print(f"\nVerificación en el navegador   ({BASE}, datos en {datos})")
     print("=" * 72)
 
-    servidor = arrancar_servidor(datos)
+    # No arrancar es un fallo del entorno, no de la app: sale con su motivo y
+    # sin traza, como el medidor de pantallas. Una traza aquí hace buscar el
+    # error en el código que se iba a verificar, que es el sitio equivocado.
+    try:
+        servidor = arrancar_servidor(datos)
+    except Fallo as error:
+        shutil.rmtree(datos, ignore_errors=True)
+        print(f"\nNo se pudo arrancar: {error}\n")
+        return 1
+
     errores = Errores()
     corredor = Corredor(errores, args.verboso)
 

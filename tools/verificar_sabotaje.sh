@@ -10,7 +10,7 @@
 # JavaScript, una ruta de la API— y se deshace pase lo que pase.
 #
 # Uso:  tools/verificar_sabotaje.sh
-# Salida: 0 si el guion caza los cinco; 1 si alguno se le escapa.
+# Salida: 0 si el guion caza los seis; 1 si alguno se le escapa.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -89,9 +89,39 @@ sabotear "lista de fuentes fuera del Perfil" \
   's/id="fuentes-lista"/id="fuentes-lista-roto"/' \
   perfil
 
+# El sexto no toca ningún archivo: ocupa el puerto. Es el sabotaje que imita a
+# una verificación anterior que no acabó de morir, y sin la comprobación previa
+# el guion se conectaba a ESE servidor —otro código, otra base de datos— y
+# contaba lo que viera como si fuera lo del disco.
+printf '  %-46s' "puerto 5099 ocupado por otro servidor"
+salida=$("$PY" - <<'PY' 2>&1
+import socket, subprocess, sys
+escucha = socket.socket()
+escucha.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+escucha.bind(("127.0.0.1", 5099))
+escucha.listen(5)
+try:
+    hecho = subprocess.run(
+        [sys.executable, "tools/verificar.py", "--solo", "perfil"],
+        capture_output=True, text=True, timeout=180,
+    )
+finally:
+    escucha.close()
+print(hecho.stdout.strip())
+sys.exit(hecho.returncode)
+PY
+)
+if [ $? -ne 0 ]; then
+  echo "CAZADO"
+  echo "$salida" | grep -i "ocupado" | head -2 | sed 's/^/       /'
+else
+  echo "SE ESCAPÓ  <-- verificó contra el servidor de otro"
+  fallos=$((fallos + 1))
+fi
+
 echo "======================================================================"
 if [ "$fallos" -eq 0 ]; then
-  echo "El guion caza los cinco. Sirve para lo que se hizo."
+  echo "El guion caza los seis. Sirve para lo que se hizo."
   echo
   exit 0
 fi
