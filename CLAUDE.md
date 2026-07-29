@@ -1768,6 +1768,64 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     que altera lo que mide no da un error, da una conclusión.** Es la decisión
     11 aplicada a las herramientas en vez de al código.
 
+50. **Un suelo no es un total, y una fuente parada no "va regular".** Los dos
+    salieron de la misma pregunta —*¿por qué el dashboard no enseña los pasos de
+    hoy?*— y los dos son números o etiquetas que **parecen** buenos, que es la
+    familia de fallos de la decisión 11.
+
+    **El suelo.** La columna de pasos es un acumulado (decisión 25), así que el
+    total de un día lo trae su último envío. Perder los de enmedio no pierde
+    nada: el de las 23:55 ya trae el total, y está comprobado sobre la serie
+    simulada del 27-07-2026, que perdió las 10:00 y las 14:00 y cuadra. Lo único
+    que trunca un día es perder **el último**, y entonces lo que queda es lo que
+    llevabas a las 18:00: el día parece de sofá y hunde la media, sin dar ningún
+    error. Ahora `resumir()` los marca en `dias_parciales` mirando la hora local
+    de la última muestra (`HORA_CIERRE_LOCAL = 22`) y la barra sale con `≥`.
+
+    El criterio es la **hora**, no cuántos envíos llegaron, y esa parte no se ve
+    venir: contar envíos marcaría como parcial un día que perdió dos de enmedio
+    y está entero.
+
+    Del mismo trabajo salieron dos bugs mudos más, los dos en el mismo sitio:
+    `media_diaria` descartaba el **último elemento** de la lista dando por hecho
+    que era hoy —si hoy aún no ha llegado nada, el último es ayer y se tiraba un
+    día bueno—, y el alto de la barra se decidía con `barra.pasos` como
+    condición, así que un día de **cero pasos** caía en la rama del 100 % y se
+    dibujaba a tope: el peor día del viaje pintado como el mejor.
+
+    **La fuente parada.** Los datos reales del servidor el 29-07-2026: cinco
+    muestras, todas del mismo rato de la noche anterior, disparadas a mano.
+    Ninguna automatización había corrido nunca. El Perfil lo contaba como huecos
+    y decía *con huecos*, que es lo que también dice una serie que perdió un
+    envío en un valle sin cobertura — y esa se cura sola. Dos averías distintas
+    con el mismo nombre hacen esperar en vez de ir a mirar Atajos.
+
+    `perfil.PARADA` es un estado propio, salta a las **12 h** sin recibir nada y
+    lo dice antes que ninguna otra cifra. Las 12 h no son un número redondo: el
+    hueco normal más largo es el nocturno (último envío ~23:55, primero a las
+    06:00, unas 8 h), y un aviso que salta con todo funcionando se aprende a
+    ignorar. `horas_desde()` se separa de `hace_cuanto()` porque una frase en
+    castellano se lee pero no se compara, y las dos tienen que hablar de la
+    misma marca de tiempo.
+
+51. **El puerto ocupado hacía que la verificación probara OTRO servidor.**
+    `tools/verificar.py` arrancaba su servidor de prueba y esperaba a que el
+    puerto 5099 respondiera. Si el puerto ya estaba cogido —una verificación
+    anterior que no acabó de morir— el hijo moría con *Address already in use* y
+    quien contestaba era el servidor **viejo**: su base de datos y, lo que de
+    verdad importa, **su código**.
+
+    A partir de ahí el guion no verifica lo que hay en disco y **no da ningún
+    error**: salía rojo por datos que no había sembrado —lo que se vio, tres
+    pasadas fallando en pantallas distintas— o, en el caso peligroso, **verde
+    sobre la versión de antes**. Es el instrumento que altera lo que mide de la
+    decisión 49, pero peor: aquí ni siquiera medía lo que creía.
+
+    Se mira el puerto **antes** de arrancar y se falla con el motivo y el
+    comando para soltarlo, sin traza — no arrancar es cosa del entorno, y una
+    traza manda a buscar el fallo en el código que se iba a verificar. El
+    sabotaje número 6 ocupa el puerto y exige que lo cace.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

@@ -421,11 +421,37 @@ En cada automatización:
       cuando no hace falta.
 - [ ] Quita el *Mostrar alerta* del paso 23, o te saltará una alerta cada vez.
 
+Las seis, para no perder la cuenta al montarlas. Marca cada una cuando esté
+creada **y con "Preguntar antes de ejecutar" desactivado**, que es la casilla
+que decide si esto corre solo o no corre:
+
+- [ ] 06:00
+- [ ] 10:00
+- [ ] 14:00
+- [ ] 16:00
+- [ ] 18:00
+- [ ] 23:55 — **esta es la que cierra el día.** Los pasos son un acumulado, así
+      que el total del día lo trae su último envío: perder los de enmedio no
+      pierde nada y perder este deja un suelo. El Perfil lo marca con `≥`.
+
 Deja el móvil funcionando un par de días y vuelve a mirar:
 
 ```bash
 python tools/ver_telemetria.py 50
 ```
+
+### Cómo saber si están corriendo de verdad
+
+Es la pregunta que costó el 29-07-2026: había cinco muestras en el servidor y
+parecía que la telemetría funcionaba. Las cinco eran del **mismo rato de la
+noche anterior**, disparadas a mano; ninguna automatización había corrido nunca.
+Las horas de la tabla son la única forma de verlo — cinco muestras entre las
+22:55 y las 23:32 no son seis envíos repartidos por el día.
+
+Desde el móvil se ve sin consola: `/perfil` marca la telemetría como **parada**
+en cuanto pasan 12 h sin recibir nada. No es lo mismo que *con huecos*: un hueco
+es un envío que pilló un valle sin cobertura y se cura solo; *parada* significa
+que no hay nada corriendo y hay que venir aquí.
 
 **El criterio para dar la fase por cerrada es ese y solo ese: que lleguen datos
 de forma fiable durante varios días.** Mientras eso no esté demostrado, no se
