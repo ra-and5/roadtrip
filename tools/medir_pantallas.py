@@ -81,15 +81,27 @@ PANTALLAS = [
 ]
 
 
-def _medir(page: Any, base: str, ruta: str, marcador: str, api: str | None) -> dict[str, float]:
+# Cuánto se espera a que una pantalla acabe de pintar. Contra el desplegado se
+# aguanta mucho más y no es generosidad: en frío se descarga Leaflet entero
+# (147 KB) por el ÚNICO worker del plan gratuito, y ese es justamente el número
+# que se ha venido a medir. Un timeout corto no lo mediría: lo escondería
+# detrás de un error del medidor.
+ESPERA_LOCAL = 10.0
+ESPERA_REMOTA = 60.0
+
+
+def _medir(
+    page: Any, base: str, ruta: str, marcador: str, api: str | None, espera: float
+) -> dict[str, float]:
     """Una visita, cronometrada desde dentro del navegador.
 
     Los tiempos salen de la Performance API y no de un cronómetro en Python: el
     de fuera incluiría el ida y vuelta del protocolo de Playwright, que no lo
     paga ningún usuario.
     """
-    page.goto(f"{base}{ruta}", wait_until="commit")
-    esperar(lambda: page.locator(marcador).count() > 0, f"{ruta} no llegó a pintar")
+    page.goto(f"{base}{ruta}", wait_until="commit", timeout=int(espera * 1000))
+    esperar(lambda: page.locator(marcador).count() > 0,
+            f"{ruta} no llegó a pintar", espera)
 
     # El marcador de Inicio está en el HTML, así que se cumple antes de que
     # ninguno de sus scripts haya cargado: sin esto, esa fila salía con
@@ -101,6 +113,7 @@ def _medir(page: Any, base: str, ruta: str, marcador: str, api: str | None) -> d
             ".every(s => r.includes(s.src)); }"
         ),
         f"{ruta} no llegó a cargar sus scripts",
+        espera,
     )
 
     # Y se espera además a que termine la llamada de la pantalla. El Chat
@@ -241,6 +254,11 @@ def main() -> int:
             page = contexto.new_page()
             cdp = contexto.new_cdp_session(page)
 
+            # Contra el desplegado se espera mucho más, y no es generosidad:
+            # en frío se descarga Leaflet entero por el único worker, que es
+            # exactamente el número que se ha venido a medir.
+            espera = ESPERA_REMOTA if remoto else ESPERA_LOCAL
+
             # El login va ANTES de imprimir la cabecera: una tabla con título y
             # sin filas parece que el servidor no contesta, cuando lo que pasa
             # es que la contraseña no era.
@@ -281,14 +299,28 @@ def main() -> int:
                       f"{'api':>8}{'pintar':>9}{'TOTAL':>9}")
 
                 for nombre, ruta, marcador, api in PANTALLAS:
-                    muestras = []
+                    muestras: list[dict[str, float]] = []
+                    sin_terminar = 0
                     for _ in range(args.pasadas):
                         if estado == "en frío":
                             # Sin esto la segunda pasada ya trae el JavaScript
                             # cacheado y "en frío" mediría otra cosa.
                             cdp.send("Network.clearBrowserCache")
-                        muestras.append(_medir(page, base, ruta, marcador, api))
-                    print(_fila(nombre, muestras))
+                        try:
+                            muestras.append(_medir(page, base, ruta, marcador, api, espera))
+                        except Fallo:
+                            # Una pantalla que no termina no puede llevarse por
+                            # delante las filas que YA se habían medido bien: es
+                            # justo cuando algo va lento cuando hace falta la
+                            # tabla entera para saber si es cosa de esa pantalla
+                            # o de todo el servidor.
+                            sin_terminar += 1
+
+                    if muestras:
+                        nota = f"   ({sin_terminar} sin terminar)" if sin_terminar else ""
+                        print(_fila(nombre, muestras) + nota)
+                    else:
+                        print(f"  {nombre:<12}   — no llegó a pintar en {espera:.0f} s —")
 
             navegador.close()
     finally:
