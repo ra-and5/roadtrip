@@ -238,3 +238,46 @@ def test_un_estatico_inexistente_no_tumba_la_pagina() -> None:
 
     assert "no/existe.js" in url
     assert "?v=" not in url
+
+
+# ---------------------------------------------------------------------------
+# El botón que lanza un atajo de iOS
+# ---------------------------------------------------------------------------
+
+
+def _html(ruta: str) -> str:
+    flask_app.config["TESTING"] = True
+    cliente = flask_app.test_client()
+    with cliente.session_transaction() as sesion:
+        sesion["authenticated"] = True
+    return cliente.get(ruta).get_data(as_text=True)
+
+
+def test_sin_nombre_configurado_no_hay_boton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un botón que abre Atajos y no encuentra nada es peor que no tenerlo.
+
+    Y falla en silencio: iOS abre la app de Atajos y ahí se acaba, sin decir
+    que el nombre no existe. Por eso el defecto es no enseñarlo.
+    """
+    from app import app as modulo_app
+
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_FOTOS", "")
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_TELEMETRIA", "")
+
+    assert "shortcuts://" not in _html("/mapa")
+    assert "shortcuts://" not in _html("/perfil")
+
+
+def test_el_nombre_del_atajo_va_escapado_en_la_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Los nombres llevan espacios y tildes, y así llegan tal cual a la URL.
+
+    Sin escapar, "Enviar fotos Viaje" corta la URL en el primer espacio y el
+    enlace abre Atajos sin nombre — otra vez un fallo mudo.
+    """
+    from app import app as modulo_app
+
+    monkeypatch.setattr(modulo_app.Config, "SHORTCUT_FOTOS", "Enviar fotos Viaje")
+
+    html = _html("/mapa")
+
+    assert "shortcuts://run-shortcut?name=Enviar%20fotos%20Viaje" in html

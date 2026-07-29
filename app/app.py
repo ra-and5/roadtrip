@@ -164,14 +164,14 @@ def mapa() -> Any:
     las chinchetas salen de nuestro servidor. Lo único que no cargará son los
     tiles, que vienen de OpenStreetMap.
     """
-    return render_template("mapa.html")
+    return render_template("mapa.html", shortcut_fotos=Config.SHORTCUT_FOTOS)
 
 
 @app.route("/perfil")
 @auth.login_required
 def perfil_page() -> Any:
     """Cómo estás tú. Los datos los pide por `fetch` a /api/perfil."""
-    return render_template("perfil.html")
+    return render_template("perfil.html", shortcut_telemetria=Config.SHORTCUT_TELEMETRIA)
 
 
 @app.route("/chat")

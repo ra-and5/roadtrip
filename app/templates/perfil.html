@@ -26,6 +26,21 @@
   <h2>De qué te puedes fiar</h2>
   <ul class="fuentes" id="fuentes-lista"></ul>
 </section>
+
+{# Los pasos llegan cuando corre la automatización, así que a mitad del día lo
+   que se enseña es de hace horas. Esto los pide ahora, sin esperar. Va aquí y
+   no en Inicio porque esta es la pantalla donde se ve el hueco. #}
+{% if shortcut_telemetria %}
+<section class="card">
+  <p class="atajo">
+    <a class="button secondary"
+       href="shortcuts://run-shortcut?name={{ shortcut_telemetria|urlencode }}">
+      Enviar pasos y batería ahora
+    </a>
+    <span class="muted">Abre Atajos. Al volver, recarga para verlos.</span>
+  </p>
+</section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

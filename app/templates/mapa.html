@@ -17,6 +17,23 @@
 
   <div class="marcadores" id="progreso-cifras"></div>
 
+  {# El servidor no puede ir a buscar las fotos: viven en el iPhone, y iOS no
+     tiene ningún disparador de "he metido una foto en el álbum". Así que o se
+     espera a la automatización, o se pide a mano. Este enlace abre Atajos y lo
+     ejecuta, que convierte "mañana estará" en "pulsa y recarga".
+
+     Solo aparece si SHORTCUT_FOTOS tiene nombre: un botón que no hace nada es
+     peor que no tenerlo. #}
+  {% if shortcut_fotos %}
+  <p class="atajo">
+    <a class="button secondary"
+       href="shortcuts://run-shortcut?name={{ shortcut_fotos|urlencode }}">
+      Enviar fotos nuevas del álbum
+    </a>
+    <span class="muted">Abre Atajos. Al volver, recarga para verlas.</span>
+  </p>
+  {% endif %}
+
   <div id="tablero">
     <p class="muted" id="tablero-resumen"></p>
     <ul class="casillas" id="tablero-casillas"></ul>

@@ -127,6 +127,31 @@ button.secondary {
   margin-top: 0.6rem;
 }
 
+/* Lanzar un atajo de iOS es navegar a `shortcuts://`, así que tiene que ser un
+   enlace de verdad y no un botón: un `<button>` con JavaScript detrás abriría
+   la misma URL, pero perdería el pulsado largo, "abrir en otra pestaña" y que
+   Safari lo reconozca como navegación. Se le da el aspecto del botón para que
+   no parezca de otra familia. */
+a.button {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  border-radius: 8px;
+}
+a.button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.atajo { margin: 1rem 0 0; }
+.atajo .muted { display: block; margin-top: 0.4rem; text-align: center; }
+
 .lead { font-size: 1.05rem; margin: 0 0 0.8rem; }
 
 .tag {
