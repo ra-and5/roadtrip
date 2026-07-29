@@ -140,6 +140,25 @@ def to_local(utc_iso: str, offset_original: str | None) -> datetime:
     return instante.astimezone(timezone(desfase))
 
 
+def horas_desde(iso: str | None, ahora: datetime) -> float | None:
+    """Cuántas horas hace, en número. `None` si no hay instante o no se entiende.
+
+    Es la mitad de `hace_cuanto()` que se puede comparar: una frase en castellano
+    sirve para leerla y no para decidir con ella. Un instante en el futuro sale
+    negativo en vez de recortado a cero, para que un reloj mal puesto no pueda
+    hacerse pasar por una fuente viva.
+    """
+    if not iso:
+        return None
+    try:
+        instante = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=timezone.utc)
+    return (ahora - instante).total_seconds() / 3600
+
+
 def hace_cuanto(iso: str | None, ahora: datetime) -> str:
     """"hace 3 h" en vez de una marca ISO que hay que restar de cabeza.
 

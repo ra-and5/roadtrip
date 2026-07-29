@@ -26,7 +26,7 @@ from app.modules.metricas import (
     cobertura,
     resumir,
 )
-from app.modules.timeparse import hace_cuanto
+from app.modules.timeparse import hace_cuanto, horas_desde
 
 __all__ = ["Barra", "EstadoFuente", "Perfil", "armar", "construir", "serie"]
 
@@ -45,6 +45,17 @@ DEMOSTRADA = "demostrada"
 CON_HUECOS = "con_huecos"
 SIN_DATOS = "sin_datos"
 SIMULADA = "simulada"
+# Llegó, y ha dejado de llegar. Es un estado aparte de `con_huecos` porque se
+# arregla en otro sitio: un hueco suelto es un envío que pilló un valle sin
+# cobertura, y esto es una automatización que no está corriendo. Sin separarlos,
+# una fuente muerta se lee igual que una que va regular.
+PARADA = "parada"
+
+# A partir de aquí se da por parada. Con seis envíos al día, el hueco normal más
+# largo es el de la noche —el último ~23:55 y el primero a las 06:00, unas 8 h—
+# así que 12 h no puede saltar con todo funcionando. Un aviso que salta cuando
+# todo va bien se aprende a ignorar, y entonces no avisa de nada.
+HORAS_PARA_DARLA_POR_PARADA = 12
 
 
 @dataclass(frozen=True)
@@ -164,20 +175,34 @@ def _fuente_telemetria(cob: Cobertura, ahora: datetime) -> EstadoFuente:
             f"Ninguna muestra de «{FUENTE_REAL}». Los pasos no son medidos.",
         )
 
-    trozos = [f"{cob.dias_con_datos} de {cob.dias_abarcados} días"]
+    # Que haya dejado de llegar se dice PRIMERO y con su propio estado. Contado
+    # como un hueco más, una automatización que no corre se lee como "va
+    # regular" y se espera a que se arregle sola, que es lo que no va a pasar.
+    horas = horas_desde(cob.ultima, ahora)
+    parada = horas is not None and horas >= HORAS_PARA_DARLA_POR_PARADA
+
+    trozos = []
+    if parada:
+        trozos.append(f"SIN LLEGAR desde {hace_cuanto(cob.ultima, ahora)}")
+    trozos.append(f"{cob.dias_con_datos} de {cob.dias_abarcados} días")
     if cob.huecos:
         trozos.append(f"{cob.huecos} días sin nada")
     if cob.dias_incompletos:
         trozos.append(f"{cob.dias_incompletos} a medias (de {ENVIOS_ESPERADOS_POR_DIA})")
-    trozos.append(f"última {hace_cuanto(cob.ultima, ahora)}")
+    if not parada:
+        trozos.append(f"última {hace_cuanto(cob.ultima, ahora)}")
 
-    # Sin huecos no basta: seis envíos al día que entregan dos dan cero huecos y
-    # no son una serie fiable.
-    completa = cob.sin_huecos and not cob.dias_incompletos
+    if parada:
+        estado = PARADA
+        trozos.append("revisa las automatizaciones de Atajos")
+    else:
+        # Sin huecos no basta: seis envíos al día que entregan dos dan cero
+        # huecos y no son una serie fiable.
+        completa = cob.sin_huecos and not cob.dias_incompletos
+        estado = DEMOSTRADA if completa else CON_HUECOS
+
     return EstadoFuente(
-        "telemetria", "Telemetría del móvil",
-        DEMOSTRADA if completa else CON_HUECOS,
-        " · ".join(trozos),
+        "telemetria", "Telemetría del móvil", estado, " · ".join(trozos),
     )
 
 

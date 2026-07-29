@@ -11,6 +11,10 @@
     con_huecos: { texto: "con huecos", clase: "tag-regular" },
     sin_datos: { texto: "sin datos", clase: "tag-cat" },
     simulada: { texto: "simulado", clase: "tag-malo" },
+    /* "parada" no es un grado peor de "con huecos": es otra avería y se arregla
+     * en otro sitio —una automatización que no corre, no un valle sin cobertura—
+     * así que lleva su propia etiqueta en vez de un rojo más. */
+    parada: { texto: "parada", clase: "tag-malo" },
   };
 
   function el(id) { return document.getElementById(id); }

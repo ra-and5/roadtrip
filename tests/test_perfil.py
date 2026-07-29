@@ -217,6 +217,42 @@ def test_dias_a_medias_no_son_huecos_pero_tampoco_son_fiables() -> None:
     assert "a medias" in fuente.detalle
 
 
+def test_una_fuente_que_ha_dejado_de_llegar_se_llama_parada() -> None:
+    """El caso real del 29-07-2026: cinco muestras disparadas a mano una noche y
+    ninguna automatización detrás.
+
+    Contado como un hueco más salía "con huecos", que es lo mismo que dice una
+    serie que va regular y se cura sola. Aquí no se cura nada: no hay nada
+    corriendo. Dos averías distintas con el mismo nombre hacen esperar en vez de
+    ir a mirar Atajos.
+    """
+    reales = [_muestra("2026-07-28", 20, 5688), _muestra("2026-07-28", 21, 5688)]
+
+    fuente = _fuente(_armar(reales), "telemetria")
+
+    assert fuente.estado == perfil.PARADA
+    assert "SIN LLEGAR" in fuente.detalle
+    assert "automatizaciones" in fuente.detalle
+
+
+def test_el_hueco_de_la_noche_no_da_una_fuente_por_parada() -> None:
+    """La otra mitad, y es la que evita el aviso que se aprende a ignorar.
+
+    A las 12:00 la última muestra normal es la de las 06:00 —o la de anoche si
+    hoy aún no ha entrado ninguna—, así que el umbral tiene que aguantar el
+    hueco nocturno entero sin saltar.
+    """
+    reales = _dia_completo("2026-07-28", 9000) + [_muestra("2026-07-29", 6, 700)]
+
+    assert _fuente(_armar(reales), "telemetria").estado != perfil.PARADA
+
+
+def test_sin_ninguna_muestra_no_se_dice_parada_sino_sin_datos() -> None:
+    """"Parada" afirma que llegó y dejó de llegar. Sin una sola muestra eso es
+    falso, y manda a revisar una automatización que a lo mejor nunca se montó."""
+    assert _fuente(_armar([]), "telemetria").estado == perfil.SIN_DATOS
+
+
 def test_las_notas_y_las_fotos_son_fuentes_demostradas() -> None:
     p = _armar(
         [],
