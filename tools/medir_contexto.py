@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -78,6 +79,23 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             veredicto = f"{type(exc).__name__}: {str(exc)[:70]}"
         print(f"  {'construir()':<16} {vuelta}  {time.time() - inicio:6.2f}s  {veredicto}")
+
+    # Cuánto cuestan los HILOS por sí solos, sin red y sin trabajo dentro.
+    #
+    # Hace falta porque hay un caso que las líneas de arriba no distinguen: si
+    # las tres fuentes salen a 0,05 s cacheadas y `construir()` tarda treinta
+    # segundos, lo que sobra no es la red — es el `ThreadPoolExecutor` que las
+    # envuelve. Aquí se mide en aislamiento: tres tareas que no hacen nada. Si
+    # esto tarda, el paralelismo está costando más de lo que ahorra, y en un
+    # servidor donde las fuentes responden en medio segundo eso significa que
+    # hacerlas en serie es más rápido.
+    print()
+    for hilos in (1, 2, 3):
+        inicio = time.time()
+        with ThreadPoolExecutor(max_workers=hilos) as pool:
+            for futuro in [pool.submit(lambda: None) for _ in range(hilos)]:
+                futuro.result()
+        print(f"  {'pool de ' + str(hilos):<16}      {time.time() - inicio:6.2f}s  (sin red, sin trabajo)")
 
     return 0
 
