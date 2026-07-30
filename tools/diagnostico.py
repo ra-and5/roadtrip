@@ -298,6 +298,18 @@ def main() -> None:
         dato("INGEST_TOKEN_HASH",
              f"{'configurado' if Config.INGEST_TOKEN_HASH else 'AUSENTE (ingesta cerrada)'}"
              f"   (máx. {Config.INGEST_MAX_SAMPLES} muestras/envío)")
+        # Sin esta clave la tarjeta de fuego no consulta nada y NO se queja: la
+        # petición la hace el navegador, así que aquí no hay ningún error que
+        # registrar (decisión 53). El síntoma es una tarjeta que no aparece, que
+        # es indistinguible de "hoy no hay nada cerca". Y se dice la longitud
+        # porque el fallo real fue pegarla cortada: FIRMS contesta "Invalid
+        # MAP_KEY" con HTTP 200 y el nombre de la variable también se escribe
+        # mal con facilidad (FIRMS_API_KEY no existe).
+        clave_firms = Config.FIRMS_MAP_KEY
+        dato("FIRMS_MAP_KEY",
+             f"configurada ({len(clave_firms)} caracteres"
+             f"{'' if len(clave_firms) == 32 else ', OJO: se esperan 32'})"
+             if clave_firms else "AUSENTE (la tarjeta de fuego no consulta nada)")
         # La trampa de la decisión 15, que cuesta una tarde y no da NINGÚN
         # mensaje de error: con la cookie `Secure` (que es lo que hay por
         # defecto, y bien) y *Force HTTPS* desactivado en PythonAnywhere, el
