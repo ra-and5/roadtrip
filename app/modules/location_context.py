@@ -231,6 +231,17 @@ _POI_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "espacios naturales": ("leisure", ("nature_reserve", "park")),
     "pernocta": ("tourism", ("camp_site", "caravan_site", "picnic_site")),
+    # Dónde entrenar. `fitness_station` es la barra de calistenia al aire libre y
+    # `fitness_centre` el gimnasio cerrado; son etiquetas distintas en OSM y las
+    # dos hacen falta, porque en un viaje lo primero que sirve es lo segundo que
+    # se encuentra. Fuera queda `leisure=pitch`: hay un campo de fútbol en cada
+    # pueblo y ahogaría al resto (el balanceo es por categoría, no global).
+    "deporte": ("leisure", ("fitness_centre", "fitness_station", "sports_centre", "track")),
+    # Lo que convierte un sitio bonito en un sitio donde dormir: vaciado de
+    # aguas grises y agua potable. `sanitary_dump_station` es la etiqueta que
+    # usan las áreas de autocaravanas, y es la que de verdad se busca cuando
+    # llevas tres días fuera.
+    "servicios de camper": ("amenity", ("sanitary_dump_station", "drinking_water")),
 }
 
 # Cuántos POIs devolvemos por categoría y en total. Limitar por categoría (y
@@ -238,7 +249,11 @@ _POI_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
 # 40 picos y ninguna playa: un límite global sesga hacia lo que Overpass
 # devuelva primero, que no es lo más útil.
 _MAX_PER_CATEGORY = 5
-_MAX_TOTAL = 24
+# Sube de 24 a 30 al pasar de seis categorías a ocho. Sin esto, las dos nuevas
+# —deporte y servicios de camper— entrarían en el balanceo y luego el recorte
+# global se las comería por distancia, que es como añadir una categoría y que no
+# aparezca nunca sin que nada dé error.
+_MAX_TOTAL = 30
 
 
 @dataclass

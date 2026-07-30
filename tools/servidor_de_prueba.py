@@ -332,7 +332,12 @@ def sembrar() -> None:
     storage.insert_waypoints(
         [
             {
-                "fuente": "atajos-iphone",
+                # "fotos" y no "atajos-iphone": es la ÚNICA fuente que acepta
+                # `/api/waypoints` (`waypoints.FUENTES_VALIDAS`). Sembrar con
+                # otra dejaba la base de datos en un estado que el endpoint real
+                # nunca puede producir, y entonces se prueba contra una forma
+                # que no existe.
+                "fuente": "fotos",
                 "archivo": archivo,
                 "capturado_en": (ahora - timedelta(days=dias, hours=5))
                 .replace(tzinfo=None)

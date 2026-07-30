@@ -55,7 +55,7 @@ from typing import Any, Callable
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-from tools.servidor_de_prueba import CONTRASENA, LAT, LON  # noqa: E402
+from tools.servidor_de_prueba import CONTRASENA, LAT, LON, TOKEN_INGESTA  # noqa: E402
 
 PUERTO = 5099
 BASE = f"http://127.0.0.1:{PUERTO}"
@@ -541,6 +541,70 @@ def mapa_revivir(page: Any) -> str:
     return f"avanza hasta el momento {page.input_value('#revivir-slider')}"
 
 
+def mapa_album_de_fotos(page: Any) -> str:
+    """El álbum es un ESTADO: lo que entra sale en el mapa, y lo que se quita
+    desaparece.
+
+    Es el camino que de verdad se usa —el atajo del iPhone manda el álbum
+    entero— y hasta ahora solo lo cubrían tests de Python. Lo que no probaba
+    nadie es la mitad que se ve: que el mapa **repinte** después. Un borrado
+    correcto en la base de datos y una chincheta que sigue ahí se ven igual de
+    bien desde el servidor, y son cosas distintas (decisión 45).
+    """
+    import requests
+
+    cabeceras = {"Authorization": f"Bearer {TOKEN_INGESTA}"}
+
+    def enviar_album(archivos: list[str]) -> dict[str, Any]:
+        puntos = [
+            {"archivo": nombre, "capturado_en": f"2026-07-2{i}T12:00:00",
+             "lat": 43.5622 + i * 0.001, "lon": -6.1456}
+            for i, nombre in enumerate(archivos, start=1)
+        ]
+        respuesta = requests.post(
+            f"{BASE}/api/waypoints",
+            # "fotos" es la única fuente que acepta el endpoint, así que este
+            # envío manda sobre las fotos sembradas: con `completo` se las
+            # lleva por delante, que es exactamente lo que hace el atajo.
+            json={"fuente": "fotos", "puntos": puntos, "completo": True},
+            headers=cabeceras, timeout=15,
+        )
+        if respuesta.status_code >= 400:
+            raise Fallo(f"el envío del álbum falló: {respuesta.status_code} {respuesta.text[:120]}")
+        return respuesta.json()
+
+    def fotos_en_el_mapa() -> int:
+        page.goto(f"{BASE}/mapa")
+        esperar(lambda: page.inner_text("#dias-lista").strip(), "el mapa no pintó los días")
+        return page.inner_text("#dias-lista").count("VERIFICACION_")
+
+    alta = enviar_album(["VERIFICACION_1.jpeg", "VERIFICACION_2.jpeg"])
+    if alta.get("guardados") != 2:
+        raise Fallo(f"el álbum no guardó las dos fotos: {alta}")
+    if fotos_en_el_mapa() != 2:
+        raise Fallo("las fotos enviadas no aparecen en el mapa")
+
+    # Reenviar el álbum entero es lo normal (el atajo lo manda completo cada
+    # vez): tiene que dejar el viaje igual, no duplicarlo.
+    repetido = enviar_album(["VERIFICACION_1.jpeg", "VERIFICACION_2.jpeg"])
+    if repetido.get("duplicados") != 2 or fotos_en_el_mapa() != 2:
+        raise Fallo(f"reenviar el álbum cambió el mapa: {repetido}")
+
+    # Y quitar una del álbum tiene que quitarla del mapa. Esta es la mitad que
+    # no existía hasta la decisión 45: un `INSERT OR IGNORE` nunca borra.
+    quitada = enviar_album(["VERIFICACION_1.jpeg"])
+    if quitada.get("eliminados") != 1:
+        raise Fallo(f"quitar una foto del álbum no la borró: {quitada}")
+    if fotos_en_el_mapa() != 1:
+        raise Fallo("la foto quitada del álbum sigue en el mapa")
+
+    # Se deja el álbum como se sembró. Esta comprobación va la última del Mapa
+    # justamente por esto: `completo` borra lo que no viene, así que cualquier
+    # cosa que cuente chinchetas tiene que ir antes o volver a sembrar.
+    enviar_album(["IMG_4736", "IMG_4737", "IMG_4738", "IMG_4739"])
+    return "2 fotos entran, reenviar no duplica, quitar una la borra del mapa"
+
+
 def chat(page: Any) -> str:
     page.goto(f"{BASE}/chat")
     esperar(lambda: page.locator("#chat-texto").count() == 1, "no cargó el chat")
@@ -745,6 +809,8 @@ def main() -> int:
                 corredor.check("trayecto y progreso", lambda: mapa(page))
                 corredor.check("filtro por año", lambda: mapa_filtro(page))
                 corredor.check("revivir el viaje", lambda: mapa_revivir(page))
+                corredor.check("álbum de fotos, entrar y salir",
+                               lambda: mapa_album_de_fotos(page))
                 corredor.sin_errores_de_js("Mapa")
 
             if quiere("chat"):

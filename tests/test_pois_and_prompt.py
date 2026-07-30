@@ -10,7 +10,14 @@ from zoneinfo import ZoneInfo
 
 from app.modules.ai_orchestrator import formatear_para_prompt, _format_pois, _format_weather
 from app.modules.contexto import ensamblar
-from app.modules.location_context import Place, Poi, _classify, _haversine_m, _parse_overpass
+from app.modules.location_context import (
+    Place,
+    Poi,
+    _build_overpass_query,
+    _classify,
+    _haversine_m,
+    _parse_overpass,
+)
 from app.modules.weather_context import Marine, Weather
 
 
@@ -111,6 +118,49 @@ def test_parse_balancea_por_categoria():
     categorias = {p.category for p in pois}
     assert "miradores" in categorias, "el mirador lejano debe sobrevivir al recorte"
     assert sum(1 for p in pois if p.category == "naturaleza") <= 5
+
+
+def test_se_encuentran_los_sitios_para_entrenar_y_para_dormir():
+    """Un gimnasio y una barra de calistenia NO son la misma etiqueta en OSM.
+
+    `leisure=fitness_centre` es el gimnasio cerrado y `leisure=fitness_station`
+    la barra al aire libre. Buscar solo una de las dos deja fuera justo la que
+    hay en la mitad de los pueblos, y no daría ningún error: solo una lista
+    corta que parece que ahí no hay nada.
+
+    `sanitary_dump_station` va con ellas porque es lo que convierte un sitio
+    bonito en un sitio donde dormir: sin vaciado, no se puede parar.
+    """
+    payload = {"elements": [
+        _element("Gimnasio Cudillero", "leisure", "fitness_centre", 43.5623, -6.1457),
+        _element("Barras de la playa", "leisure", "fitness_station", 43.5624, -6.1458),
+        _element("Pista de atletismo", "leisure", "track", 43.5625, -6.1459),
+        _element("Área de autocaravanas", "amenity", "sanitary_dump_station", 43.5626, -6.1460),
+        _element("Camping L'Amuravela", "tourism", "camp_site", 43.5627, -6.1461),
+    ]}
+    pois = _parse_overpass(payload, 43.5622, -6.1456)
+
+    por_categoria = {p.category for p in pois}
+    assert "deporte" in por_categoria
+    assert "servicios de camper" in por_categoria
+    assert "pernocta" in por_categoria
+    assert len(pois) == 5, "no se puede caer ninguno por el camino"
+
+
+def test_la_consulta_pide_las_categorias_nuevas():
+    """Que la categoría exista no basta: tiene que entrar en la consulta.
+
+    Son dos cosas distintas —clasificar lo que llega y pedirlo— y la segunda no
+    da ningún error si falta: Overpass devuelve 200 con lo demás y la categoría
+    nueva sale vacía para siempre.
+    """
+    consulta = _build_overpass_query(43.5622, -6.1456, 12_000)
+
+    for valor in ("fitness_centre", "fitness_station", "sanitary_dump_station"):
+        assert valor in consulta, valor
+    # `leisure` sale una sola vez por elemento aunque lo usen dos categorías:
+    # agrupar por clave es lo que evita duplicar consultas geográficas.
+    assert consulta.count('node["leisure"') == 1
 
 
 # --- Construcción del prompt ----------------------------------------------

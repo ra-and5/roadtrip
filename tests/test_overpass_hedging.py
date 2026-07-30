@@ -128,11 +128,19 @@ def test_query_es_determinista():
 def test_query_agrupa_por_clave_osm():
     """`tourism` está en 3 categorías: debe emitirse en una sola cláusula por tipo.
 
-    Agrupar reduce de 12 a 8 búsquedas espaciales, y cada una es trabajo real
-    para un servidor comunitario gratuito.
+    Agrupar es lo que evita que cada categoría nueva cueste dos búsquedas
+    espaciales más en un servidor comunitario gratuito.
+
+    El número esperado se **deriva** de las categorías en vez de escribirse a
+    mano. Estaba fijado a 8 y una categoría nueva lo rompía, y eso enseña a
+    subir el número en vez de a mirar si de verdad se agrupó — que es lo único
+    que este test protege.
     """
     query = lc._build_overpass_query(43.5, -6.1, 12_000)
+    claves = {osm_key for osm_key, _ in lc._POI_CATEGORIES.values()}
+
     assert query.count('node["tourism"') == 1
     assert query.count('way["tourism"') == 1
-    # 4 claves OSM (historic, leisure, natural, tourism) x 2 tipos = 8
-    assert query.count("(around:") == 8
+    assert query.count("(around:") == len(claves) * 2, (
+        f"se esperaban {len(claves)} claves OSM x 2 tipos (node y way)"
+    )
