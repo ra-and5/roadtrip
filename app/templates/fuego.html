@@ -14,17 +14,29 @@
          data-firms-key="{{ firms_map_key }}"
          data-firms-base="{{ firms_base }}"
          data-firms-sensor="{{ firms_sensor }}"
-         data-firms-grados="{{ firms_grados }}">
+         data-firms-grados="{{ firms_grados }}"
+         data-firms-espana="{{ firms_espana }}">
   <h1>Fuego</h1>
   <p class="muted">Detecciones del satélite VIIRS alrededor de donde estás.
     Sirve para decidir hacia dónde moverse.</p>
 
   <div class="fuego-mandos">
+    {# Dos preguntas distintas: "¿me afecta aquí?" y "¿por dónde no paso?".
+       El país entero es lo que hace falta para planear la ruta de mañana. #}
+    <label for="fuego-ambito">Zona</label>
+    <select id="fuego-ambito">
+      <option value="cerca">A mi alrededor (330 km)</option>
+      <option value="espana" selected>España</option>
+    </select>
+
     <label for="fuego-dias">Últimos</label>
+    {# Máximo 5: con 7, FIRMS devuelve "Invalid day range" con HTTP 200 y la
+       pantalla se quedaría sin datos por una opción que no existe. #}
     <select id="fuego-dias">
       <option value="1">1 día</option>
+      <option value="2">2 días</option>
       <option value="3" selected>3 días</option>
-      <option value="7">7 días</option>
+      <option value="5">5 días</option>
     </select>
 
     {# El filtro que de verdad hacía falta: el satélite ve hornos, antorchas y

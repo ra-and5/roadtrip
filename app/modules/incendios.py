@@ -39,8 +39,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 __all__ = [
-    "Deteccion", "GRADOS_ALREDEDOR", "GRADOS_MAPA", "MAX_EN_EL_MAPA", "SENSOR",
-    "Situacion", "URL_BASE", "evaluar", "para_el_mapa", "parsear", "url_de_consulta",
+    "CAJA_ESPANA", "Deteccion", "GRADOS_ALREDEDOR", "GRADOS_MAPA", "MAX_DIAS",
+    "MAX_EN_EL_MAPA", "SENSOR", "Situacion", "URL_BASE", "evaluar", "para_el_mapa",
+    "parsear", "url_de_area", "url_de_consulta",
 ]
 
 
@@ -65,9 +66,24 @@ GRADOS_ALREDEDOR = 0.5
 # norte a sur: una jornada de camper.
 GRADOS_MAPA = 3.0
 
-# Techo de detecciones que se devuelven al mapa. En un agosto malo, 3° de España
-# pueden traer miles; el navegador de un móvil no pinta miles de círculos sin
-# atragantarse. Se recortan las MÁS LEJANAS, nunca las más potentes.
+# El rango de días que acepta FIRMS. Comprobado contra la API: con 7 devuelve
+# "Invalid day range. Expects [1..5]." y lo manda con **HTTP 200**, como todos
+# sus errores. Sin este tope, el desplegable ofrecería una opción que siempre
+# falla (decisión 5).
+MAX_DIAS = 5
+
+# El país entero, para la vista de "¿por dónde NO paso?". Península y Baleares;
+# Canarias queda fuera a propósito — meterlas en la misma caja obligaría a
+# pedir un rectángulo del Atlántico entero para traer cuatro islas, y el mapa
+# saldría con España del tamaño de un sello. Medido: 3 días de España son 986
+# filas y 80 KB de CSV.
+CAJA_ESPANA = (-10.0, 35.5, 5.0, 44.5)   # oeste, sur, este, norte
+
+# Techo de detecciones que se devuelven al mapa. En un agosto malo, España
+# entera trae miles; el navegador de un móvil no pinta miles de círculos sin
+# atragantarse. Cuando sobra, se recortan **las más flojas**: un punto de 1 MW
+# a 5 km ya lo cubre la tarjeta de Inicio, y en un mapa de país lo que hay que
+# ver es dónde están los grandes.
 MAX_EN_EL_MAPA = 600
 
 # A partir de aquí una detección deja de parecer industria. La potencia
@@ -159,6 +175,13 @@ def _instante(fecha: str, hora: str) -> datetime | None:
         return None
 
 
+def url_de_area(clave: str, caja: tuple[float, float, float, float], dias: int = 1) -> str:
+    """La URL para un rectángulo dado: (oeste, sur, este, norte)."""
+    oeste, sur, este, norte = caja
+    dias = max(1, min(int(dias), MAX_DIAS))
+    return f"{URL_BASE}/{clave}/{SENSOR}/{oeste:.4f},{sur:.4f},{este:.4f},{norte:.4f}/{dias}"
+
+
 def url_de_consulta(
     clave: str, lat: float, lon: float, dias: int = 1, grados: float = GRADOS_ALREDEDOR
 ) -> str:
@@ -169,9 +192,9 @@ def url_de_consulta(
     Python y JavaScript, cambiar el radio en un sitio y no en el otro daría una
     caja de búsqueda distinta de la que dicen los tests, sin ningún error.
     """
-    oeste, sur = lon - grados, lat - grados
-    este, norte = lon + grados, lat + grados
-    return f"{URL_BASE}/{clave}/{SENSOR}/{oeste:.4f},{sur:.4f},{este:.4f},{norte:.4f}/{dias}"
+    return url_de_area(
+        clave, (lon - grados, lat - grados, lon + grados, lat + grados), dias
+    )
 
 
 def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -253,12 +276,21 @@ def para_el_mapa(
     dónde me muevo?" y las quiere todas, porque un frente a 200 km es
     exactamente lo que hay que ver para decidir la ruta del día.
 
-    Si hay más de `MAX_EN_EL_MAPA` se recortan **las más lejanas**. Recortar por
-    orden de llegada del CSV dejaría fuera un foco grande por casualidad, y esa
+    Si hay más de `MAX_EN_EL_MAPA` se recortan **las más flojas**, no las más
+    lejanas: en un mapa de país la pregunta es dónde están los focos grandes, y
+    un punto de 1 MW al lado de casa ya sale en la tarjeta de Inicio. Recortar
+    por orden de llegada del CSV dejaría fuera un incendio por casualidad, que
     es la única detección que no puede faltar.
+
+    Se devuelven ordenadas por cercanía igual que `parsear()`, para que quien
+    pinte no tenga que volver a ordenarlas.
     """
     detecciones = parsear(texto, lat, lon, ahora=ahora)
-    return detecciones[:MAX_EN_EL_MAPA]
+    if len(detecciones) <= MAX_EN_EL_MAPA:
+        return detecciones
+
+    fuertes = sorted(detecciones, key=lambda d: d.frp_mw, reverse=True)[:MAX_EN_EL_MAPA]
+    return sorted(fuertes, key=lambda d: d.distancia_km)
 
 
 def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> Situacion:

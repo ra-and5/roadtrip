@@ -38,6 +38,7 @@
   const estadoEl = document.getElementById("fuego-estado");
   const avisoEl = document.getElementById("fuego-aviso");
   const diasEl = document.getElementById("fuego-dias");
+  const ambitoEl = document.getElementById("fuego-ambito");
   const soloFuertesEl = document.getElementById("fuego-solo-fuertes");
   const listaCard = document.getElementById("fuego-lista-card");
   const listaEl = document.getElementById("fuego-lista");
@@ -165,15 +166,22 @@
     });
   }
 
+  /* La caja de búsqueda: alrededor de ti, o el país entero. Los dos rectángulos
+   * salen del servidor (`incendios.py`), aquí solo se elige cuál. */
   function urlDeFirms(lat, lon) {
     const clave = controles.dataset.firmsKey;
     if (!clave) return null;
 
-    const grados = parseFloat(controles.dataset.firmsGrados);
-    const caja = [
-      (lon - grados).toFixed(4), (lat - grados).toFixed(4),
-      (lon + grados).toFixed(4), (lat + grados).toFixed(4),
-    ].join(",");
+    let caja;
+    if (ambitoEl.value === "espana") {
+      caja = controles.dataset.firmsEspana;
+    } else {
+      const grados = parseFloat(controles.dataset.firmsGrados);
+      caja = [
+        (lon - grados).toFixed(4), (lat - grados).toFixed(4),
+        (lon + grados).toFixed(4), (lat + grados).toFixed(4),
+      ].join(",");
+    }
 
     return [controles.dataset.firmsBase, clave, controles.dataset.firmsSensor,
             caja, diasEl.value].join("/");
@@ -206,10 +214,18 @@
     try {
       if (!coords) {
         coords = await posicionActual();
-        mapa.setView([coords.latitude, coords.longitude], 8);
         L.circleMarker([coords.latitude, coords.longitude], {
           radius: 6, color: "#1b3a2f", fillColor: "#fff", fillOpacity: 1, weight: 2,
         }).bindPopup("Estás aquí").addTo(capaYo);
+      }
+
+      /* El encuadre lo manda el ámbito: mirando el país entero, centrar en ti
+       * con zoom de comarca deja el mapa enseñando tu barrio mientras arde
+       * Galicia. */
+      if (ambitoEl.value === "espana") {
+        mapa.setView([40.0, -3.7], 5);
+      } else {
+        mapa.setView([coords.latitude, coords.longitude], 8);
       }
 
       const csv = await (await fetch(urlDeFirms(coords.latitude, coords.longitude))).text();
@@ -240,8 +256,9 @@
       const pintados = pintar();
 
       const dias = diasEl.value;
+      const donde = ambitoEl.value === "espana" ? "en España" : "a la redonda";
       if (detecciones.length === 0) {
-        decir("Ningún foco en " + dias + " día(s) a la redonda.");
+        decir("Ningún foco en " + dias + " día(s) " + donde + ".");
       } else if (pintados === 0) {
         decir(
           detecciones.length + " detecciones, ninguna potente. Suelen ser hornos, " +
@@ -249,7 +266,7 @@
         );
       } else {
         decir(pintados + " focos potentes de " + detecciones.length +
-              " detecciones (" + dias + " día(s)).", "ok");
+              " detecciones " + donde + " (" + dias + " día(s)).", "ok");
       }
     } catch (err) {
       decir(
@@ -262,6 +279,7 @@
   }
 
   diasEl.addEventListener("change", cargar);
+  ambitoEl.addEventListener("change", cargar);
   soloFuertesEl.addEventListener("change", function () {
     // Filtrar NO vuelve a pedir nada: los datos ya están, y en un móvil con
     // mala cobertura repetir la consulta por marcar una casilla es tiempo

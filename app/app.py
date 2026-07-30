@@ -258,6 +258,8 @@ def fuego_page() -> Any:
         firms_base=incendios.URL_BASE,
         firms_sensor=incendios.SENSOR,
         firms_grados=incendios.GRADOS_MAPA,
+        firms_espana=",".join(str(x) for x in incendios.CAJA_ESPANA),
+        firms_max_dias=incendios.MAX_DIAS,
     )
 
 
@@ -452,6 +454,13 @@ def api_incendios() -> Any:
 
     Sin `GET`: hay que mandar el CSV, y una URL no es sitio para 200 KB.
     """
+    # El techo general son 128 KiB (pensado para la ingesta), y España entera en
+    # 3 días son 80 KB de CSV que se van a 130+ con 5 días. Sin subirlo aquí, la
+    # vista de país devolvería un 413 justo cuando más falta hace. Se sube SOLO
+    # en esta ruta, que es lo que la decisión del techo ya previó: no se toca el
+    # límite global, que es el que protege la ingesta.
+    request.max_content_length = 1024 * 1024
+
     payload = request.get_json(silent=True) or {}
     lat, lon = _coordenadas_de(payload)
     if lat is None:

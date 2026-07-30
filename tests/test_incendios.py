@@ -157,3 +157,46 @@ def test_el_umbral_de_potencia_deja_fuera_la_industria_medida():
     en ningún otro veredicto.
     """
     assert 1.85 < FRP_LLAMATIVA_MW < 100.0
+
+
+# --- El país entero --------------------------------------------------------
+
+def test_el_rango_de_dias_se_acota_a_lo_que_acepta_firms():
+    """Comprobado contra la API: con 7 devuelve "Invalid day range" en HTTP 200.
+
+    Es la trampa de siempre en FIRMS (los errores llegan como 200 con texto),
+    y aquí se corta antes: una opción que siempre falla no puede llegar a
+    ofrecerse.
+    """
+    from app.modules.incendios import MAX_DIAS, CAJA_ESPANA, url_de_area
+
+    assert url_de_area("K", CAJA_ESPANA, 99).endswith(f"/{MAX_DIAS}")
+    assert url_de_area("K", CAJA_ESPANA, 0).endswith("/1")
+
+
+def test_el_recorte_del_mapa_conserva_los_focos_grandes():
+    """Con España entera se pasa del techo, y lo que NO puede caerse es un fuego.
+
+    Recortar por cercanía —lo primero que se pensó— dejaba fuera un incendio de
+    200 MW a 300 km para dejar sitio a cien hornos del polígono de al lado. En
+    un mapa de país la pregunta es dónde están los grandes.
+    """
+    from app.modules.incendios import MAX_EN_EL_MAPA, para_el_mapa
+
+    filas = [CABECERA]
+    # Muchísimos puntos flojos y pegados a casa.
+    for i in range(MAX_EN_EL_MAPA + 50):
+        filas.append(
+            f"38.{4000 + i},-0.5300,300,0.4,0.37,2026-07-30,1330,N,VIIRS,n,2.0NRT,290,0.5,D"
+        )
+    # Y un incendio de verdad, lejos.
+    filas.append(
+        "42.5000,-7.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,210.0,D"
+    )
+
+    detecciones = para_el_mapa("\n".join(filas), *AQUI)
+
+    assert len(detecciones) == MAX_EN_EL_MAPA
+    assert any(d.frp_mw == 210.0 for d in detecciones), "se ha perdido el incendio"
+    # Y siguen ordenadas por cercanía, que es lo que espera quien las pinta.
+    assert detecciones == sorted(detecciones, key=lambda d: d.distancia_km)
