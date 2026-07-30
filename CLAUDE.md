@@ -1848,6 +1848,39 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     traza manda a buscar el fallo en el código que se iba a verificar. El
     sabotaje número 6 ocupa el puerto y exige que lo cace.
 
+52. **Dónde entrenar y dónde dormir salen de OSM, no de park4night.** El usuario
+    pidió las dos cosas: sitios para entrenar (gimnasios, barras, parques) y
+    sitios donde pasar la noche, "o alguna API tipo park4night".
+
+    **park4night no tiene API pública.** Lo que circula son endpoints sacados
+    por ingeniería inversa de su app —sin documentación, sin soporte y con
+    alguno ya retirado—, y encima el dominio tendría que estar en la lista
+    blanca del proxy de PythonAnywhere o no funcionaría en producción
+    (decisión 21). Construir el "dónde duermo" sobre eso es deuda garantizada en
+    la pieza que más falta hace estando de viaje.
+
+    Se cubre con Overpass, que ya está montado, ya está en la lista blanca y ya
+    tiene caché de 7 días. Dos categorías nuevas:
+
+    - **deporte**: `leisure=fitness_centre` (gimnasio cerrado) y
+      `fitness_station` (la barra de calistenia al aire libre). En OSM son
+      etiquetas **distintas**, y buscar solo una deja fuera justo la que hay en
+      la mitad de los pueblos — sin dar ningún error, solo una lista corta que
+      parece decir que ahí no hay nada. Van con polideportivo y pista de
+      atletismo. Fuera queda `leisure=pitch`: hay un campo de fútbol en cada
+      pueblo y ahogaría al resto.
+    - **servicios de camper**: `amenity=sanitary_dump_station` y agua potable.
+      Es lo que convierte un sitio bonito en un sitio donde se puede parar.
+
+    Y un detalle que no se ve venir: `_MAX_TOTAL` sube de 24 a 30. El balanceo
+    reparte 5 por categoría y luego un recorte global corta por distancia, así
+    que con ocho categorías las dos nuevas entraban y el recorte se las comía.
+    Una categoría añadida que no aparece nunca, y nada que lo diga.
+
+    Lo que **no** cambia: los POIs siguen detrás de un botón y fuera del camino
+    normal (decisión 33), porque Overpass sigue siendo la fuente cara y poco
+    fiable. Más categorías no la hacen mejor.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
