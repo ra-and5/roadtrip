@@ -37,19 +37,6 @@
       <span class="senal-etiqueta">Luna</span>
       <span class="senal-valor" id="luna-veredicto"></span>
     </div>
-    {# La tarjeta del fuego se renderiza SIEMPRE, aunque no haya clave, y sale
-       con `hidden`. Si se renderizara condicionalmente, `hideAll()` buscaría un
-       id que no está y reventaría el botón principal — que es literalmente el
-       fallo de la decisión 42. Sin clave, el JavaScript no la usa y punto. #}
-    <div class="senal" id="fuego-card" hidden
-         data-firms-key="{{ firms_map_key }}"
-         data-firms-base="{{ firms_base }}"
-         data-firms-sensor="{{ firms_sensor }}"
-         data-firms-grados="{{ firms_grados }}"
-         data-firms-dias="1">
-      <span class="senal-etiqueta">Fuego</span>
-      <span class="senal-valor" id="fuego-veredicto"></span>
-    </div>
   </div>
 
   <!-- El dato que sostiene cada señal. Plegado porque en marcha no se lee, y
@@ -62,13 +49,8 @@
       <dt>Luna</dt><dd id="luna-fase"></dd>
       <dt></dt><dd id="luna-horas"></dd>
       <dt></dt><dd id="luna-motivo"></dd>
-      <dt>Satélite</dt><dd id="fuego-detalle"></dd>
       <dt>GPS</dt><dd id="place-coords"></dd>
     </dl>
-    <details id="fuego-detalle-lista" hidden>
-      <summary>Detecciones (<span id="fuego-count">0</span>)</summary>
-      <ul id="fuego-lista" class="pois"></ul>
-    </details>
   </details>
 </section>
 

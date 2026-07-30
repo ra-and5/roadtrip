@@ -6,29 +6,6 @@
 (function () {
   "use strict";
 
-  const ESTADOS = {
-    demostrada: { texto: "fiable", clase: "tag-bueno" },
-    con_huecos: { texto: "con huecos", clase: "tag-regular" },
-    sin_datos: { texto: "sin datos", clase: "tag-cat" },
-    simulada: { texto: "simulado", clase: "tag-malo" },
-    /* "parada" no es un grado peor de "con huecos": es otra avería y se arregla
-     * en otro sitio —una automatización que no corre, no un valle sin cobertura—
-     * así que lleva su propia etiqueta en vez de un rojo más. */
-    parada: { texto: "parada", clase: "tag-malo" },
-  };
-
-  /* Los estados del Perfil traducidos a la gramática visual del proyecto
-   * (decisión 55). Son vocabularios distintos a propósito —aquí se contesta
-   * "¿se puede construir encima?" y la gramática dice "¿lo sé o no?"— así que la
-   * correspondencia se escribe una vez y en un sitio, en vez de deducirse en
-   * cada plantilla. `sin_datos` no lleva filete: no hay nada de lo que dudar. */
-  const CERTEZA_DE_ESTADO = {
-    demostrada: "medido",
-    con_huecos: "hueco",
-    simulada: "fallo",
-    parada: "fallo",
-  };
-
   function el(id) { return document.getElementById(id); }
   function text(id, valor) { el(id).textContent = valor || ""; }
   function show(id) { el(id).hidden = false; }
@@ -89,6 +66,17 @@
         "Estos pasos son SIMULADOS. Sirven para construir la pantalla; no son " +
         "lo que has andado.";
       aviso.hidden = false;
+    }
+
+    /* La única fila de la extinta lista "de qué te puedes fiar" que se queda: la
+     * telemetría parada. El resto de fuentes (fotos, notas, día registrado) no
+     * tienen ni un botón que apretar para arreglarlas desde el móvil; esta sí
+     * —"revisa las automatizaciones de Atajos"— y por eso es la única que
+     * merece salir aquí sin que se lea como ruido. */
+    const telemetria = (perfil.fuentes || []).find(function (f) { return f.clave === "telemetria"; });
+    if (telemetria && telemetria.estado === "parada") {
+      el("cuerpo-parada").textContent = telemetria.detalle;
+      el("cuerpo-parada").hidden = false;
     }
 
     if (!cuerpo.hay_datos) {
@@ -204,46 +192,6 @@
     });
   }
 
-  function renderFuentes(fuentes) {
-    if (!fuentes || !fuentes.length) return;
-
-    const lista = el("fuentes-lista");
-    lista.innerHTML = "";
-    fuentes.forEach(function (fuente) {
-      const li = document.createElement("li");
-
-      const cabecera = document.createElement("div");
-      cabecera.className = "fuente-cabecera";
-
-      const nombre = document.createElement("strong");
-      nombre.textContent = fuente.nombre;
-      cabecera.appendChild(nombre);
-
-      /* La misma gramática que las barras y que el filete de la tarjeta, ahora
-       * fuente por fuente: el borde de cada fila dice de qué te puedes fiar
-       * antes de leer la etiqueta. Sin esto, "de qué te puedes fiar" era una
-       * lista donde lo fiable y lo simulado tenían exactamente el mismo aspecto
-       * salvo por una palabra al final de la línea. */
-      li.dataset.certeza = CERTEZA_DE_ESTADO[fuente.estado] || "";
-
-      const marca = ESTADOS[fuente.estado] || { texto: fuente.estado, clase: "tag-cat" };
-      const tag = document.createElement("span");
-      tag.className = "tag " + marca.clase;
-      tag.textContent = marca.texto;
-      cabecera.appendChild(tag);
-
-      li.appendChild(cabecera);
-
-      const detalle = document.createElement("p");
-      detalle.className = "muted";
-      detalle.textContent = fuente.detalle;
-      li.appendChild(detalle);
-
-      lista.appendChild(li);
-    });
-    show("fuentes-card");
-  }
-
   // --- Arranque ------------------------------------------------------------
 
   /* Esta pantalla NO sale a internet: `/api/perfil` solo lee SQLite. Así que
@@ -297,7 +245,6 @@
         if (perfil === null) return;        // se está yendo al login
         renderCabecera(perfil);
         renderCuerpo(perfil);
-        renderFuentes(perfil.fuentes);
 
         /* Lo que se ve al volver de Atajos. Un número de pasos que sube sin
          * decir nada no se nota: acabas de venir de otra app y no te sabes el

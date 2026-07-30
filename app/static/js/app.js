@@ -30,7 +30,7 @@
    * pantalla dice que ya estás aquí. */
   const SECTIONS = [
     "place-card", "warnings-card", "reco-card",
-    "weather-card", "agua-card", "luna-card", "fuego-card",
+    "weather-card", "agua-card", "luna-card",
   ];
 
   function setStatus(message, kind) {
@@ -410,108 +410,9 @@
   }
 
 
-  /* --- Fuego cerca (NASA FIRMS) ------------------------------------------
-   *
-   * La petición al satélite la hace ESTE navegador y no el servidor, porque el
-   * dominio de la NASA no está en la lista blanca del proxy de PythonAnywhere
-   * (decisión 21) y FIRMS permite CORS. Pero el veredicto NO se decide aquí: el
-   * CSV se manda a `/api/incendios` y lo interpreta Python, donde los umbrales
-   * se pueden probar sin abrir un navegador (decisión 5, como el oleaje).
-   *
-   * Va aparte del contexto y después de él: si la NASA tarda o falla, la
-   * pantalla ya ha pintado dónde estás y qué tiempo hace. */
-  async function verFuego(lat, lon) {
-    const card = document.getElementById("fuego-card");
-    if (!card) return;                       // sin clave configurada
-
-    try {
-      const url = urlDeFirms(lat, lon);
-      if (!url) return;
-
-      const csv = await (await fetch(url)).text();
-
-      const respuesta = await fetch("/api/incendios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: lat, lon: lon, csv: csv }),
-      });
-      const data = await respuesta.json().catch(function () { return {}; });
-      if (!respuesta.ok || !data.situacion) {
-        /* Que no se haya podido mirar NO se pinta como "todo limpio": eso
-         * sería tranquilizar sin haber mirado, que es el fallo del que avisa
-         * la decisión 22. Se dice, y se dice corto. */
-        senal("fuego-card", "fuego-veredicto", "sin datos", "");
-        text("fuego-detalle", "No se pudo consultar el satélite de incendios.");
-        document.getElementById("fuego-detalle-lista").hidden = true;
-        return;
-      }
-      renderFuego(data.situacion);
-    } catch (err) {
-      senal("fuego-card", "fuego-veredicto", "sin datos", "");
-      text("fuego-detalle", "No se pudo consultar el satélite: " + mensajeDeError(err));
-    }
-  }
-
-  /* El sensor, el radio y los días los pone el SERVIDOR en los `data-` de la
-   * tarjeta, y aquí solo se concatenan. Así siguen siendo una sola definición
-   * —viven en `incendios.py`— en vez de dos copias que se separan sin dar
-   * ningún error. Sin clave configurada, esto devuelve null y no se consulta
-   * nada. */
-  function urlDeFirms(lat, lon) {
-    const card = document.getElementById("fuego-card");
-    const clave = card.dataset.firmsKey;
-    if (!clave) return null;
-
-    const grados = parseFloat(card.dataset.firmsGrados);
-    const caja = [
-      (lon - grados).toFixed(4), (lat - grados).toFixed(4),
-      (lon + grados).toFixed(4), (lat + grados).toFixed(4),
-    ].join(",");
-
-    return [card.dataset.firmsBase, clave, card.dataset.firmsSensor,
-            caja, card.dataset.firmsDias].join("/");
-  }
-
-  /* Del nivel que calcula Python a lo que se lee en la señal. El texto corto y
-   * el grado se deciden aquí porque son presentación; QUÉ nivel es —dónde está
-   * la frontera entre un horno industrial y un incendio— lo decide
-   * `incendios.py`, que es donde se puede probar sin abrir un navegador. */
-  const FUEGO_SENAL = {
-    tranquilo: { texto: "sin focos", grado: "bueno" },
-    puntos: { texto: "puntos", grado: "regular" },
-    foco: { texto: "activo", grado: "peligroso" },
-  };
-
-  function renderFuego(situacion) {
-    /* El veredicto entero («foco activo a 12 km, 117 MW») va al detalle: en la
-     * casilla del panel no cabe y se leería a medias, que en esto es peor que
-     * no leerlo. */
-    const marca = FUEGO_SENAL[situacion.nivel] || FUEGO_SENAL.tranquilo;
-    senal("fuego-card", "fuego-veredicto", marca.texto, marca.grado);
-    text("fuego-detalle", situacion.veredicto + "  " + situacion.detalle);
-
-    const detalle = document.getElementById("fuego-detalle-lista");
-    const lista = document.getElementById("fuego-lista");
-    lista.innerHTML = "";
-
-    if (situacion.detecciones && situacion.detecciones.length) {
-      text("fuego-count", String(situacion.cuantas));
-      situacion.detecciones.forEach(function (d) {
-        const li = document.createElement("li");
-        const enlace = document.createElement("a");
-        enlace.href = "https://www.google.com/maps/dir/?api=1&destination=" + d.lat + "," + d.lon;
-        enlace.rel = "noopener";
-        enlace.textContent =
-          d.distancia_km + " km — " + d.frp_mw + " MW · " + d.fecha +
-          (d.de_noche ? " (noche)" : " (día)");
-        li.appendChild(enlace);
-        lista.appendChild(li);
-      });
-      detalle.hidden = false;
-    } else {
-      detalle.hidden = true;
-    }
-  }
+  /* La señal de fuego (NASA FIRMS) vivió aquí; se quitó de Inicio a petición
+   * del usuario, que la sigue teniendo en su propia pantalla, /fuego, con el
+   * mapa y sin números de MW por línea (decisión 59). */
 
   /* El estado de los POIs se enseña con las palabras de cada caso, no con un
    * "no hay resultados" para todo. Los cuatro significan cosas distintas y
@@ -601,11 +502,6 @@
       // renderPlace(), así que no se repite aquí.
       renderContexto(data, position.coords);
       setStatus("");
-
-      // Después del contexto y sin `await`: si la NASA tarda, la pantalla ya
-      // está pintada. Es la lección de la decisión 33 aplicada a una fuente
-      // nueva — lo lento no se mete en el camino de lo que responde rápido.
-      verFuego(position.coords.latitude, position.coords.longitude);
     } catch (err) {
       setStatus(mensajeDeError(err), "error");
     } finally {

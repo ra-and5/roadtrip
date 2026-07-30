@@ -81,13 +81,14 @@
      `<iframe>` saldría en blanco y sin decir por qué. Lo que sí se puede es
      abrirlo centrado donde estás — tiene capas, histórico y sensores que aquí
      no hacen falta, pero el día que quieras mirar de verdad, está a un toque. #}
+  <!-- Se abre en pestaña/app aparte (`target="_blank"`) Y con un manejador de
+       JavaScript redundante: en un iPhone con la app instalada como PWA, un
+       enlace normal a veces navega DENTRO de la propia app en vez de saltar a
+       Safari, y entonces no hay forma de volver — no hay barra de "atrás" en
+       modo standalone. `window.open` fuerza el salto a un contexto de
+       navegador de verdad, del que sí se vuelve con el cambiador de apps. -->
   <a id="fuego-nasa" class="button secondary" href="https://firms.modaps.eosdis.nasa.gov/map/"
-     target="_blank" rel="noopener">Abrir el mapa oficial de la NASA</a>
-</section>
-
-<section class="card" id="fuego-lista-card" hidden>
-  <h2>Los más potentes</h2>
-  <ul class="pois" id="fuego-lista"></ul>
+     target="_blank" rel="noopener noreferrer">Abrir el mapa oficial de la NASA</a>
 </section>
 {% endblock %}
 

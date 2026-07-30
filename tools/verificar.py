@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -338,62 +339,6 @@ def inicio_pois(page: Any) -> str:
     return f"{cuantos} puntos en {grupos.count()} grupos, con enlace a Mapas"
 
 
-# Dos detecciones reales de FIRMS del 30-07-2026, a ~2 km de San Vicente del
-# Raspeig: 0,62 y 1,85 MW de noche. Casi con seguridad industria, y el caso que
-# de verdad importa — anunciarlo como "incendio" es la alarma que se aprende a
-# ignorar, y entonces tampoco se lee el día que arde el monte de al lado.
-CSV_FIRMS = (
-    "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,"
-    "instrument,confidence,version,bright_ti5,frp,daynight\n"
-    "43.5700,-6.1500,307.65,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,294.76,0.62,N\n"
-    "43.5800,-6.1600,325.82,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,292.52,1.85,N\n"
-)
-
-
-def inicio_fuego(page: Any) -> str:
-    """El satélite lo pide el navegador; el veredicto lo pone Python.
-
-    Se dobla la respuesta de la NASA porque la verificación corre sin red (y
-    porque el caso que hay que fijar es uno concreto: dos detecciones flojas).
-    Lo que se comprueba no es que salga una tarjeta, sino **qué palabras usa**.
-    """
-    page.route(
-        "**/firms.modaps.eosdis.nasa.gov/**",
-        lambda route: route.fulfill(status=200, content_type="text/plain", body=CSV_FIRMS),
-    )
-    try:
-        page.reload()
-        page.click("#contexto-btn")
-        # Se espera al TEXTO y no solo a que la casilla sea visible: la señal se
-        # rellena y se muestra en el mismo paso, pero el panel entero aparece
-        # antes, así que mirar la visibilidad podía leer la casilla todavía en
-        # blanco. Un guion que lee demasiado pronto no falla: da un valor vacío.
-        senal = esperar(lambda: texto(page, "fuego-veredicto"),
-                        "la señal de fuego no llegó a decir nada", segundos=20)
-        # El veredicto completo se fue al detalle plegado del panel: en una
-        # casilla de cuatro no cabe una frase, y leerla a medias es peor que no
-        # leerla. Se abre para comprobar que sigue diciendo lo que debe.
-        page.locator("#place-detalle > summary").click()
-        detalle = texto(page, "fuego-detalle")
-    finally:
-        page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
-
-    # Solo la SEÑAL: el detalle dice legítimamente «casi nunca es un incendio»,
-    # que es justo la frase que hay que conservar.
-    if "incendio" in senal.lower():
-        raise Fallo(f"dos detecciones de 1 MW anunciadas como incendio: {senal!r}")
-    # La señal no puede decir «sin focos» habiendo detecciones: sería
-    # tranquilizar con datos que dicen otra cosa.
-    if senal != "puntos":
-        raise Fallo(f"dos detecciones flojas no salen como «puntos»: {senal!r}")
-    if "punto" not in detalle:
-        raise Fallo(f"no se nombran como puntos de calor: {detalle!r}")
-    if "industria" not in detalle:
-        raise Fallo("no se explica que el satélite marca también industria y quemas")
-
-    return f"señal «{senal}» y el detalle sin la palabra incendio"
-
-
 def inicio_nota_offline(page: Any, sesion: Any, errores: Errores) -> str:
     """Los cuatro caminos de la cola: sin red, reintento, duplicada y rechazada."""
     contexto = page.context
@@ -497,16 +442,11 @@ def inicio_nota_offline(page: Any, sesion: Any, errores: Errores) -> str:
 def perfil(page: Any) -> str:
     page.goto(f"{BASE}/perfil")
     esperar(lambda: page.locator("#cuerpo-card").is_visible(), "el perfil no pintó el cuerpo")
-    esperar(lambda: page.locator("#fuentes-lista li").count() > 0, "no salió ninguna fuente")
-
-    # La fiabilidad va JUNTO al dato (decisión 40): sin el veredicto, la
-    # pantalla enseña cifras que no se sabe si valen.
-    fuentes = page.inner_text("#fuentes-lista")
-    if not any(v in fuentes for v in ("demostrada", "huecos", "sin datos", "simulad")):
-        raise Fallo(f"las fuentes salen sin veredicto: {fuentes[:120]!r}")
 
     # Hay telemetría simulada sembrada: el aviso es obligatorio, o la pantalla
-    # certifica como medido algo que nos hemos inventado (decisión 36).
+    # certifica como medido algo que nos hemos inventado (decisión 36). Es lo
+    # único que queda en pantalla de la extinta lista "de qué te puedes fiar"
+    # además del aviso de parada (que se comprueba aparte, en `perfil_parada`).
     if not page.locator("#cuerpo-simulado").is_visible():
         raise Fallo("hay datos simulados y no sale el aviso de que lo son")
 
@@ -529,7 +469,7 @@ def perfil(page: Any) -> str:
         if intruso in cuerpo:
             raise Fallo(f"el Perfil repite algo de otra pantalla: {intruso!r}")
 
-    return f"{page.locator('#fuentes-lista li').count()} fuentes con veredicto"
+    return f"{barras.count()} barras, con el aviso de simulado a la vista"
 
 
 def perfil_parada(page: Any, sesion: Any) -> str:
@@ -540,6 +480,10 @@ def perfil_parada(page: Any, sesion: Any) -> str:
     cura sola: hay que ir a mirar Atajos (decisión 50). Que el estado se calcule
     bien lo fijan los tests de Python; que llegue hasta la pantalla, no lo fijaba
     nadie, y es la mitad que se lee.
+
+    La lista larga "de qué te puedes fiar" se quitó (decisión 59), pero este
+    aviso —el único de esa lista con algo que hacer al leerlo— se quedó dentro
+    de la tarjeta de los pasos. Aquí se comprueba que sigue ahí.
 
     El payload se pide al servidor y se le cambia UNA clave, en vez de
     fabricarlo entero: así, si mañana `/api/perfil` devuelve otra forma, esto se
@@ -563,15 +507,13 @@ def perfil_parada(page: Any, sesion: Any) -> str:
     )
     try:
         page.goto(f"{BASE}/perfil")
-        esperar(lambda: page.locator("#fuentes-lista li").count() > 0, "no salieron las fuentes")
-        texto_fuentes = page.inner_text("#fuentes-lista")
+        esperar(lambda: page.locator("#cuerpo-parada").is_visible(), "no salió el aviso de parada")
+        texto_parada = page.inner_text("#cuerpo-parada")
     finally:
         page.unroute("**/api/perfil*")
 
-    if "parada" not in texto_fuentes:
-        raise Fallo(f"una fuente parada no se dice en la pantalla: {texto_fuentes[:160]!r}")
-    if "automatizaciones" not in texto_fuentes:
-        raise Fallo("no se dice qué hacer (mirar Atajos), solo que algo va mal")
+    if "automatizaciones" not in texto_parada:
+        raise Fallo(f"no se dice qué hacer (mirar Atajos): {texto_parada!r}")
 
     return "una fuente parada se ve y dice dónde mirar"
 
@@ -855,11 +797,15 @@ def fuego_mapa(page: Any) -> str:
             "quitar el filtro no enseña los dos focos agrupados",
         )
 
-        # Y quitar el filtro NO vuelve a pedir nada a la NASA: los datos ya
-        # estaban, y repetir la consulta por marcar una casilla es tiempo
-        # regalado con mala cobertura.
-        if not page.locator("#fuego-lista li").count():
-            raise Fallo("no sale la lista de los más potentes")
+        # No queda NINGUNA CIFRA de MW en la pantalla (decisión 59): ni popup
+        # por foco ni lista aparte. El punto y su tamaño son toda la lectura.
+        # Se busca un número pegado a "MW" y no la palabra suelta, porque la
+        # leyenda sigue explicando en prosa que el tamaño ES la potencia —eso
+        # no es el "texto de las detecciones" que se quitó, es la clave para
+        # entender el mapa.
+        cuerpo = page.inner_text("body")
+        if re.search(r"\d[\d.,]*\s*MW", cuerpo):
+            raise Fallo(f"sigue habiendo una cifra de MW en la pantalla: {cuerpo[:200]!r}")
     finally:
         page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
 
@@ -1059,7 +1005,6 @@ def main() -> int:
                 corredor.check("¿Dónde estoy?", lambda: inicio_contexto(page))
                 corredor.check("Recomiéndame algo", lambda: inicio_recomendacion(page))
                 corredor.check("Buscar sitios cerca", lambda: inicio_pois(page))
-                corredor.check("fuego cerca, sin alarmismo", lambda: inicio_fuego(page))
                 corredor.check("nota con la cola offline",
                                lambda: inicio_nota_offline(page, sesion, errores))
                 corredor.sin_errores_de_js("Inicio")

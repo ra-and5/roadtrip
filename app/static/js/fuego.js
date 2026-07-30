@@ -40,8 +40,6 @@
   const diasEl = document.getElementById("fuego-dias");
   const ambitoEl = document.getElementById("fuego-ambito");
   const soloFuertesEl = document.getElementById("fuego-solo-fuertes");
-  const listaCard = document.getElementById("fuego-lista-card");
-  const listaEl = document.getElementById("fuego-lista");
 
   const mapa = L.map("fuego-mapa").setView([40.0, -3.7], 6);
 
@@ -123,6 +121,11 @@
       return (b.horas === null ? 1e9 : b.horas) - (a.horas === null ? 1e9 : a.horas);
     });
 
+    // Sin popup con números: color (antigüedad) y radio (potencia) son toda
+    // la lectura que se pide aquí. El texto de cada detección —MW, km,
+    // horas— se quitó a propósito (decisión 59): el punto en el mapa ya dice
+    // "aquí y así de reciente", y la cifra exacta invitaba a comparar 0,62
+    // contra 1,85 MW, que es ruido para decidir una ruta.
     porAntiguedad.forEach(function (f) {
       const tramo = tramoDe(f.horas);
       L.circleMarker([f.lat, f.lon], {
@@ -134,40 +137,10 @@
         // Clase propia para poder distinguirlos del marcador de "estás aquí",
         // que también es un círculo. Sin ella, contar focos cuenta uno de más.
         className: "foco",
-      })
-        .bindPopup(
-          "<strong>" + f.frp_max_mw + " MW</strong> de pico<br>" +
-          f.detecciones + " detección(es) del satélite<br>" +
-          (f.horas === null ? "sin hora" : "la más reciente hace " + f.horas + " h") + "<br>" +
-          "a " + f.distancia_km + " km de ti"
-        )
-        .addTo(capaFocos);
+      }).addTo(capaFocos);
     });
 
-    pintarLista(lista);
     return lista.length;
-  }
-
-  function pintarLista(lista) {
-    const fuertes = lista.slice()
-      .sort(function (a, b) { return b.frp_max_mw - a.frp_max_mw; })
-      .slice(0, 10);
-
-    listaEl.innerHTML = "";
-    listaCard.hidden = fuertes.length === 0;
-
-    fuertes.forEach(function (f) {
-      const li = document.createElement("li");
-      const enlace = document.createElement("a");
-      enlace.href = "https://www.google.com/maps/dir/?api=1&destination=" + f.lat + "," + f.lon;
-      enlace.rel = "noopener";
-      enlace.textContent =
-        f.frp_max_mw + " MW — a " + f.distancia_km + " km" +
-        (f.horas === null ? "" : " · hace " + f.horas + " h") +
-        " · " + f.detecciones + " detección(es)";
-      li.appendChild(enlace);
-      listaEl.appendChild(li);
-    });
   }
 
   /* La caja de búsqueda: alrededor de ti, o el país entero. Los dos rectángulos
@@ -299,6 +272,17 @@
     enlace.href = "https://firms.modaps.eosdis.nasa.gov/map/#d:" + dias +
                   ";@" + lon.toFixed(1) + "," + lat.toFixed(1) + "," + zoom + "z";
   }
+
+  /* El enlace ya lleva `target="_blank"`, que basta en un navegador normal.
+   * Pero en una PWA instalada (modo standalone, sin barra de Safari) un enlace
+   * normal a veces navega DENTRO de la propia app en lugar de saltar fuera, y
+   * ahí no hay "atrás": la app se ha ido. `window.open` con `noopener` fuerza
+   * un contexto de navegador aparte del que sí se sale con el cambiador de
+   * apps del sistema, y es lo que de verdad soluciona el enlace atrapado. */
+  document.getElementById("fuego-nasa").addEventListener("click", function (evento) {
+    evento.preventDefault();
+    window.open(this.href, "_blank", "noopener,noreferrer");
+  });
 
   diasEl.addEventListener("change", cargar);
   ambitoEl.addEventListener("change", cargar);

@@ -36,6 +36,21 @@ python tools/diagnostico.py --todos    # prueba todos los proveedores de LLM
 python tools/diagnostico.py -v         # con la traza completa de cada fallo
 ```
 
+Antes de desplegar o estrenar, usa el semáforo que mira TU instalación real:
+
+```bash
+python tools/pre_despliegue.py                    # código, PWA y datos reales
+python tools/pre_despliegue.py --tests            # además la suite Python
+python tools/pre_despliegue.py --navegador        # además tools/verificar.py
+python tools/pre_despliegue.py --para-commit      # exige git limpio
+python tools/pre_despliegue.py --estrenar         # exige viaje vacío
+```
+
+Importante: `tools/verificar.py` usa una base temporal en `/tmp` y datos falsos
+de Cudillero para probar sin red. Si ves Cudillero ahí, no es tu viaje ni la base
+del servidor; es el muñeco de choque. `pre_despliegue.py` es el que mira tus
+datos reales.
+
 Salen cuatro bloques, y el orden va de lo que no puede fallar a lo que degrada:
 **CONFIGURACIÓN** (lo que ni se intenta si está mal), **DATOS DEL VIAJE** (lo
 nuestro: SQLite, el disco y si las fuentes propias llegan sin huecos), **FUENTES
@@ -215,6 +230,7 @@ va por síntomas.
 ### Antes de empezar
 
 - [ ] La suite pasa en local: `python -m pytest -q`
+- [ ] El semáforo local no tiene fallos: `python tools/pre_despliegue.py --tests --navegador`
 - [ ] El diagnóstico da OK en local: `python tools/diagnostico.py 43.5622 -6.1456`
 - [ ] Tienes a mano la `GEMINI_API_KEY` y una contraseña para la app
 

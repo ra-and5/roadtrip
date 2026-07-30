@@ -15,19 +15,19 @@
 
 <section class="card" id="cuerpo-card" hidden>
   <h2>Tu día</h2>
-  <!-- El aviso de simulado va ARRIBA: una cifra inventada que se lee antes que
+  <!-- Los avisos van ARRIBA: una cifra inventada o parada que se lee antes que
        su advertencia ya ha hecho el daño. -->
   <p id="cuerpo-simulado" class="aviso aviso-procedencia" hidden></p>
+  <!-- La lista larga de "de qué te puedes fiar" se quitó (era ruido para leer
+       en marcha), pero la única alerta de verdad ACCIONABLE de esa lista se
+       queda: si la telemetría lleva 12 h sin llegar, no es un hueco que se cura
+       solo — es una automatización de Atajos que hay que ir a mirar
+       (decisión 50). Vive aquí y no en una tarjeta aparte porque es sobre ESTA
+       cifra, los pasos de hoy. -->
+  <p id="cuerpo-parada" class="aviso aviso-procedencia" hidden></p>
   <p class="lead" id="cuerpo-hoy"></p>
   <div class="barras" id="cuerpo-barras"></div>
   <p class="muted" id="cuerpo-pie"></p>
-</section>
-
-<!-- La pregunta que este proyecto se toma en serio, en pantalla y no solo en
-     una consola del servidor: ¿de cuál de estos datos me puedo fiar? -->
-<section class="card" id="fuentes-card" hidden>
-  <h2>De qué te puedes fiar</h2>
-  <ul class="fuentes" id="fuentes-lista"></ul>
 </section>
 
 {# Los pasos llegan cuando corre la automatización, así que a mitad del día lo

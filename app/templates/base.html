@@ -9,6 +9,13 @@
        iOS se queda clara sobre una app oscura y parece de otra aplicación. -->
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#121917" media="(prefers-color-scheme: dark)">
+  <!-- PWA instalable sin service worker: icono y modo standalone, pero sin una
+       caché nueva que pueda dejar JavaScript viejo atrapado tras desplegar. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Compañero">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
   <title>{% block title %}Compañero de viaje{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head_extra %}{% endblock %}

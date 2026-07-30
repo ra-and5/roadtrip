@@ -217,16 +217,10 @@ def logout() -> Any:
 @app.route("/")
 @auth.login_required
 def index() -> Any:
-    # La clave de FIRMS viaja a la página porque la petición la hace el
-    # navegador: el dominio no está en la lista blanca del proxy (decisión
-    # 21). Vacía, la tarjeta no se enseña.
-    return render_template(
-        "index.html",
-        firms_map_key=Config.FIRMS_MAP_KEY,
-        firms_base=incendios.URL_BASE,
-        firms_sensor=incendios.SENSOR,
-        firms_grados=incendios.GRADOS_ALREDEDOR,
-    )
+    # La señal de fuego que vivía aquí se quitó a petición del usuario: sigue
+    # en su propia pantalla, /fuego, que es donde de verdad hace falta decidir
+    # una ruta (decisión 59). Por eso Inicio ya no necesita nada de `incendios`.
+    return render_template("index.html")
 
 
 @app.route("/mapa")

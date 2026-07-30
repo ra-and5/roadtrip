@@ -35,7 +35,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -298,6 +299,25 @@ def sembrar() -> None:
     storage.init_db()
     ahora = datetime.now(timezone.utc)
 
+    # España está por delante de UTC (CEST, +2h), así que el día LOCAL cambia
+    # de fecha entre las 00:00 y las 02:00 antes de que lo haga el UTC. Sembrar
+    # "hoy" restando días directamente sobre `ahora` en UTC deja, durante esa
+    # ventana de dos horas cada madrugada, la muestra más reciente fechada un
+    # día LOCAL por detrás del "hoy" que calcula `perfil.construir()` — que sí
+    # es local. El síntoma no es un error: es que la barra de "hoy" sale con un
+    # guion, y solo entre medianoche y las dos.
+    #
+    # Por eso cada instante se ancla al día LOCAL de `hoy_local`, no al de
+    # `ahora`, y se construye con la hora local que se pide antes de convertir
+    # a UTC para guardar.
+    zona = ZoneInfo("Europe/Madrid")
+    hoy_local: date = ahora.astimezone(zona).date()
+
+    def instante_local(dias_atras: int, hora: int, minuto: int = 0) -> datetime:
+        fecha = hoy_local - timedelta(days=dias_atras)
+        local = datetime.combine(fecha, time(hour=hora, minute=minuto), tzinfo=zona)
+        return local.astimezone(timezone.utc)
+
     notas = [
         # (dias_atras, texto, lat, lon, lugar, region)
         (0, "Llegada al puerto. Huele a mar.", 43.5622, -6.1456, "Cudillero, Asturias", "Asturias"),
@@ -310,7 +330,7 @@ def sembrar() -> None:
     ]
 
     for indice, (dias, texto, lat, lon, lugar, region) in enumerate(notas):
-        instante = ahora - timedelta(days=dias, hours=3)
+        instante = instante_local(dias, 13)
         storage.insert_note(
             {
                 "client_id": f"00000000-0000-4000-8000-{indice:012d}",
@@ -342,7 +362,12 @@ def sembrar() -> None:
                 # que no existe.
                 "fuente": "fotos",
                 "archivo": archivo,
-                "capturado_en": (ahora - timedelta(days=dias, hours=5))
+                # `capturado_en` es hora local SIN huso (decisión 30): se
+                # construye ya en local y se le quita el tzinfo al guardar, en
+                # vez de restar horas sobre el UTC de `ahora` y fingir que los
+                # dígitos resultantes son locales.
+                "capturado_en": instante_local(dias, 9)
+                .astimezone(zona)
                 .replace(tzinfo=None)
                 .isoformat(timespec="seconds"),
                 "offset_original": "+02:00",
@@ -381,9 +406,7 @@ def sembrar() -> None:
     muestras = []
     for dias in range(3):
         for hora, pasos in ((9, 1200), (14, 5400), (20, 9100)):
-            medido = (ahora - timedelta(days=dias)).replace(
-                hour=hora, minute=0, second=0, microsecond=0
-            )
+            medido = instante_local(dias, hora)
             muestras.append(
                 {
                     "fuente": "atajos-iphone" if dias < 2 else "simulado",

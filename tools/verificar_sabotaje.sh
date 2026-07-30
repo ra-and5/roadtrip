@@ -84,9 +84,9 @@ sabotear "contenedor del mapa sin su id" \
   's/id="mapa"/id="mapa-roto"/' \
   mapa
 
-sabotear "lista de fuentes fuera del Perfil" \
+sabotear "aviso de telemetría parada fuera del Perfil" \
   app/templates/perfil.html \
-  's/id="fuentes-lista"/id="fuentes-lista-roto"/' \
+  's/id="cuerpo-parada"/id="cuerpo-parada-roto"/' \
   perfil
 
 # El sexto no toca ningún archivo: ocupa el puerto. Es el sabotaje que imita a

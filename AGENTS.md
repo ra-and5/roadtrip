@@ -1,6 +1,7 @@
-# CLAUDE.md — Compañero de viaje
+AGENTS.md
 
-Documento de trabajo del proyecto. Lo lee Claude Code al empezar cada sesión.
+
+Documento de trabajo del proyecto. Lo lee Codex Code al empezar cada sesión.
 
 ---
 

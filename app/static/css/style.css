@@ -617,13 +617,17 @@ input[type="checkbox"] {
   font-size: var(--t-lead);
 }
 
-/* Las cuatro señales. Reparto fijo en cuatro columnas y no `auto-fit`: son
-   siempre cuatro y siempre las mismas, y que cambien de sitio o de ancho según
-   cuántas hayan contestado haría que en marcha se leyera la equivocada. Una que
-   falta deja su hueco, que además dice que falta. */
+/* Las tres señales. Reparto fijo en tres columnas y no `auto-fit`: son
+   siempre las mismas, y que cambien de sitio o de ancho según cuántas hayan
+   contestado haría que en marcha se leyera la equivocada. Una que falta deja
+   su hueco, que además dice que falta.
+
+   Fuego vivía aquí como cuarta señal y se quitó (decisión 59): sigue en su
+   propia pantalla, /fuego, que es donde de verdad hace falta para decidir una
+   ruta. Aquí solo sobraba. */
 .senales {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--e1);
 }
 .senal {
@@ -1148,27 +1152,6 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
 .barra-hoy .barra-etiqueta { color: var(--tinta); font-weight: 600; }
 
 @keyframes brotar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-
-.fuentes { list-style: none; margin: 0; padding: 0; }
-.fuentes li { border-top: 1px solid var(--trazo); padding: var(--e3) 0 var(--e3) var(--e3); }
-.fuentes li:first-child { border-top: none; padding-top: 0; }
-
-/* La gramática de la certeza, fuente por fuente. Sin esto, «fiable» y
-   «simulado» tenían el mismo aspecto salvo por una palabra al final de la
-   línea — en la tarjeta cuyo único trabajo es distinguirlos. */
-.fuentes li[data-certeza] { border-left: 2px solid transparent; }
-.fuentes li[data-certeza="medido"] { border-left-color: var(--sonda); }
-.fuentes li[data-certeza="hueco"] { border-left-color: transparent; border-image: var(--trama-hueco) 1; }
-.fuentes li[data-certeza="fallo"] { border-left-color: var(--baliza); }
-.fuentes p { margin: var(--e1) 0 0; font-size: var(--t-corto); color: var(--apagado); }
-.fuente-cabecera {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--e2);
-}
-.fuente-cabecera .tag { margin: 0; flex: 0 0 auto; }
-
 
 /* -----------------------------------------------------------------------------
    12. Fuego — ¿hacia dónde me muevo?
