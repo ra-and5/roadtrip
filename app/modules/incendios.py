@@ -35,12 +35,12 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 __all__ = [
-    "Deteccion", "GRADOS_ALREDEDOR", "SENSOR", "Situacion", "URL_BASE",
-    "evaluar", "parsear", "url_de_consulta",
+    "Deteccion", "GRADOS_ALREDEDOR", "GRADOS_MAPA", "MAX_EN_EL_MAPA", "SENSOR",
+    "Situacion", "URL_BASE", "evaluar", "para_el_mapa", "parsear", "url_de_consulta",
 ]
 
 
@@ -58,6 +58,17 @@ SENSOR = "VIIRS_SNPP_NRT"
 # más ancho traería detecciones de las que no hay nada que hacer y menos dejaría
 # fuera un fuego al que le da el viento.
 GRADOS_ALREDEDOR = 0.5
+
+# El del MAPA es mucho mayor, y responde a otra pregunta. La tarjeta de Inicio
+# contesta "¿me tengo que preocupar aquí?"; el mapa contesta "¿hacia dónde me
+# muevo y hacia dónde no?", y eso no se decide con 55 km. 3° son unos 330 km de
+# norte a sur: una jornada de camper.
+GRADOS_MAPA = 3.0
+
+# Techo de detecciones que se devuelven al mapa. En un agosto malo, 3° de España
+# pueden traer miles; el navegador de un móvil no pinta miles de círculos sin
+# atragantarse. Se recortan las MÁS LEJANAS, nunca las más potentes.
+MAX_EN_EL_MAPA = 600
 
 # A partir de aquí una detección deja de parecer industria. La potencia
 # radiativa de un horno o una antorcha se mide en unidades o pocas decenas de
@@ -85,12 +96,19 @@ class Deteccion:
     confianza: str        # VIIRS: "l" baja, "n" nominal, "h" alta
     de_noche: bool
     distancia_km: float = 0.0
+    # Horas desde que el satélite lo vio. Se calcula en el servidor, que es
+    # quien sabe qué hora es en UTC: en el navegador habría que reconstruir el
+    # instante desde `acq_date` + `acq_time` ("0158", sin dos puntos) y esa
+    # aritmética repetida en JavaScript es justo donde se cuela un desfase que
+    # no da ningún error, solo colores equivocados.
+    horas: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "lat": self.lat, "lon": self.lon, "fecha": self.fecha,
             "hora": self.hora, "frp_mw": self.frp_mw, "confianza": self.confianza,
             "de_noche": self.de_noche, "distancia_km": round(self.distancia_km, 1),
+            "horas": round(self.horas, 1) if self.horas is not None else None,
         }
 
 
@@ -122,7 +140,28 @@ class Situacion:
         }
 
 
-def url_de_consulta(clave: str, lat: float, lon: float, dias: int = 1) -> str:
+def _instante(fecha: str, hora: str) -> datetime | None:
+    """El instante UTC de una detección, desde `acq_date` y `acq_time`.
+
+    FIRMS manda la hora como un número sin dos puntos y **sin ceros a la
+    izquierda**: las 01:58 llegan como "158". Tratarlo como texto de cuatro
+    dígitos sin rellenar daría las 15:8, que no existe — y la detección
+    aparecería con doce horas de antigüedad equivocada, o sea del color que no
+    es. Lo mismo que hace el propio tutorial de la NASA con `zfill(4)`.
+    """
+    if not fecha:
+        return None
+    try:
+        return datetime.strptime(
+            f"{fecha} {str(hora or '0').zfill(4)}", "%Y-%m-%d %H%M"
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def url_de_consulta(
+    clave: str, lat: float, lon: float, dias: int = 1, grados: float = GRADOS_ALREDEDOR
+) -> str:
     """La URL que tiene que pedir el navegador.
 
     Se compone en el servidor y no en el JavaScript por un motivo concreto: así
@@ -130,8 +169,8 @@ def url_de_consulta(clave: str, lat: float, lon: float, dias: int = 1) -> str:
     Python y JavaScript, cambiar el radio en un sitio y no en el otro daría una
     caja de búsqueda distinta de la que dicen los tests, sin ningún error.
     """
-    oeste, sur = lon - GRADOS_ALREDEDOR, lat - GRADOS_ALREDEDOR
-    este, norte = lon + GRADOS_ALREDEDOR, lat + GRADOS_ALREDEDOR
+    oeste, sur = lon - grados, lat - grados
+    este, norte = lon + grados, lat + grados
     return f"{URL_BASE}/{clave}/{SENSOR}/{oeste:.4f},{sur:.4f},{este:.4f},{norte:.4f}/{dias}"
 
 
@@ -144,7 +183,9 @@ def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371.0 * asin(sqrt(a))
 
 
-def parsear(texto: str, lat: float, lon: float) -> list[Deteccion]:
+def parsear(
+    texto: str, lat: float, lon: float, *, ahora: datetime | None = None
+) -> list[Deteccion]:
     """Convierte el CSV de FIRMS en detecciones, ordenadas por cercanía.
 
     Tolera que falten columnas: FIRMS ha cambiado el juego de campos entre
@@ -167,6 +208,8 @@ def parsear(texto: str, lat: float, lon: float) -> list[Deteccion]:
         # El cuerpo se recorta: puede traer una página entera de error.
         raise IncendioError(f"FIRMS no devolvió un CSV de detecciones: {texto[:120]!r}")
 
+    ahora = ahora or datetime.now(timezone.utc)
+
     detecciones: list[Deteccion] = []
     for fila in csv.DictReader(io.StringIO(texto)):
         try:
@@ -180,19 +223,42 @@ def parsear(texto: str, lat: float, lon: float) -> list[Deteccion]:
         except ValueError:
             frp = 0.0
 
+        fecha = str(fila.get("acq_date") or "")
+        hora = str(fila.get("acq_time") or "")
+        visto = _instante(fecha, hora)
+
         detecciones.append(Deteccion(
             lat=punto_lat,
             lon=punto_lon,
-            fecha=str(fila.get("acq_date") or ""),
-            hora=str(fila.get("acq_time") or ""),
+            fecha=fecha,
+            hora=hora,
             frp_mw=frp,
             confianza=str(fila.get("confidence") or "").strip().lower(),
             de_noche=str(fila.get("daynight") or "").strip().upper() == "N",
             distancia_km=_km(lat, lon, punto_lat, punto_lon),
+            horas=(ahora - visto).total_seconds() / 3600 if visto else None,
         ))
 
     detecciones.sort(key=lambda d: d.distancia_km)
     return detecciones
+
+
+def para_el_mapa(
+    texto: str, lat: float, lon: float, *, ahora: datetime | None = None
+) -> list[Deteccion]:
+    """Todas las detecciones, para pintarlas. Función PURA.
+
+    Distinta de `evaluar()` a propósito: aquella responde "¿me tengo que
+    preocupar aquí?" y se queda con las diez más cercanas; esta responde "¿hacia
+    dónde me muevo?" y las quiere todas, porque un frente a 200 km es
+    exactamente lo que hay que ver para decidir la ruta del día.
+
+    Si hay más de `MAX_EN_EL_MAPA` se recortan **las más lejanas**. Recortar por
+    orden de llegada del CSV dejaría fuera un foco grande por casualidad, y esa
+    es la única detección que no puede faltar.
+    """
+    detecciones = parsear(texto, lat, lon, ahora=ahora)
+    return detecciones[:MAX_EN_EL_MAPA]
 
 
 def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> Situacion:

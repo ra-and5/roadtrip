@@ -602,3 +602,37 @@ button.pequeno {
   white-space: nowrap;
   border: 0;
 }
+
+
+/* ---------- Fuego: el mapa de incendios ---------- */
+
+/* Alto fijo y generoso: este mapa se mira para decidir una ruta, así que hace
+   falta ver la comarca entera de un vistazo. */
+#fuego-mapa { height: 60vh; min-height: 320px; border-radius: 6px; }
+
+.fuego-mandos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+}
+.fuego-check { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+
+.fuego-leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.fuego-leyenda .punto {
+  display: inline-block;
+  width: 0.7rem; height: 0.7rem;
+  border-radius: 50%;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}

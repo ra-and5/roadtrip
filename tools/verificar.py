@@ -707,6 +707,54 @@ def mapa_album_de_fotos(page: Any) -> str:
     return "2 fotos entran, reenviar no duplica, quitar una la borra del mapa"
 
 
+def fuego_mapa(page: Any) -> str:
+    """El mapa de incendios: colores por antigüedad y filtro de potencia.
+
+    Se dobla la respuesta de la NASA (la verificación corre sin red) con un CSV
+    que mezcla lo que de verdad llega: dos detecciones industriales flojas y un
+    foco de 145 MW. Lo que se comprueba es que el filtro haga su trabajo — sin
+    él, un incendio de verdad queda enterrado entre hornos y quemas, que es
+    exactamente lo que hacía inservible la primera versión.
+    """
+    csv_mixto = (
+        "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,"
+        "instrument,confidence,version,bright_ti5,frp,daynight\n"
+        "43.5700,-6.1500,307.65,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,294.76,0.62,N\n"
+        "43.5800,-6.1600,325.82,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,292.52,1.85,N\n"
+        "43.9000,-6.4000,360.00,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300.00,145.7,D\n"
+    )
+    page.route(
+        "**/firms.modaps.eosdis.nasa.gov/**",
+        lambda route: route.fulfill(status=200, content_type="text/plain", body=csv_mixto),
+    )
+    try:
+        page.goto(f"{BASE}/fuego")
+        esperar(lambda: "focos potentes" in texto(page, "fuego-estado"),
+                "el mapa de fuego no llegó a contar los focos", segundos=20)
+
+        # Con el filtro puesto sale UN círculo: el de 145 MW. Los otros dos son
+        # industria y no pueden competir por la atención con un incendio.
+        con_filtro = page.locator("#fuego-mapa path.foco").count()
+        if con_filtro != 1:
+            raise Fallo(f"con el filtro de potencia se pintan {con_filtro} focos, y es 1")
+
+        page.uncheck("#fuego-solo-fuertes")
+        esperar(
+            lambda: page.locator("#fuego-mapa path.foco").count() == 3,
+            "quitar el filtro no enseña las tres detecciones",
+        )
+
+        # Y quitar el filtro NO vuelve a pedir nada a la NASA: los datos ya
+        # estaban, y repetir la consulta por marcar una casilla es tiempo
+        # regalado con mala cobertura.
+        if not page.locator("#fuego-lista li").count():
+            raise Fallo("no sale la lista de los más potentes")
+    finally:
+        page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
+
+    return "1 foco potente de 3 detecciones; el filtro esconde la industria"
+
+
 def chat(page: Any) -> str:
     page.goto(f"{BASE}/chat")
     esperar(lambda: page.locator("#chat-texto").count() == 1, "no cargó el chat")
@@ -917,6 +965,11 @@ def main() -> int:
                 corredor.check("álbum de fotos, entrar y salir",
                                lambda: mapa_album_de_fotos(page))
                 corredor.sin_errores_de_js("Mapa")
+
+            if quiere("fuego"):
+                corredor.bloque("FUEGO   (¿hacia dónde me muevo?)")
+                corredor.check("mapa de focos y filtro", lambda: fuego_mapa(page))
+                corredor.sin_errores_de_js("Fuego")
 
             if quiere("chat"):
                 corredor.bloque("CHAT   (preguntar en vez de buscar)")

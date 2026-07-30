@@ -1941,6 +1941,49 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     **después** del contexto y sin esperarlo, para que una NASA lenta no retrase
     lo que ya estaba resuelto (decisión 33).
 
+54. **Y una pantalla propia, porque «¿me preocupo aquí?» y «¿hacia dónde me
+    muevo?» no son la misma pregunta.** La tarjeta de la decisión 53 contestaba
+    la primera, y el usuario quería la segunda: *«no quiero puntos de calor,
+    quiero ver los putos incendios»*. Tenía razón — un veredicto sobre 55 km no
+    sirve para decidir la ruta del día.
+
+    `/fuego` es un mapa de Leaflet con **3° a la redonda** (unos 330 km, una
+    jornada de camper) y hasta 7 días. Lo que lo hace legible son tres cosas, y
+    ninguna es decoración:
+
+    - **Color por antigüedad**, el mismo código que el tutorial de la NASA:
+      <1 h, 1-4 h, 4-12 h, >12 h. En un incendio grande hay cientos de
+      detecciones acumuladas y lo único que dice hacia dónde va el frente es
+      **cuáles son de la última hora**. Se pintan de más viejo a más nuevo para
+      que los recientes queden encima.
+    - **Tamaño por potencia**, con raíz cuadrada y no lineal: con lineal, un
+      foco de 300 MW tapa media provincia y esconde justo lo que hay al lado.
+    - **Un filtro de «solo focos potentes»**, que es lo que convierte el mapa en
+      útil. Medido con la API real desde Alicante, 3 días y 3°: **219
+      detecciones, de las que 26 son ≥ 20 MW y señalan un incendio de 117 MW a
+      168 km**. Las tres más cercanas eran de 0,6 a 1,9 MW — la industria de
+      siempre. Sin filtro, 219 puntos indistinguibles; con él, un frente y una
+      dirección. Filtrar **no vuelve a consultar**: los datos ya están, y
+      repetir la petición por marcar una casilla es tiempo regalado con mala
+      cobertura.
+
+    Detalles que no se ven venir y ya costaron una vez:
+
+    - **`acq_time` llega sin ceros a la izquierda**: las 01:58 son `"158"`.
+      Leerlo como cuatro dígitos sin rellenar da una hora que no existe y la
+      detección sale del color equivocado — el propio tutorial de la NASA usa
+      `zfill(4)` por esto. La hora se calcula en el servidor y no en el
+      JavaScript: esa aritmética repetida en dos sitios es donde se cuela un
+      desfase que no da ningún error, solo colores mentirosos.
+    - **El marcador de «estás aquí» también es un círculo de Leaflet**, así que
+      contar focos contaba uno de más. Los focos llevan `className: "foco"`.
+    - **El techo de 600 detecciones recorta las MÁS LEJANAS**, nunca por orden
+      de llegada del CSV: así el foco grande no se cae por casualidad.
+
+    Lo que sigue sin poder afirmarse, y se dice en la pantalla: el satélite pasa
+    dos veces al día y no ve fuegos pequeños ni bajo nubes. Que no salga nada no
+    garantiza que no haya nada.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

@@ -25,6 +25,7 @@
     <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="activo"{% endif %}>Inicio</a>
     <a href="{{ url_for('perfil_page') }}" {% if request.endpoint == 'perfil_page' %}class="activo"{% endif %}>Perfil</a>
     <a href="{{ url_for('mapa') }}" {% if request.endpoint == 'mapa' %}class="activo"{% endif %}>Mapa</a>
+    <a href="{{ url_for('fuego_page') }}" {% if request.endpoint == 'fuego_page' %}class="activo"{% endif %}>Fuego</a>
     <a href="{{ url_for('chat_page') }}" {% if request.endpoint == 'chat_page' %}class="activo"{% endif %}>Chat</a>
   </nav>
   {% endif %}

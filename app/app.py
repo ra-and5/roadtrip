@@ -242,6 +242,25 @@ def perfil_page() -> Any:
     return render_template("perfil.html", shortcut_telemetria=Config.SHORTCUT_TELEMETRIA)
 
 
+@app.route("/fuego")
+@auth.login_required
+def fuego_page() -> Any:
+    """El mapa de incendios. Contesta «¿hacia dónde me muevo?».
+
+    Pantalla propia y no una capa de `/mapa`: aquel es el registro de dónde has
+    estado (decisión 40) y este es lo que está pasando ahora mismo y caduca en
+    horas. Mezclarlos haría que el mapa del viaje dejara de significar una cosa
+    sola, que es lo mismo que se decidió con los POIs.
+    """
+    return render_template(
+        "fuego.html",
+        firms_map_key=Config.FIRMS_MAP_KEY,
+        firms_base=incendios.URL_BASE,
+        firms_sensor=incendios.SENSOR,
+        firms_grados=incendios.GRADOS_MAPA,
+    )
+
+
 @app.route("/chat")
 @auth.login_required
 def chat_page() -> Any:
@@ -442,7 +461,18 @@ def api_incendios() -> Any:
     if not isinstance(csv_crudo, str):
         return jsonify({"error": "Falta 'csv'."}), 400
 
+    # Dos preguntas distintas sobre el mismo CSV: la tarjeta de Inicio quiere un
+    # veredicto y el mapa quiere los puntos. Un solo endpoint con una bandera y
+    # no dos rutas, porque el parseo y la validación son los mismos.
+    solo_puntos = bool(payload.get("mapa"))
+
     try:
+        if solo_puntos:
+            detecciones = incendios.para_el_mapa(csv_crudo, lat, lon)
+            return jsonify({
+                "detecciones": [d.to_dict() for d in detecciones],
+                "fuente": contexto.Fuente(contexto.OK).to_dict(),
+            })
         situacion = incendios.evaluar(csv_crudo, lat, lon)
     except InvalidCoordinates as exc:
         return jsonify({"error": str(exc)}), 400
@@ -453,7 +483,7 @@ def api_incendios() -> Any:
         # mirado.
         app.logger.warning("FIRMS ilegible: %s", exc)
         fuente = contexto.Fuente(contexto.FALLO, str(exc))
-        return jsonify({"situacion": None, "fuente": fuente.to_dict()})
+        return jsonify({"situacion": None, "detecciones": [], "fuente": fuente.to_dict()})
 
     return jsonify({
         "situacion": situacion.to_dict(),
