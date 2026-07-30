@@ -729,8 +729,8 @@ def fuego_mapa(page: Any) -> str:
     )
     try:
         page.goto(f"{BASE}/fuego")
-        esperar(lambda: "focos potentes" in texto(page, "fuego-estado"),
-                "el mapa de fuego no llegó a contar los focos", segundos=20)
+        esperar(lambda: "incendios activos" in texto(page, "fuego-estado"),
+                "el mapa de fuego no llegó a contar los incendios", segundos=20)
 
         # Con el filtro puesto sale UN círculo: el de 145 MW. Los otros dos son
         # industria y no pueden competir por la atención con un incendio.
@@ -738,10 +738,14 @@ def fuego_mapa(page: Any) -> str:
         if con_filtro != 1:
             raise Fallo(f"con el filtro de potencia se pintan {con_filtro} focos, y es 1")
 
+        # Y quitar el filtro enseña DOS, no tres: las dos detecciones
+        # industriales están a 1,3 km y son el mismo fuego. Contarlas sueltas
+        # era exactamente el fallo — "28 focos" en el texto y dos manchas en el
+        # mapa, y el que mentía era el número.
         page.uncheck("#fuego-solo-fuertes")
         esperar(
-            lambda: page.locator("#fuego-mapa path.foco").count() == 3,
-            "quitar el filtro no enseña las tres detecciones",
+            lambda: page.locator("#fuego-mapa path.foco").count() == 2,
+            "quitar el filtro no enseña los dos focos agrupados",
         )
 
         # Y quitar el filtro NO vuelve a pedir nada a la NASA: los datos ya
@@ -752,7 +756,7 @@ def fuego_mapa(page: Any) -> str:
     finally:
         page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
 
-    return "1 foco potente de 3 detecciones; el filtro esconde la industria"
+    return "1 incendio de 3 detecciones agrupadas en 2 focos; el filtro esconde la industria"
 
 
 def chat(page: Any) -> str:

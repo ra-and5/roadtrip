@@ -68,6 +68,14 @@
     satélite pasa dos veces al día y no ve fuegos pequeños ni bajo nubes: que no
     salga nada no garantiza que no haya nada.</p>
   <p class="muted" id="fuego-aviso" hidden></p>
+
+  {# El mapa oficial de la NASA NO se puede empotrar: manda
+     `X-Frame-Options: SAMEORIGIN` (comprobado con `curl -I`), así que un
+     `<iframe>` saldría en blanco y sin decir por qué. Lo que sí se puede es
+     abrirlo centrado donde estás — tiene capas, histórico y sensores que aquí
+     no hacen falta, pero el día que quieras mirar de verdad, está a un toque. #}
+  <a id="fuego-nasa" class="button secondary" href="https://firms.modaps.eosdis.nasa.gov/map/"
+     target="_blank" rel="noopener">Abrir el mapa oficial de la NASA</a>
 </section>
 
 <section class="card" id="fuego-lista-card" hidden>

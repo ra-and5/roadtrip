@@ -200,3 +200,69 @@ def test_el_recorte_del_mapa_conserva_los_focos_grandes():
     assert any(d.frp_mw == 210.0 for d in detecciones), "se ha perdido el incendio"
     # Y siguen ordenadas por cercanía, que es lo que espera quien las pinta.
     assert detecciones == sorted(detecciones, key=lambda d: d.distancia_km)
+
+
+def test_un_incendio_son_muchas_detecciones_y_un_solo_foco():
+    """El fallo que se vio en pantalla: "28 focos potentes" y dos manchas.
+
+    VIIRS ve píxeles de 375 m y un incendio declarado enciende decenas
+    seguidos. Contar detecciones y llamarlas focos hace que el número y el mapa
+    digan cosas distintas — y el que miente es el número.
+    """
+    from app.modules.incendios import agrupar, parsear
+
+    filas = [CABECERA]
+    # Un frente: doce píxeles pegados, a 300 m unos de otros.
+    for i in range(12):
+        filas.append(
+            f"42.500{i},-7.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,{150 + i}.0,D"
+        )
+    # Y otro incendio en otra provincia.
+    filas.append("40.0000,-4.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,90.0,D")
+
+    focos = agrupar(parsear("\n".join(filas), *AQUI))
+
+    assert len(focos) == 2, "doce píxeles del mismo frente no son doce incendios"
+    grande = max(focos, key=lambda f: f.frp_max_mw)
+    assert grande.detecciones == 12
+    assert grande.frp_max_mw == 161.0, "el pico es el del píxel más fuerte, no la media"
+
+
+def test_el_centro_del_foco_es_su_pixel_mas_potente():
+    """Y no el primero del CSV: el centro se mira para decidir por dónde no pasar.
+
+    Empezando por el primero que llega, el punto del mapa cae en el borde del
+    incendio; empezando por el más potente, en su corazón.
+    """
+    from app.modules.incendios import agrupar, parsear
+
+    csv = (
+        f"{CABECERA}\n"
+        "42.5000,-7.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,10.0,D\n"
+        "42.5100,-7.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,250.0,D\n"
+    )
+    focos = agrupar(parsear(csv, *AQUI))
+
+    assert len(focos) == 1
+    assert focos[0].lat == 42.51
+
+
+def test_la_hora_del_foco_es_la_de_su_deteccion_MAS_RECIENTE():
+    """Promediarla pintaría apagado un frente que sigue vivo.
+
+    Lo que dice si hay que preocuparse es su detección más nueva: un incendio
+    con cien píxeles de anteayer y uno de hace media hora está activo.
+    """
+    from app.modules.incendios import agrupar, parsear
+
+    csv = (
+        f"{CABECERA}\n"
+        "42.5000,-7.0000,360,0.4,0.37,2026-07-28,1330,N,VIIRS,h,2.0NRT,300,200.0,D\n"
+        "42.5010,-7.0000,360,0.4,0.37,2026-07-30,1330,N,VIIRS,h,2.0NRT,300,100.0,D\n"
+    )
+    focos = agrupar(parsear(csv, *AQUI))
+
+    assert len(focos) == 1
+    # La del 30 es la más reciente: su antigüedad es la menor de las dos.
+    assert focos[0].horas is not None
+    assert focos[0].detecciones == 2

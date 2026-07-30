@@ -478,8 +478,14 @@ def api_incendios() -> Any:
     try:
         if solo_puntos:
             detecciones = incendios.para_el_mapa(csv_crudo, lat, lon)
+            # Se devuelven las dos cosas: los focos son lo que se cuenta y se
+            # pinta —un incendio son decenas de píxeles pegados y contarlos
+            # sueltos dice "28 focos" enseñando dos manchas— y las detecciones
+            # crudas se conservan para el filtro de potencia, que se aplica en
+            # el navegador sin volver a preguntar.
             return jsonify({
                 "detecciones": [d.to_dict() for d in detecciones],
+                "focos": [f.to_dict() for f in incendios.agrupar(detecciones)],
                 "fuente": contexto.Fuente(contexto.OK).to_dict(),
             })
         situacion = incendios.evaluar(csv_crudo, lat, lon)

@@ -39,7 +39,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 __all__ = [
-    "CAJA_ESPANA", "Deteccion", "GRADOS_ALREDEDOR", "GRADOS_MAPA", "MAX_DIAS",
+    "CAJA_ESPANA", "Deteccion", "Foco", "GRADOS_ALREDEDOR", "GRADOS_MAPA", "MAX_DIAS",
+    "agrupar",
     "MAX_EN_EL_MAPA", "SENSOR", "Situacion", "URL_BASE", "evaluar", "para_el_mapa",
     "parsear", "url_de_area", "url_de_consulta",
 ]
@@ -264,6 +265,80 @@ def parsear(
 
     detecciones.sort(key=lambda d: d.distancia_km)
     return detecciones
+
+
+# A qué distancia dos detecciones son el MISMO fuego. VIIRS ve píxeles de 375 m
+# y un incendio declarado enciende decenas seguidos, así que sin agrupar el mapa
+# dice "28 focos" y enseña dos manchas — el número cuenta detecciones y quien lo
+# lee entiende fuegos. 2 km es algo más de cinco píxeles: junta un frente y
+# separa dos incendios distintos de un mismo valle.
+KM_MISMO_FOCO = 2.0
+
+
+@dataclass(frozen=True)
+class Foco:
+    """Varias detecciones que son el mismo fuego."""
+
+    lat: float
+    lon: float
+    detecciones: int
+    frp_max_mw: float
+    frp_total_mw: float
+    distancia_km: float
+    # La MÁS RECIENTE del grupo, no la media: lo que dice si un frente sigue
+    # vivo es su detección más nueva, y promediarla con las de anteayer lo
+    # pintaría apagado.
+    horas: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "lat": self.lat, "lon": self.lon, "detecciones": self.detecciones,
+            "frp_max_mw": round(self.frp_max_mw, 1),
+            "frp_total_mw": round(self.frp_total_mw, 1),
+            "distancia_km": round(self.distancia_km, 1),
+            "horas": round(self.horas, 1) if self.horas is not None else None,
+        }
+
+
+def agrupar(detecciones: list[Deteccion], radio_km: float = KM_MISMO_FOCO) -> list[Foco]:
+    """Junta las detecciones que son el mismo fuego. Función PURA.
+
+    Agrupado simple y voraz: se empieza por la MÁS POTENTE y se le pegan las que
+    caen dentro del radio. Empezar por la más potente y no por la primera del
+    CSV hace que el centro del grupo sea el corazón del incendio y no un píxel
+    del borde — que es lo que se mira para decidir por dónde no pasar.
+
+    No es un algoritmo de clustering de verdad y no hace falta: aquí hay decenas
+    de puntos, no millones, y lo que se necesita es que dos incendios a 200 km
+    no salgan como uno.
+    """
+    pendientes = sorted(detecciones, key=lambda d: d.frp_mw, reverse=True)
+    focos: list[Foco] = []
+
+    while pendientes:
+        centro = pendientes.pop(0)
+        grupo = [centro]
+        resto = []
+        for d in pendientes:
+            if _km(centro.lat, centro.lon, d.lat, d.lon) <= radio_km:
+                grupo.append(d)
+            else:
+                resto.append(d)
+        pendientes = resto
+
+        horas = [d.horas for d in grupo if d.horas is not None]
+        focos.append(Foco(
+            lat=centro.lat,
+            lon=centro.lon,
+            detecciones=len(grupo),
+            frp_max_mw=max(d.frp_mw for d in grupo),
+            frp_total_mw=sum(d.frp_mw for d in grupo),
+            distancia_km=min(d.distancia_km for d in grupo),
+            horas=min(horas) if horas else None,
+        ))
+
+    focos.sort(key=lambda f: f.distancia_km)
+    return focos
 
 
 def para_el_mapa(

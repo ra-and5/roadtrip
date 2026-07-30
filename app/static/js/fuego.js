@@ -80,7 +80,8 @@
   const capaFocos = L.layerGroup().addTo(mapa);
   const capaYo = L.layerGroup().addTo(mapa);
 
-  let detecciones = [];
+  let detecciones = [];   // los píxeles crudos, solo para contar
+  let focos = [];         // lo que se pinta: detecciones ya agrupadas por fuego
   let ultimaCarga = 0;
 
   function decir(mensaje, clase) {
@@ -105,9 +106,11 @@
     return 4 + Math.sqrt(Math.max(frp, 0)) * 1.2;
   }
 
+  /* El filtro se aplica al FOCO y no a cada detección: lo que dice si un grupo
+   * es industria o un incendio es su pico de potencia, no cada píxel suelto. */
   function visibles() {
-    if (!soloFuertesEl.checked) return detecciones;
-    return detecciones.filter(function (d) { return d.frp_mw >= FRP_POTENTE; });
+    if (!soloFuertesEl.checked) return focos;
+    return focos.filter(function (f) { return f.frp_max_mw >= FRP_POTENTE; });
   }
 
   function pintar() {
@@ -120,10 +123,10 @@
       return (b.horas === null ? 1e9 : b.horas) - (a.horas === null ? 1e9 : a.horas);
     });
 
-    porAntiguedad.forEach(function (d) {
-      const tramo = tramoDe(d.horas);
-      L.circleMarker([d.lat, d.lon], {
-        radius: radioDe(d.frp_mw),
+    porAntiguedad.forEach(function (f) {
+      const tramo = tramoDe(f.horas);
+      L.circleMarker([f.lat, f.lon], {
+        radius: radioDe(f.frp_max_mw),
         color: tramo.color,
         fillColor: tramo.color,
         fillOpacity: 0.65,
@@ -133,10 +136,10 @@
         className: "foco",
       })
         .bindPopup(
-          "<strong>" + d.frp_mw + " MW</strong><br>" +
-          (d.horas === null ? "sin hora" : "hace " + d.horas + " h") + "<br>" +
-          "a " + d.distancia_km + " km de ti<br>" +
-          "confianza: " + (d.confianza || "?")
+          "<strong>" + f.frp_max_mw + " MW</strong> de pico<br>" +
+          f.detecciones + " detección(es) del satélite<br>" +
+          (f.horas === null ? "sin hora" : "la más reciente hace " + f.horas + " h") + "<br>" +
+          "a " + f.distancia_km + " km de ti"
         )
         .addTo(capaFocos);
     });
@@ -147,20 +150,21 @@
 
   function pintarLista(lista) {
     const fuertes = lista.slice()
-      .sort(function (a, b) { return b.frp_mw - a.frp_mw; })
+      .sort(function (a, b) { return b.frp_max_mw - a.frp_max_mw; })
       .slice(0, 10);
 
     listaEl.innerHTML = "";
     listaCard.hidden = fuertes.length === 0;
 
-    fuertes.forEach(function (d) {
+    fuertes.forEach(function (f) {
       const li = document.createElement("li");
       const enlace = document.createElement("a");
-      enlace.href = "https://www.google.com/maps/dir/?api=1&destination=" + d.lat + "," + d.lon;
+      enlace.href = "https://www.google.com/maps/dir/?api=1&destination=" + f.lat + "," + f.lon;
       enlace.rel = "noopener";
       enlace.textContent =
-        d.frp_mw + " MW — a " + d.distancia_km + " km" +
-        (d.horas === null ? "" : " · hace " + d.horas + " h");
+        f.frp_max_mw + " MW — a " + f.distancia_km + " km" +
+        (f.horas === null ? "" : " · hace " + f.horas + " h") +
+        " · " + f.detecciones + " detección(es)";
       li.appendChild(enlace);
       listaEl.appendChild(li);
     });
@@ -228,6 +232,8 @@
         mapa.setView([coords.latitude, coords.longitude], 8);
       }
 
+      apuntarEnlaceNasa(coords.latitude, coords.longitude);
+
       const csv = await (await fetch(urlDeFirms(coords.latitude, coords.longitude))).text();
 
       const respuesta = await fetch("/api/incendios", {
@@ -253,20 +259,25 @@
       }
 
       detecciones = data.detecciones;
+      focos = data.focos || [];
       const pintados = pintar();
 
       const dias = diasEl.value;
       const donde = ambitoEl.value === "espana" ? "en España" : "a la redonda";
-      if (detecciones.length === 0) {
+      /* Se cuentan FOCOS y no detecciones. Un incendio enciende decenas de
+       * píxeles pegados, así que "211 detecciones" se lee como doscientos
+       * fuegos y en el mapa se ven dos manchas — el número y lo que se ve
+       * decían cosas distintas, y el que estaba mal era el número. */
+      if (focos.length === 0) {
         decir("Ningún foco en " + dias + " día(s) " + donde + ".");
       } else if (pintados === 0) {
         decir(
-          detecciones.length + " detecciones, ninguna potente. Suelen ser hornos, " +
-          "industria o quemas: quita el filtro para verlas."
+          focos.length + " focos, ninguno potente. Suelen ser hornos, industria " +
+          "o quemas agrícolas: quita el filtro para verlos."
         );
       } else {
-        decir(pintados + " focos potentes de " + detecciones.length +
-              " detecciones " + donde + " (" + dias + " día(s)).", "ok");
+        decir(pintados + " incendios activos " + donde + ", de " +
+              detecciones.length + " detecciones (" + dias + " día(s)).", "ok");
       }
     } catch (err) {
       decir(
@@ -276,6 +287,17 @@
         "error"
       );
     }
+  }
+
+  /* El enlace se apunta a donde estás. El formato del hash es el suyo:
+   * `#d:24hrs;@lon,lat,zoomz` — con el orden lon,lat, que es al revés del que
+   * usa todo lo demás en este proyecto y por eso está escrito aquí. */
+  function apuntarEnlaceNasa(lat, lon) {
+    const enlace = document.getElementById("fuego-nasa");
+    const dias = diasEl.value === "1" ? "24hrs" : diasEl.value + "days";
+    const zoom = ambitoEl.value === "espana" ? 6 : 9;
+    enlace.href = "https://firms.modaps.eosdis.nasa.gov/map/#d:" + dias +
+                  ";@" + lon.toFixed(1) + "," + lat.toFixed(1) + "," + zoom + "z";
   }
 
   diasEl.addEventListener("change", cargar);

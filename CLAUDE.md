@@ -1997,6 +1997,34 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     un incendio de 200 MW a 300 km para hacer sitio a cien hornos del polígono de
     al lado — y en un mapa de país eso es perder justo lo único que importa.
 
+    **Y el fallo que se vio en pantalla: «28 focos potentes» y dos manchas.** No
+    faltaban puntos: sobraba una palabra. VIIRS ve píxeles de 375 m y un
+    incendio declarado enciende decenas seguidos, así que a zoom de país se
+    superponen en una sola mancha. El número contaba **detecciones** y quien lo
+    leía entendía **fuegos** — el mapa y el texto decían cosas distintas y el
+    que mentía era el texto.
+
+    `agrupar()` junta lo que está a menos de **2 km** (algo más de cinco
+    píxeles: junta un frente y separa dos incendios de un mismo valle). Medido
+    con la API real, España en 3 días: **600 detecciones, 211 potentes, 29
+    focos**. Tres decisiones dentro, y las tres se ven en el mapa:
+
+    - **El grupo se forma empezando por el píxel MÁS POTENTE**, no por el
+      primero del CSV: así el punto cae en el corazón del incendio y no en su
+      borde, que es lo que se mira para decidir por dónde no pasar.
+    - **La hora del foco es la de su detección más reciente**, no la media.
+      Promediarla pintaría apagado un frente con cien píxeles de anteayer y uno
+      de hace media hora.
+    - **El filtro de potencia se aplica al FOCO**, por su pico. Lo que dice si
+      un grupo es industria o un incendio es su máximo, no cada píxel suelto.
+
+    **El mapa oficial de la NASA no se puede empotrar.** Manda
+    `X-Frame-Options: SAMEORIGIN` (comprobado con `curl -I`), así que un
+    `<iframe>` saldría en blanco y sin decir por qué — el fallo mudo de siempre.
+    Lo que sí se puede es abrirlo con un enlace centrado donde estés, y eso está
+    puesto: su hash es `#d:24hrs;@lon,lat,zoomz`, con el orden **lon,lat**, al
+    revés que todo lo demás del proyecto.
+
     Lo que sigue sin poder afirmarse, y se dice en la pantalla: el satélite pasa
     dos veces al día y no ve fuegos pequeños ni bajo nubes. Que no salga nada no
     garantiza que no haya nada.
