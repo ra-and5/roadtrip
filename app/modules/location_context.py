@@ -249,10 +249,10 @@ _POI_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
 # 40 picos y ninguna playa: un límite global sesga hacia lo que Overpass
 # devuelva primero, que no es lo más útil.
 _MAX_PER_CATEGORY = 5
-# Sube de 24 a 30 al pasar de seis categorías a ocho. Sin esto, las dos nuevas
-# —deporte y servicios de camper— entrarían en el balanceo y luego el recorte
-# global se las comería por distancia, que es como añadir una categoría y que no
-# aparezca nunca sin que nada dé error.
+# Sube de 24 a 30 al pasar de seis categorías a ocho: con ocho, el tope viejo no
+# daba ni para cuatro de cada una. Quien de verdad garantiza que ninguna se
+# quede fuera es el recorte POR RONDAS de `_parse_overpass`, no este número —
+# subirlo sin aquello solo habría movido dónde cae el corte.
 _MAX_TOTAL = 30
 
 
@@ -376,16 +376,31 @@ def _parse_overpass(payload: dict[str, Any], lat: float, lon: float) -> list[Poi
 
     pois.sort(key=lambda p: p.distance_m)
 
-    # Balanceo: los N más cercanos de CADA categoría, no los N más cercanos
-    # en total. Así el resultado siempre es variado.
-    per_category: dict[str, int] = {}
-    balanced: list[Poi] = []
+    # Balanceo: los N más cercanos de CADA categoría, no los N más cercanos en
+    # total. Así el resultado siempre es variado.
+    #
+    # Y el recorte al total va **por rondas**: primero el más cercano de cada
+    # categoría, luego el segundo de cada una, y así. Antes se recorría la lista
+    # ya ordenada por distancia y se cortaba al llegar al tope, y eso deshacía el
+    # balanceo justo cuando hacía falta: medido contra Overpass en Alicante, las
+    # siete primeras categorías sumaban exactamente el tope y **servicios de
+    # camper no aparecía ninguna vez**. Una categoría que se añade y nunca sale,
+    # sin que nada dé error (decisión 52).
+    por_categoria: dict[str, list[Poi]] = {}
     for poi in pois:
-        count = per_category.get(poi.category, 0)
-        if count >= _MAX_PER_CATEGORY:
-            continue
-        per_category[poi.category] = count + 1
-        balanced.append(poi)
+        cesta = por_categoria.setdefault(poi.category, [])
+        if len(cesta) < _MAX_PER_CATEGORY:
+            cesta.append(poi)
+
+    balanced: list[Poi] = []
+    # `sorted` y no el orden de inserción: dos consultas iguales tienen que dar
+    # la misma lista, que es lo que hace comparable una caché.
+    for ronda in range(_MAX_PER_CATEGORY):
+        for categoria in sorted(por_categoria):
+            if len(balanced) >= _MAX_TOTAL:
+                break
+            if len(por_categoria[categoria]) > ronda:
+                balanced.append(por_categoria[categoria][ronda])
         if len(balanced) >= _MAX_TOTAL:
             break
 

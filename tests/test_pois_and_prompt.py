@@ -147,6 +147,35 @@ def test_se_encuentran_los_sitios_para_entrenar_y_para_dormir():
     assert len(pois) == 5, "no se puede caer ninguno por el camino"
 
 
+def test_ninguna_categoria_se_queda_fuera_por_el_recorte():
+    """El fallo medido en Alicante: 30 POIs y `servicios de camper` en ninguno.
+
+    Las categorías con muchos resultados cerca llenaban el tope global antes de
+    que le llegara el turno a las de pocos, así que una categoría recién añadida
+    no aparecía **nunca** — y eso no da ningún error, solo una lista que parece
+    completa. El recorte va por rondas: primero el más cercano de cada
+    categoría, luego el segundo de cada una.
+    """
+    elements = []
+    # Seis categorías con cinco resultados pegados, que es lo que llena el tope.
+    for i in range(5):
+        elements.append(_element(f"Pico {i}", "natural", "peak", 43.50 + i * 0.001, -6.1))
+        elements.append(_element(f"Museo {i}", "tourism", "museum", 43.50 + i * 0.001, -6.1))
+        elements.append(_element(f"Castillo {i}", "historic", "castle", 43.50 + i * 0.001, -6.1))
+        elements.append(_element(f"Parque {i}", "leisure", "park", 43.50 + i * 0.001, -6.1))
+        elements.append(_element(f"Mirador {i}", "tourism", "viewpoint", 43.50 + i * 0.001, -6.1))
+        elements.append(_element(f"Camping {i}", "tourism", "camp_site", 43.50 + i * 0.001, -6.1))
+    # Y una sola cosa de cada categoría nueva, más lejos: es el caso real.
+    elements.append(_element("Barras del parque", "leisure", "fitness_station", 43.60, -6.1))
+    elements.append(_element("Área de servicio", "amenity", "sanitary_dump_station", 43.61, -6.1))
+
+    pois = _parse_overpass({"elements": elements}, 43.5, -6.1)
+    categorias = {p.category for p in pois}
+
+    assert "deporte" in categorias, "la categoría lejana se la comió el recorte"
+    assert "servicios de camper" in categorias, "la categoría lejana se la comió el recorte"
+
+
 def test_la_consulta_pide_las_categorias_nuevas():
     """Que la categoría exista no basta: tiene que entrar en la consulta.
 
