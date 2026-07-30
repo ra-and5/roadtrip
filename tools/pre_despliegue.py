@@ -72,7 +72,10 @@ def comprobar_git(res: Resultado, *, exigir_limpio: bool) -> None:
     res.ok("último commit", head)
 
     if estado:
-        detalle = f"{len(estado)} cambios sin commit"
+        muestra = ", ".join(linea.strip() for linea in estado[:5])
+        if len(estado) > 5:
+            muestra += f", ... (+{len(estado) - 5})"
+        detalle = f"{len(estado)} cambios sin commit: {muestra}"
         if exigir_limpio:
             res.fallo("git limpio", detalle + "; el servidor no los verá con pull")
         else:
@@ -151,6 +154,17 @@ def comprobar_datos(res: Resultado, *, exigir_viaje_vacio: bool) -> None:
     res.ok("miniaturas", f"{miniaturas.usado_mb():.1f} MB usados")
 
 
+def comprobar_python(res: Resultado) -> None:
+    """La consola debe usar el mismo virtualenv que la web app."""
+    if sys.prefix == sys.base_prefix:
+        res.aviso(
+            "virtualenv",
+            "no activo; activa ~/.virtualenvs/roadtrip antes de diagnosticar o instalar",
+        )
+        return
+    res.ok("virtualenv", sys.prefix)
+
+
 def ejecutar(res: Resultado, nombre: str, comando: list[str]) -> None:
     proc = subprocess.run(
         comando,
@@ -194,6 +208,7 @@ def main() -> int:
     print(f"{GRIS}Esto mira tu instalación real. Cudillero solo aparece en tools/verificar.py.{FIN}\n")
 
     comprobar_git(res, exigir_limpio=args.para_commit)
+    comprobar_python(res)
     comprobar_pwa(res)
     comprobar_datos(res, exigir_viaje_vacio=args.estrenar)
 
