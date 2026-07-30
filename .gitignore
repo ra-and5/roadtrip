@@ -12,6 +12,9 @@ data/
 *.db-shm
 .pytest_cache/
 
+# Artefacto local/de servidor. Los estáticos reales de Flask viven en app/static/.
+/static/
+
 # Herramientas de asistentes y trabajo local que no forma parte de la app. Todo
 # esto se clona al servidor con cada `git pull`, así que lo que no haga falta
 # allí no entra: la cuota del plan gratuito son 512 MB y el virtualenv ya se
