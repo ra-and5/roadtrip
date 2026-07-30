@@ -165,7 +165,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 | 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
-| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1 hecho**: sistema visual con la gramática de la certeza, en las cinco pantallas y en los dos temas (decisión 55). Falta medirlo contra el DESPLEGADO, y los §2 a §4 — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
+| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1 y §2 hechos**: sistema visual con la gramática de la certeza en las cinco pantallas y en los dos temas, y el avance del viaje enseñado como tal (decisión 55). Medido contra el desplegado: las cuatro pantallas **mejoran** sus tiempos de la decisión 48. Faltan el §3 (diario y miniaturas) y el §4 (PWA) — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
 | 7 | Verificar todo, navegación fluida, el diario, y la PWA | 🟨 **§1 y §2 hechos**: `tools/verificar.py` recorre las cuatro pantallas en Chromium y `tools/verificar_sabotaje.sh` demuestra que caza cinco fallos metidos a propósito (decisión 47). Falta el §2 en adelante — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -2100,11 +2100,24 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       que tampoco existe, así que el hover no cambiaba nada. Un `var()` a un
       token inexistente **no da error**: cae al valor de reserva o hereda.
 
-    **Lo que costó, medido:** el CSS pasa de 5,5 a 11,6 KB comprimidos. Se paga
-    **una vez por despliegue** porque los estáticos van `immutable` con
-    `?v=<mtime>` (decisión 48), no en cada salto de pantalla. En local, en
-    caliente, las cuatro pantallas se mueven ±20 ms, que a esa escala es ruido;
-    el número que decide es contra el desplegado.
+    **Lo que costó, medido CONTRA EL DESPLEGADO**, que es el único sitio donde
+    esto significa algo (decisión 43). El CSS pasa de 5,5 a 11,6 KB comprimidos y
+    se paga **una vez por despliegue**, porque los estáticos van `immutable` con
+    `?v=<mtime>` (decisión 48). TOTAL en caliente, en milisegundos:
+
+    | pantalla | decisión 48 | tras el rediseño |
+    |---|---|---|
+    | Mapa | 675 | **504** |
+    | Perfil | 1538 | **716** |
+    | Chat | 730 | **409** |
+    | Inicio | 285 | **180** |
+
+    Mejoran las cuatro, y la columna `estáticos` sale **0** en todas: los seis
+    kilobytes de más no se pagan al cambiar de pantalla. La medida confirma
+    además que el mapeo de *Static files* sigue quitado en PythonAnywhere —el
+    medidor imprime `los sirve la app: public, max-age=31536000, immutable`—,
+    que es la comprobación sin la cual el arreglo de la decisión 48 estaría
+    desplegado y sin efecto.
 
     **Y fuera las coordenadas de todas las pantallas, no solo de una.** La
     decisión 35 las sacó de la tarjeta de Inicio y quedaron en otros dos sitios
