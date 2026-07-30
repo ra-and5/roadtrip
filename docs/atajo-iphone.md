@@ -235,6 +235,49 @@ Atajos → **+** → nombre: `Enviar telemetría`.
 > lo llevas puesto; el iPhone cuenta siempre que lo lleves en el bolsillo. Lo
 > que **no** vale es dejar los dos.
 
+> **Y la trampa contraria, medida el 30-07-2026: el atajo manda UNA muestra en
+> vez de la suma.** Es la misma pareja de números al revés y engaña más, porque
+> el número que llega es pequeño y creíble.
+>
+> ```
+> App Salud (pasos de hoy) ......  2.000 y pico
+> Lo que enviaba el atajo .......  298     ← una muestra suelta
+> ```
+>
+> Se ve en la tabla de `tools/ver_telemetria.py` sin saber nada de Salud, y esta
+> es la señal que lo delata: **el valor no crece durante el día**.
+>
+> ```
+> 29-07  16:53 -> 140   16:56 -> 140   17:20 -> 140   21:59 -> 140
+> ```
+>
+> Cinco horas con el mismo número es imposible en un acumulado de hoy. Lo que
+> está pasando es que la búsqueda devuelve una muestra —un tramo suelto de
+> HealthKit, que son unos cientos de pasos— en lugar de todas las del día.
+>
+> **Dónde mirar, en este orden:**
+>
+> 1. **¿Hay `Límite` activado** en *Buscar muestras de salud*? Tiene que estar
+>    **desactivado**. Con un límite te devuelve una muestra o unas pocas y el
+>    total sale corto sin dar ningún error.
+> 2. **¿Sigue estando `Calcular Suma`** después de *Obtener Valor*? Si esa
+>    acción se cae o se queda desconectada, lo que viaja es un valor suelto.
+> 3. **¿Qué `Origen` está elegido?** Si es un dispositivo o una app que apenas
+>    registra, la suma sale correcta y minúscula a la vez. Quita el filtro y
+>    mira: si el número se dispara al **doble** de Salud, el filtro hacía falta y
+>    hay que elegir bien el dispositivo; si se acerca a Salud, el origen elegido
+>    era el malo.
+>
+> Y la comprobación que zanja las tres: **anda 200 pasos y ejecuta el atajo dos
+> veces.** Si el número no sube, no está sumando lo de hoy.
+>
+> Desde el 30-07-2026 esto no depende de que te acuerdes de mirar:
+> `metricas.revisar_acumulado()` lo detecta y sale escrito en dos sitios —en
+> `tools/ver_telemetria.py`, debajo de la tabla, y en el **Perfil** de la app,
+> como una fuente propia («Los pasos, ¿cuadran?»). Una serie puede llegar
+> puntual y sin huecos **y traer los números mal**: la cobertura cuenta envíos,
+> no si el envío dice la verdad.
+
 ### Bloque C — La muestra de ahora (batería y ubicación)
 
 > La batería y la ubicación ya se han cogido en el bloque A, que es donde las

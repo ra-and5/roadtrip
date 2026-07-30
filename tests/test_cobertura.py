@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.modules.metricas import ENVIOS_ESPERADOS_POR_DIA, cobertura
+from app.modules.metricas import ENVIOS_ESPERADOS_POR_DIA, cobertura, revisar_acumulado
 
 
 def _muestra(medido_en: str, offset: str = "+02:00") -> dict:
@@ -124,3 +124,74 @@ def test_la_primera_y_la_ultima_salen_de_las_muestras() -> None:
 
     assert c.primera == "2026-07-28T06:00:00+00:00"
     assert c.ultima == "2026-07-28T21:00:00+00:00"
+
+
+# --- Revisión del acumulado ------------------------------------------------
+#
+# Estos tests salen de un fallo real del 30-07-2026: el atajo dejó de sumar las
+# muestras de Salud y empezó a mandar UNA sola, así que enviaba 298 pasos donde
+# la app decía más de 2.000. No dio ningún error — el dato entraba, se guardaba
+# y se pintaba— y solo se vio mirando la tabla a ojo.
+
+def _lectura(medido_en: str, pasos: int, offset: str = "+02:00") -> dict:
+    fila = _muestra(medido_en, offset)
+    fila["pasos"] = pasos
+    return fila
+
+
+def test_un_acumulado_que_baja_es_imposible_y_se_dice() -> None:
+    avisos = revisar_acumulado([
+        _lectura("2026-07-30T08:00:00+00:00", 4200),
+        _lectura("2026-07-30T16:00:00+00:00", 300),
+    ])
+
+    assert len(avisos) == 1
+    assert "BAJAN" in avisos[0]
+    assert "4200 -> 300" in avisos[0]
+
+
+def test_el_valor_clavado_cinco_horas_es_sospechoso() -> None:
+    """Los datos reales que destaparon el fallo, tal cual llegaron."""
+    avisos = revisar_acumulado([
+        _lectura("2026-07-29T14:53:00+00:00", 140),
+        _lectura("2026-07-29T14:56:00+00:00", 140),
+        _lectura("2026-07-29T15:20:00+00:00", 140),
+        _lectura("2026-07-29T19:59:00+00:00", 140),
+    ])
+
+    assert len(avisos) == 1
+    assert "no se movió" in avisos[0]
+    assert "140 pasos" in avisos[0]
+
+
+def test_dos_muestras_seguidas_con_el_mismo_valor_no_avisan() -> None:
+    """Estar sentado veinte minutos es lo normal, no una avería.
+
+    Un aviso que salta con todo funcionando se aprende a ignorar, y entonces
+    tampoco se lee el día que sí importa.
+    """
+    assert revisar_acumulado([
+        _lectura("2026-07-30T10:00:00+00:00", 2500),
+        _lectura("2026-07-30T10:20:00+00:00", 2500),
+    ]) == []
+
+
+def test_una_serie_que_crece_no_avisa_de_nada() -> None:
+    assert revisar_acumulado([
+        _lectura("2026-07-30T06:00:00+00:00", 120),
+        _lectura("2026-07-30T14:00:00+00:00", 4300),
+        _lectura("2026-07-30T21:00:00+00:00", 9100),
+    ]) == []
+
+
+def test_el_corte_del_dia_es_el_LOCAL_y_no_el_de_UTC() -> None:
+    """El acumulado se reinicia a medianoche en TU huso.
+
+    Con dos muestras que en UTC caen el mismo día pero en local son días
+    distintos, el reinicio a 0 se leería como una bajada imposible y saltaría un
+    aviso falso. Es la decisión 29 otra vez: los días se cuentan en local.
+    """
+    assert revisar_acumulado([
+        _lectura("2026-07-29T21:00:00+00:00", 9800),   # 29-07 23:00 local
+        _lectura("2026-07-29T22:30:00+00:00", 150),    # 30-07 00:30 local
+    ]) == []

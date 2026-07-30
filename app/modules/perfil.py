@@ -25,6 +25,7 @@ from app.modules.metricas import (
     Metricas,
     cobertura,
     resumir,
+    revisar_acumulado,
 )
 from app.modules.timeparse import hace_cuanto, horas_desde
 
@@ -229,6 +230,21 @@ def armar(
     cuerpo = resumir(muestras_todas, hoy)
 
     fuentes = [_fuente_telemetria(cobertura(muestras_reales, hoy), ahora)]
+
+    # Una serie puede llegar puntual, sin huecos y **con los números mal**: el
+    # 30-07-2026 el atajo dejó de sumar las muestras de Salud y mandaba una
+    # sola, 298 pasos donde la app decía más de 2.000. La cobertura salía
+    # impecable, porque cuenta envíos y no si el envío dice la verdad. Por eso
+    # esto es una fuente aparte y no un matiz dentro de la anterior: son dos
+    # preguntas distintas —¿llega? y ¿lo que llega puede ser cierto?— y juntarlas
+    # haría que una tapara a la otra.
+    sospechas = revisar_acumulado(muestras_reales)
+    if sospechas:
+        fuentes.append(EstadoFuente(
+            "pasos_coherentes", "Los pasos, ¿cuadran?", CON_HUECOS,
+            f"{sospechas[0]} Compara con la app Salud y revisa el bloque B de "
+            f"docs/atajo-iphone.md.",
+        ))
 
     simuladas = len(muestras_todas) - len(muestras_reales)
     if simuladas > 0:

@@ -346,3 +346,47 @@ def test_el_perfil_pide_sesion() -> None:
     respuesta = flask_app.test_client().get("/api/perfil")
 
     assert respuesta.status_code in (302, 401)
+
+
+def test_una_serie_puntual_con_los_numeros_mal_se_dice_en_el_perfil() -> None:
+    """Llegar sin huecos y decir la verdad son dos cosas distintas.
+
+    El 30-07-2026 el atajo dejó de sumar las muestras de Salud y mandaba UNA:
+    298 pasos donde la app decía más de 2.000. La cobertura salía impecable
+    —los envíos llegaban puntuales— y el número era falso. Contar envíos no
+    responde a si el envío dice algo cierto, así que va como fuente aparte.
+    """
+    from app.modules.perfil import armar
+
+    hoy = date(2026, 7, 29)
+    ahora = datetime(2026, 7, 29, 22, 30, tzinfo=timezone.utc)
+    clavadas = [
+        {"fuente": "atajos-iphone", "medido_en": f"2026-07-29T{h:02d}:00:00+00:00",
+         "offset_original": "+02:00", "pasos": 140, "bateria": 80,
+         "lat": 38.39, "lon": -0.52, "recibido_en": f"2026-07-29T{h:02d}:00:00+00:00"}
+        for h in (14, 15, 17, 19)
+    ]
+
+    perfil = armar(clavadas, clavadas, [], [], {}, hoy, ahora=ahora)
+    claves = {f.clave: f for f in perfil.fuentes}
+
+    assert "pasos_coherentes" in claves, "el perfil no avisa de unos pasos imposibles"
+    assert "no se movió" in claves["pasos_coherentes"].detalle
+    assert "Salud" in claves["pasos_coherentes"].detalle, "no dice cómo comprobarlo"
+
+
+def test_una_serie_que_crece_no_saca_ese_aviso() -> None:
+    """Un aviso que sale con todo bien se aprende a ignorar."""
+    from app.modules.perfil import armar
+
+    hoy = date(2026, 7, 29)
+    ahora = datetime(2026, 7, 29, 22, 30, tzinfo=timezone.utc)
+    creciendo = [
+        {"fuente": "atajos-iphone", "medido_en": f"2026-07-29T{h:02d}:00:00+00:00",
+         "offset_original": "+02:00", "pasos": pasos, "bateria": 80,
+         "lat": 38.39, "lon": -0.52, "recibido_en": f"2026-07-29T{h:02d}:00:00+00:00"}
+        for h, pasos in ((6, 120), (10, 2400), (14, 5100), (19, 8300))
+    ]
+
+    perfil = armar(creciendo, creciendo, [], [], {}, hoy, ahora=ahora)
+    assert "pasos_coherentes" not in {f.clave for f in perfil.fuentes}

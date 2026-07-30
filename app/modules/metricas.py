@@ -42,7 +42,7 @@ from app.modules import storage
 
 __all__ = [
     "Cobertura", "Metricas", "cobertura", "dia_local", "instante_local",
-    "obtener", "resumir",
+    "obtener", "resumir", "revisar_acumulado",
 ]
 
 # Cuántos días atrás se miran para dar contexto al día de hoy. Una semana es lo
@@ -298,6 +298,73 @@ def cobertura(
         primera=min(instantes) if instantes else None,
         ultima=max(instantes) if instantes else None,
     )
+
+
+# Cuántas horas tienen que separar dos muestras del mismo día para que un valor
+# congelado signifique algo. Con menos, no moverse es lo normal: dos envíos
+# seguidos mientras estás sentado dan el mismo número y no hay nada que avisar.
+HORAS_PARA_ESPERAR_MOVIMIENTO = 3
+
+
+def revisar_acumulado(muestras: list[dict[str, Any]]) -> list[str]:
+    """Busca series de pasos que NO pueden salir de un acumulado del día.
+
+    Función pura, y existe por un fallo real del 30-07-2026 que no dio ningún
+    error: el atajo dejó de sumar las muestras de Salud y empezó a mandar **una
+    sola**, así que enviaba 298 pasos donde la app Salud decía más de 2.000. Los
+    datos lo gritaban y había que verlo a ojo:
+
+        29-07  16:53 -> 140   16:56 -> 140   17:20 -> 140   21:59 -> 140
+
+    Un acumulado del día crece o se queda igual, pero **no se queda clavado
+    cinco horas** con el móvil encima. Dos señales, y las dos miran el día
+    LOCAL, porque el acumulado se reinicia a medianoche en tu huso y no en UTC:
+
+      - **baja**: imposible. O el atajo cambió de fuente, o no está sumando lo
+        de hoy. Es un hecho, no una sospecha.
+      - **no se mueve** entre dos muestras separadas por horas: sospechoso. Un
+        día entero sentado lo produce también, así que se dice como duda y no
+        como avería — pero es exactamente el síntoma de mandar una muestra
+        suelta en vez de la suma.
+
+    Devuelve frases listas para imprimir, de la más reciente a la más antigua.
+    Vacío significa que la serie es coherente con un acumulado, no que los
+    números sean ciertos: eso solo lo dice compararlos con la app Salud.
+    """
+    por_dia: dict[date, list[tuple[datetime, int]]] = {}
+    for muestra in muestras:
+        pasos, instante = muestra.get("pasos"), instante_local(muestra)
+        if pasos is None or instante is None:
+            continue
+        por_dia.setdefault(instante.date(), []).append((instante, int(pasos)))
+
+    avisos: list[str] = []
+    for dia in sorted(por_dia, reverse=True):
+        lecturas = sorted(por_dia[dia])
+        if len(lecturas) < 2:
+            continue
+
+        bajadas = [
+            (antes, despues)
+            for (_, antes), (_, despues) in zip(lecturas, lecturas[1:])
+            if despues < antes
+        ]
+        if bajadas:
+            antes, despues = bajadas[0]
+            avisos.append(
+                f"{dia}: los pasos BAJAN dentro del mismo día ({antes} -> {despues}). "
+                f"Un acumulado no puede bajar: el atajo no está sumando los pasos de hoy."
+            )
+            continue
+
+        horas = (lecturas[-1][0] - lecturas[0][0]).total_seconds() / 3600
+        if lecturas[0][1] == lecturas[-1][1] and horas >= HORAS_PARA_ESPERAR_MOVIMIENTO:
+            avisos.append(
+                f"{dia}: el valor no se movió en {horas:.0f} h ({lecturas[0][1]} pasos, "
+                f"{len(lecturas)} muestras). ¿Manda el atajo UNA muestra en vez de la suma?"
+            )
+
+    return avisos
 
 
 def obtener(zona: str = "Europe/Madrid", *, ahora: datetime | None = None) -> Metricas:

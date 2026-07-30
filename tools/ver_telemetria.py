@@ -231,6 +231,25 @@ def main() -> None:
             donde = donde[: _ANCHO_DONDE - 1] + "…"
 
         print(f"{comun}{donde:<{_ANCHO_DONDE}} {retraso:>8}")
+    # La revisión va DESPUÉS de la tabla y solo cuando hay algo que decir: un
+    # bloque que sale siempre se deja de leer, y este es el que avisa de que los
+    # números de arriba no pueden salir de un acumulado del día.
+    #
+    # Se mira solo la fuente real: una serie simulada la genera este proyecto y
+    # no tiene nada que revisar (decisión 36).
+    avisos = metricas.revisar_acumulado([f for f in filas if f["fuente"] == _FUENTE_REAL])
+    if avisos:
+        print("\n  REVISIÓN DE LOS PASOS")
+        for aviso in avisos:
+            print(f"    ⚠ {aviso}")
+        print(
+            "    Compruébalo así: mira los pasos de HOY en la app Salud y ejecuta\n"
+            "    el atajo. Si no coinciden, el bloque de Salud del atajo está mal:\n"
+            "    tiene que ser «Buscar muestras de salud» (Tipo: Steps · Fecha de\n"
+            "    inicio ES HOY · SIN límite) y luego «Calcular Suma». Ver\n"
+            "    docs/atajo-iphone.md, bloque B."
+        )
+
     print("\nPara borrar muestras malas:  python tools/ver_telemetria.py --borrar <id>,<id>")
     if not crudas:
         print("Para ver las coordenadas en crudo:  python tools/ver_telemetria.py --coords\n")
