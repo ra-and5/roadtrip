@@ -3,14 +3,22 @@
 
 {% block content %}
 <div class="card">
+  <!-- El rótulo dice qué pregunta contesta ESTA pantalla y ninguna otra. Es la
+       decisión 40 impresa donde se lee, y no solo respetada en el código. -->
+  <span class="rotulo">Ahora · aquí</span>
   <h1>¿Qué hago aquí?</h1>
 
   <!-- Dos botones y no uno, y ese es el cambio de la fase: mirar dónde estás y
        qué tiempo hace es gratis e instantáneo; pedirle un plan al modelo cuesta
        tokens y unos segundos, así que se pide aparte y cuando tú quieras. -->
   <button id="contexto-btn" class="primary">¿Dónde estoy?</button>
-  <button id="locate-btn" class="secondary">Recomiéndame algo</button>
-  <button id="refresh-btn" class="secondary" hidden>Generar otra recomendación</button>
+  <!-- Los dos secundarios comparten línea. Tres botones a ancho completo se
+       comen un tercio de la pantalla y hacen que los tres parezcan igual de
+       importantes: el que se pulsa siempre es el de arriba. -->
+  <div class="botonera">
+    <button id="locate-btn" class="secondary">Recomiéndame algo</button>
+    <button id="refresh-btn" class="secondary" hidden>Otra distinta</button>
+  </div>
 
   <p id="status" class="status" aria-live="polite"></p>
 </div>
@@ -26,14 +34,21 @@
   <h2 id="place-label"></h2>
   <p class="muted" id="place-altitud"></p>
   <p class="muted" id="place-momento"></p>
+  <!-- Plegado y con un título que dice PARA QUÉ sirve. Las coordenadas se
+       quedan aquí porque cuando la chincheta sale en un sitio raro son lo
+       primero que se mira y borrarlas dejaría sin forma de depurarlo; lo que no
+       pueden es presidir la tarjeta ni invitar a abrirse sin motivo. -->
   <details id="place-detalle">
-    <summary>Detalle técnico</summary>
+    <summary>¿La ubicación parece mal?</summary>
     <p class="muted" id="place-coords"></p>
   </details>
 </section>
 
+<!-- «Aviso» no decía de qué. Esta tarjeta lista fuentes que NO han contestado, y
+     decirlo con esas palabras es la diferencia entre «algo va mal» y «esto que
+     ves está incompleto, y justo por aquí» (decisión 9). -->
 <section id="warnings-card" class="card warnings" hidden>
-  <h2>Aviso</h2>
+  <h2>Lo que no he podido consultar</h2>
   <ul id="warnings-list"></ul>
 </section>
 
@@ -101,17 +116,19 @@
      de toda la semana. -->
 <section id="pois-card" class="card">
   <h2>Sitios cerca</h2>
-  <p class="muted" id="pois-estado">Se consulta OpenStreetMap. Suele tardar,
-    y a veces no responde.</p>
+  <p class="muted" id="pois-estado">Lo consulta OpenStreetMap, que va a su aire:
+    tarda, y algunos días no contesta. Lo que encuentre se guarda una semana.</p>
   <!-- Buscar UNA categoría pide dos cláusulas a Overpass en vez de diez, así
        que además de dar una lista legible es bastante más rápido. Las opciones
        las pone el servidor: escribirlas aquí a mano las dejaría desfasadas en
        cuanto se añada una categoría, sin que nada avise. -->
-  <label class="visualmente-oculto" for="pois-categoria">Qué buscar</label>
-  <select id="pois-categoria">
-    <option value="">Todo</option>
-  </select>
-  <button id="pois-btn" class="secondary">Buscar sitios cerca</button>
+  <div class="botonera">
+    <label class="visualmente-oculto" for="pois-categoria">Qué buscar</label>
+    <select id="pois-categoria">
+      <option value="">Todo</option>
+    </select>
+    <button id="pois-btn" class="secondary">Buscar sitios cerca</button>
+  </div>
   <div id="pois-grupos" class="pois-grupos" hidden></div>
 </section>
 

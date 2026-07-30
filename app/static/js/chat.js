@@ -76,6 +76,7 @@
       burbuja.appendChild(pie);
     }
 
+    quitarVacio();
     el("chat-hilo").appendChild(burbuja);
     burbuja.scrollIntoView({ block: "end" });
   }
@@ -92,12 +93,45 @@
     nodo.hidden = false;
   }
 
+  /* Un hilo vacío en blanco no dice si la conversación está por empezar o si ha
+   * fallado al cargarse. Y ya que hay que escribir algo, que diga qué sabe:
+   * media app se ha dedicado a reunir ese contexto, y aquí es donde se nota. */
+  function pintarVacio() {
+    var caja = document.createElement("p");
+    caja.className = "vacio";
+    caja.textContent =
+      "Pregunta lo que quieras. Sé dónde estás, qué tiempo hace, qué luna " +
+      "habrá esta noche y cuánto llevas andado. Lo del pescado bueno del " +
+      "pueblo, eso ya te lo inventas tú.";
+    el("chat-hilo").appendChild(caja);
+  }
+
+  /* Se quita en cuanto entra el primer mensaje. Va aquí y no en `pintarMensaje`
+   * para que dejar de estar vacío sea una sola línea y no una condición
+   * repetida en cada sitio que añade una burbuja.
+   *
+   * Se busca por CLASE y no por id, y no es indiferente: `test_frontend_ids.py`
+   * exige que todo id nombrado por el JavaScript exista en la plantilla, porque
+   * un id muerto revienta en el navegador sin que la suite se entere
+   * (decisión 42). Un nodo que crea y destruye este mismo archivo no tiene por
+   * qué estar en el HTML, así que darle id sería declarar una dependencia que
+   * no existe — y el test lo cazó al primer intento. */
+  function quitarVacio() {
+    var caja = el("chat-hilo").querySelector(".vacio");
+    if (caja) caja.remove();
+  }
+
   async function cargarHistorial() {
     try {
       var respuesta = await fetch("/api/chat");
       if (!respuesta.ok) return;
       var datos = await respuesta.json();
-      (datos.mensajes || []).forEach(function (m) {
+      var mensajes = datos.mensajes || [];
+      if (!mensajes.length) {
+        pintarVacio();
+        return;
+      }
+      mensajes.forEach(function (m) {
         pintarMensaje(m.rol, m.texto, m.rol === "usuario" ? m.lugar : null);
       });
     } catch (err) {
@@ -110,11 +144,34 @@
     try {
       var pos = await getPosition();
       posicion = pos.coords;
-      el("chat-contexto").textContent =
-        "Preguntas desde " + posicion.latitude.toFixed(4) + ", " +
-        posicion.longitude.toFixed(4) + " (±" + Math.round(posicion.accuracy) + " m)";
+
+      /* Un sitio se dice con su nombre, no con sus coordenadas. «Preguntas
+       * desde 43.5622, -6.1456 (±18 m)» no le dice nada a nadie: hay que
+       * traducirlo mentalmente para entender algo que la app ya sabe. Es la
+       * misma decisión que sacó las coordenadas de la tarjeta de Inicio
+       * (decisión 35), que se había quedado sin aplicar aquí.
+       *
+       * Se usa `/api/location` y no `/api/contexto`: lo único que hace falta es
+       * el nombre, y esa ruta solo llama a Nominatim, que está cacheado por
+       * coordenada redondeada a ~110 m (decisión 3). Pedir el contexto entero
+       * traería además el tiempo y la luna para tirarlos, y con un solo worker
+       * eso es una espera que le quitas a la pregunta que viene detrás. */
+      el("chat-contexto").textContent = "Viendo dónde estás…";
+      var respuesta = await fetch("/api/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: posicion.latitude, lon: posicion.longitude }),
+      });
+      if (!respuesta.ok) throw new Error("no se pudo resolver el sitio");
+      var datos = await respuesta.json();
+      el("chat-contexto").textContent = "Preguntas desde " + datos.place.short_label + ".";
     } catch (err) {
-      el("chat-contexto").textContent = geolocationErrorMessage(err);
+      /* El GPS y Nominatim fallan por motivos distintos y se arreglan en sitios
+       * distintos, así que no se dicen igual. Sin GPS no se puede preguntar;
+       * sin nombre sí — el modelo recibe las coordenadas igual. */
+      el("chat-contexto").textContent = posicion
+        ? "Sé dónde estás, pero no he podido ponerle nombre al sitio."
+        : geolocationErrorMessage(err);
     }
   }
 
@@ -199,6 +256,7 @@
     try {
       await fetch("/api/chat", { method: "DELETE" });
       el("chat-hilo").textContent = "";
+      pintarVacio();
       estado("Conversación borrada.");
     } catch (err) {
       estado("No se pudo borrar.", true);

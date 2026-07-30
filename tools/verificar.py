@@ -780,8 +780,13 @@ def chat(page: Any) -> str:
     )
 
     page.click("#chat-borrar")
+    # Se cuentan las BURBUJAS, no el texto del hilo. Mientras el hilo vacío
+    # estuvo literalmente en blanco, «sin texto» y «sin conversación» eran lo
+    # mismo; desde que hay un estado vacío escrito, ya no — y la comprobación
+    # habría fallado por lo que precisamente se quería añadir. Contar mensajes
+    # es además lo que se quiere decir: que no quede ninguno.
     esperar(
-        lambda: not page.inner_text("#chat-hilo").strip(),
+        lambda: page.locator("#chat-hilo .chat-mensaje").count() == 0,
         "borrar la conversación no la borró",
     )
     return "pregunta, respuesta, persiste al recargar y se puede borrar"

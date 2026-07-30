@@ -165,7 +165,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 | 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
-| 8 | Diseño, el avance del viaje, el diario y la PWA | ⬜ Pendiente — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
+| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1 hecho**: sistema visual con la gramática de la certeza, en las cinco pantallas y en los dos temas (decisión 55). Falta medirlo contra el DESPLEGADO, y los §2 a §4 — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
 | 7 | Verificar todo, navegación fluida, el diario, y la PWA | 🟨 **§1 y §2 hechos**: `tools/verificar.py` recorre las cuatro pantallas en Chromium y `tools/verificar_sabotaje.sh` demuestra que caza cinco fallos metidos a propósito (decisión 47). Falta el §2 en adelante — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -2028,6 +2028,114 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     Lo que sigue sin poder afirmarse, y se dice en la pantalla: el satélite pasa
     dos veces al día y no ve fuegos pequeños ni bajo nubes. Que no salga nada no
     garantiza que no haya nada.
+
+55. **La trama significa «no lo sé», y por eso las cinco pantallas son la misma
+    app.** Es el §1 de la Fase 8. El encargo pedía un sistema visual y una
+    identidad «que no sea el gris por defecto», y la trampa estaba en de dónde
+    sacarla: lo que había —crema `#f6f4ee` con acento verde bosque— es
+    literalmente uno de los tres aspectos que produce cualquier generador cuando
+    no se le pide nada, así que «quedarse como está» tampoco era neutral.
+
+    La identidad sale de lo que esta app **es**: cada número viene con su
+    procedencia (`demostrada`, `con_huecos`, `parcial`, `simulada`, `parada`).
+    Eso no lo hace ninguna otra, y es lo que se convierte en gramática:
+
+    | Forma | Qué dice |
+    |---|---|
+    | sólido | medido |
+    | discontinuo | hay dato, pero es un suelo: eso o más |
+    | **rayado** | hueco: no lo sé |
+    | magenta | la fuente falló |
+
+    Tres decisiones dentro, y ninguna es de gusto:
+
+    - **Es una gramática de FORMA, no de color.** Sobrevive al modo oscuro, al
+      daltonismo y a mirar el móvil al sol — tres cosas que pasan en un camper y
+      ninguna en un portátil. Ya existía a medias en las barras de pasos
+      (`.barra-hueco`, decisión 50); aquí se define **una vez** en
+      `--trama-hueco` y la usan las barras, el filete de las tarjetas y la cola
+      de notas. Una definición, varios consumidores (decisión 32).
+    - **El filete lo pone el DATO, no la plantilla.** `perfil.js` calcula
+      `data-certeza` de la serie real y manda lo peor que sepa: un solo día
+      simulado quita a la tarjeta entera el derecho a presumir de medida, porque
+      quien la mira no sabe cuál de las barras era la inventada. Escribirlo en el
+      HTML habría sido una afirmación fija sobre algo que cambia cada día.
+    - **Atención ≠ fallo, y estaban pintados igual.** «El sendero del faro está
+      expuesto al viento» es una advertencia sobre el MUNDO; «estos pasos son
+      simulados» es una advertencia sobre el DATO. Compartían `.aviso`, así que
+      el primero salía en el color de «algo se ha roto». Ahora el ámbar avisa y
+      el magenta dice que lo que ves no es lo que crees.
+
+    **Y el magenta está elegido por descarte, no por gusto:** el rojo, el naranja
+    y el amarillo ya son los focos de la NASA en `/fuego`, y los verdes los
+    veredictos del tiempo. Un aviso naranja al lado de ese mapa se lee como un
+    incendio más. De regalo es la convención de las cartas náuticas.
+
+    **Cero descargas de tipografía.** Un archivo de fuente son decenas de KB con
+    mala cobertura y un dominio más que `tools/verificar.py` bloquea. La
+    personalidad se gasta en la escala, el tracking y en dar a las medidas su
+    propia voz: `ui-monospace` con `tabular-nums` para pasos, MW, horas y
+    coordenadas, que son lecturas que se comparan **entre filas** y con cifras de
+    ancho variable bailan. Solo cifras: al aplicarla a frases enteras («a 400 m ·
+    30-45 minutos · verificado en el mapa») se lee peor, no mejor. Los iconos son
+    SVG escritos en la plantilla por lo mismo.
+
+    **La navegación baja al pie.** Se usa a una mano y en marcha, y el pulgar no
+    llega a la franja superior de un iPhone actual. 56 px de alto, por encima del
+    mínimo de 48.
+
+    Dos bugs que llevaban ahí desde antes y solo se vieron al mirar la pantalla:
+
+    - **`leaflet.css` se carga en `head_extra`, o sea DESPUÉS del nuestro**, así
+      que con la misma especificidad ganaba su `#ddd` y **el mapa salía gris
+      claro en modo oscuro** — un rectángulo que deslumbra, de noche, justo en la
+      pantalla de incendios. No daba ningún error. Se arregla con un punto más de
+      especificidad (`body .leaflet-container`), sin tocar el archivo
+      vendorizado, que tiene que seguir siendo el de Leaflet tal cual
+      (decisión 28). La atribución necesitó dos, porque Leaflet la escribe como
+      `.leaflet-container .leaflet-control-attribution`.
+    - **Dos variables CSS que no existían**: `.pois-grupo` usaba
+      `var(--borde, …)` cuando el token es `--border`, así que siempre pintaba el
+      gris oscuro de reserva, también en claro; y `.pois a:hover` usaba `--fg`,
+      que tampoco existe, así que el hover no cambiaba nada. Un `var()` a un
+      token inexistente **no da error**: cae al valor de reserva o hereda.
+
+    **Lo que costó, medido:** el CSS pasa de 5,5 a 11,6 KB comprimidos. Se paga
+    **una vez por despliegue** porque los estáticos van `immutable` con
+    `?v=<mtime>` (decisión 48), no en cada salto de pantalla. En local, en
+    caliente, las cuatro pantallas se mueven ±20 ms, que a esa escala es ruido;
+    el número que decide es contra el desplegado.
+
+    **Y fuera las coordenadas de todas las pantallas, no solo de una.** La
+    decisión 35 las sacó de la tarjeta de Inicio y quedaron en otros dos sitios
+    donde nadie las había mirado: el Chat abría con «Preguntas desde 43.5622,
+    -6.1456 (±18 m)» y el Mapa caía a las coordenadas como **título** de una nota
+    cuyo `lugar` fuera nulo. Un sitio se dice con su nombre; un número que hay
+    que traducir mentalmente no es información, es trabajo.
+
+    El Chat resuelve el nombre con `/api/location` y **no** con `/api/contexto`:
+    lo único que hace falta es el sitio, esa ruta solo llama a Nominatim —
+    cacheado por coordenada redondeada a ~110 m (decisión 3)— y pedir el contexto
+    entero traería el tiempo y la luna para tirarlos, que con un solo worker es
+    espera que se le quita a la pregunta de detrás (decisión 43). Los dos fallos
+    posibles se dicen distinto porque se arreglan en sitios distintos: sin GPS no
+    se puede preguntar, sin nombre sí — al modelo le llegan las coordenadas
+    igual. Y en el Mapa se distingue «Sitio sin nombre» de «Sin sitio», que no
+    son lo mismo: el primero está en el mapa y el segundo no.
+
+    Sobreviven en un solo sitio, plegado: el desplegable de Inicio, ahora
+    titulado *«¿La ubicación parece mal?»*. Ahí son lo único con lo que se depura
+    una chincheta en el sitio equivocado, y el título dice para qué sirve en vez
+    de invitar a abrirlo.
+
+    **Y el rediseño encontró su propio fallo, que es la prueba de que las redes
+    puestas sirven:** el estado vacío del Chat se creó con un `id`, y
+    `test_frontend_ids.py` lo cazó al primer intento — el test de la decisión 42
+    haciendo exactamente su trabajo. Se arregló buscando por clase: un nodo que
+    crea y destruye el propio JavaScript no tiene por qué estar en el HTML. Y
+    `tools/verificar.py` daba «conversación borrada» por «hilo sin texto», que
+    dejó de ser lo mismo al haber un vacío escrito; ahora cuenta **burbujas**,
+    que es más preciso y no más laxo.
 
 ## 7. Roadmap
 

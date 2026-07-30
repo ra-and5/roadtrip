@@ -44,12 +44,32 @@
     text("perfil-fecha", diaLegible(perfil.hoy));
   }
 
+  /* Los cuatro valores de `data-certeza` del CSS, elegidos por la misma regla
+   * que el resto del proyecto: lo peor que se sepa de la serie manda. Un solo
+   * día simulado hace que la tarjeta entera deje de poder presumir de medida,
+   * porque quien la mira no sabe cuál de las barras era la inventada. */
+  function certezaDe(perfil) {
+    const serie = perfil.serie || [];
+    if (!perfil.cuerpo.hay_datos) return "hueco";
+    if (perfil.hay_simulado) return "fallo";
+    if (serie.some(function (b) { return b.pasos === null || b.pasos === undefined; })) return "hueco";
+    if (serie.some(function (b) { return b.parcial; })) return "parcial";
+    return "medido";
+  }
+
   function renderCuerpo(perfil) {
     const cuerpo = perfil.cuerpo;
 
     /* La tarjeta sale aunque no haya datos: un hueco declarado se entiende, uno
      * ausente parece un olvido. */
     show("cuerpo-card");
+
+    /* El filete de la tarjeta lo decide el DATO, no la plantilla. Es la misma
+     * gramática que las barras —sólido, discontinuo, rayado, magenta— aplicada
+     * al conjunto, de modo que la procedencia se ve antes de leer una sola
+     * cifra. Si esto se escribiera en el HTML sería una afirmación fija sobre
+     * algo que cambia cada día, que es justo lo que este proyecto no hace. */
+    el("cuerpo-card").dataset.certeza = certezaDe(perfil);
 
     if (perfil.hay_simulado) {
       const aviso = el("cuerpo-simulado");

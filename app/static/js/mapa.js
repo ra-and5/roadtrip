@@ -181,9 +181,14 @@
     if (momento.tipo === "foto") {
       titulo.textContent = "📷  " + momento.archivo;
     } else {
+      /* Sin nombre NO se caen las coordenadas encima: «43.5622, -6.1456» ocupa
+       * el sitio del título y no dice nada que se pueda leer de un vistazo.
+       * Se distingue igualmente lo que no tiene nombre de lo que no tiene sitio,
+       * que son dos cosas distintas: la primera está en el mapa y la segunda no
+       * (Nominatim caído al guardar contra una nota escrita sin GPS). */
       titulo.textContent =
         momento.lugar ||
-        (momento.lat === null ? "Sin sitio" : momento.lat.toFixed(4) + ", " + momento.lon.toFixed(4));
+        (momento.lat === null ? "Sin sitio" : "Sitio sin nombre");
     }
     caja.appendChild(titulo);
     caja.appendChild(document.createElement("br"));

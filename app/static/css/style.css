@@ -1,197 +1,613 @@
-/* Estilos mínimos, pensados para móvil primero. Sin frameworks: menos peso
-   que descargar con mala cobertura. */
+/* =============================================================================
+   Compañero de viaje — sistema visual
+   =============================================================================
+
+   Un solo archivo, sin frameworks y sin CDN. No es purismo: lo que se sirve es
+   lo que se probó (decisiones 17 y 28), `tools/verificar.py` bloquea todo lo
+   externo, y partirlo en dos archivos sería una petición más por pantalla justo
+   después de que el §2 de la Fase 7 costara quitarlas (decisión 48).
+
+   QUÉ ES ESTA APP, que es de donde sale todo lo demás: un panel de instrumentos
+   que se lee a una mano, en marcha, a pleno sol de mediodía y de noche dentro de
+   una furgoneta. Y su tesis —lo que ninguna otra app hace— es que cada número
+   viene con su procedencia: demostrada, con huecos, parcial, simulada, parada.
+
+   De ahí salen las tres decisiones que hacen que las cinco pantallas se
+   reconozcan como la misma app:
+
+   1. LA TRAMA SIGNIFICA «NO LO SÉ». Sólido = medido. Discontinuo = es un suelo,
+      se anduvo eso o más. Rayado = hueco, no hay dato. Magenta = la fuente
+      falló. Es una gramática de FORMA, no de color, así que sobrevive al modo
+      oscuro, al daltonismo y a mirar el móvil al sol. Ya existía a medias en las
+      barras de pasos (`.barra-hueco`); aquí se sube a lenguaje de toda la app y
+      se define UNA vez en `--trama-hueco`, como el contexto (decisión 32).
+
+   2. LAS MEDIDAS HABLAN EN MONOESPACIADA Y TABULAR. Pasos, MW, horas, altitud y
+      coordenadas son lecturas de instrumento que se comparan entre filas: con
+      cifras de ancho variable, una columna de números baila y deja de poder
+      leerse en diagonal. No se descarga ninguna fuente — `ui-monospace` es SF
+      Mono en el iPhone, que es donde se usa esto.
+
+   3. EL MAGENTA ES LA ÚNICA SEÑAL DE FALLO, y está elegido por descarte, no por
+      gusto: el rojo, el naranja y el amarillo ya están ocupados por los focos de
+      la NASA en la pantalla de Fuego, y los verdes por los veredictos del
+      tiempo. Un aviso en naranja al lado de ese mapa se lee como un incendio
+      más. Es además la convención de las cartas náuticas para «precaución».
+
+   Lo que NO hay, a propósito: sombras (ninguna), degradados decorativos, iconos
+   de terceros y animación dispersa. La única orquestación es la entrada de las
+   barras del Perfil, y se apaga entera con `prefers-reduced-motion`.
+   ========================================================================== */
+
+
+/* -----------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
 
 :root {
-  --bg: #f6f4ee;
-  --surface: #ffffff;
-  --ink: #1c1c1a;
-  --muted: #6b6b63;
-  --accent: #1b3a2f;
-  --error: #a1291f;
-  --border: #e2ded2;
-  --radius: 12px;
+  /* --- Color, modo claro ---
+     Ni el crema (#f6f4ee) de antes ni el gris por defecto. El papel es frío,
+     con un punto de verde, porque a pleno sol un fondo cálido y un texto oscuro
+     se empastan; y porque el crema con acento verde es exactamente el aspecto
+     que produce cualquier generador cuando no se le pide nada. */
+  --papel:        #edf1f0;
+  --superficie:   #ffffff;
+  --superficie-2: #f5f8f7;   /* lo hundido: campos, pistas de barra, burbujas */
+  --tinta:        #0f1614;
+  --apagado:      #5a6864;   /* 5,3:1 sobre superficie: legible, no decorativo */
+  --trazo:        #d3dcd9;
+  --trazo-fuerte: #b4c2be;
+
+  /* La acción, siempre la misma: agua profunda del Cantábrico. */
+  --sonda:        #0b6e7a;
+  --sonda-tinta:  #ffffff;   /* lo que se escribe ENCIMA de --sonda */
+  --sonda-suave:  #e0f0f2;
+
+  /* El fallo. Ver el punto 3 de la cabecera. */
+  --baliza:       #a8005e;
+  --baliza-suave: #fbe6f0;
+
+  /* Atención ≠ fallo, y confundirlos costaba un color mal puesto: «el sendero
+     del faro está expuesto al viento» es CONTENIDO —una advertencia sobre el
+     mundo— y «estos pasos son simulados» es PROCEDENCIA —una advertencia sobre
+     el dato—. Pintarlos igual hacía que el primero pareciera una avería de la
+     app. El ámbar avisa; el magenta dice que algo no se pudo consultar. */
+  --atencion:       #8a5a0f;
+  --atencion-suave: #fbf0d9;
+
+  /* «Ahora» / «hoy». Un solo uso en toda la app, y por eso destaca: marcar cuál
+     de las barras es el día de hoy. En cuanto se use para otra cosa deja de
+     significar nada. */
+  --ahora:        #b8791c;
+
+  /* Veredictos. Son datos, no adornos: se calculan en Python (decisión 5) y
+     aquí solo se pintan. */
+  --bueno-fondo:  #d6ebdd;  --bueno-tinta:  #14452c;
+  --regular-fondo:#f6e7c4;  --regular-tinta:#4a3812;
+  --malo-fondo:   #f5d3d0;  --malo-tinta:   #5c1d15;
+
+  /* --- Tipografía ---
+     Cero descargas: 0 bytes y 0 peticiones con mala cobertura, y en un iPhone la
+     cara del sistema es SF, que ya es una tipografía excelente. La personalidad
+     se gasta en la escala, el tracking y las versalitas, no en la familia. */
+  --letra: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --medida: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Escala de tercera menor (×1,2). Más contenida que la ×1,25 de costumbre:
+     esto es un instrumento, no una portada. */
+  --t-micro: 0.6875rem;  /* 11px — rótulos de instrumento */
+  --t-mini:  0.75rem;    /* 12px — meta, pies */
+  --t-corto: 0.8125rem;  /* 13px */
+  --t-menor: 0.9375rem;  /* 15px */
+  --t-base:  1rem;       /* 16px — cuerpo. Y el mínimo de los campos: por debajo
+                            de 16px Safari en iOS hace zoom al enfocar. */
+  --t-lead:  1.0625rem;
+  --t-h2:    1.1875rem;
+  --t-h1:    1.4375rem;
+  --t-cifra: 1.75rem;    /* los marcadores del Mapa */
+
+  /* --- Espaciado, base 4 --- */
+  --e1: 0.25rem;  --e2: 0.5rem;   --e3: 0.75rem;  --e4: 1rem;
+  --e5: 1.25rem;  --e6: 1.5rem;   --e8: 2rem;     --e10: 2.5rem;
+
+  --r1: 8px;      /* controles */
+  --r2: 12px;     /* tarjetas */
+  --r-redondo: 999px;
+
+  /* --- La gramática de la certeza ---
+     Una definición, varios consumidores: las barras de pasos, el filete de las
+     tarjetas y cualquier cosa futura que tenga que decir «esto no lo sé». */
+  --trama-hueco: repeating-linear-gradient(
+    45deg, transparent 0 3px, var(--trazo-fuerte) 3px 6px
+  );
+
+  --transicion: 140ms ease;
+
+  /* Alto real de la barra de navegación, para que el contenido no se le meta
+     debajo. Se declara aquí porque lo usan el `main` y la propia barra. */
+  --nav-alto: 3.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14150f;
-    --surface: #1e201a;
-    --ink: #ece9df;
-    --muted: #9a9a8f;
-    --accent: #7fbfa3;
-    --error: #ef8a7d;
-    --border: #33362c;
+    /* De noche en una furgoneta el fondo casi negro no es estética: es no
+       deslumbrarse a las tres de la mañana ni perder la visión nocturna. */
+    --papel:        #0a0e0d;
+    --superficie:   #121917;
+    --superficie-2: #182120;
+    --tinta:        #e4ebe8;
+    --apagado:      #8b9995;
+    --trazo:        #263130;
+    --trazo-fuerte: #384644;
+
+    --sonda:        #4fc3d1;
+    --sonda-tinta:  #06181b;
+    --sonda-suave:  #0e2e33;
+
+    --baliza:       #ff77b5;
+    --baliza-suave: #330b21;
+
+    --atencion:       #e0a94a;
+    --atencion-suave: #2b2110;
+
+    --ahora:        #e0a94a;
+
+    --bueno-fondo:  #12331f;  --bueno-tinta:  #9fe0b6;
+    --regular-fondo:#332811;  --regular-tinta:#f0cf8a;
+    --malo-fondo:   #3a1512;  --malo-tinta:   #f4a9a0;
   }
 }
 
-* { box-sizing: border-box; }
+
+/* -----------------------------------------------------------------------------
+   2. Base
+   -------------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  line-height: 1.5;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--letra);
+  font-size: var(--t-base);
+  line-height: 1.55;
   /* Respeta el notch y la barra inferior del iPhone en modo PWA. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
-           env(safe-area-inset-bottom) env(safe-area-inset-left);
+           0 env(safe-area-inset-left);
+  /* Sin esto, iOS mete un retardo de 300 ms en cada toque buscando un doble
+     toque de zoom. Se nota mucho en marcha. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* Un foco visible y del mismo color en toda la app. Se usa con teclado en el
+   portátil y lo pide cualquier suelo de calidad decente. */
+:focus-visible {
+  outline: 2px solid var(--sonda);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+img { max-width: 100%; }
+
+
+/* -----------------------------------------------------------------------------
+   3. Tipografía
+   -------------------------------------------------------------------------- */
+
+h1, h2, h3 {
+  /* El tracking negativo en los titulares es lo que separa un texto compuesto
+     de un texto por defecto. Solo en los grandes: en cuerpo estorba. */
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+h1 { margin: 0 0 var(--e3); font-size: var(--t-h1); font-weight: 650; line-height: 1.2; }
+h2 { margin: 0 0 var(--e2); font-size: var(--t-h2); font-weight: 620; line-height: 1.25; }
+h3 { margin: 0; font-size: var(--t-lead); font-weight: 600; }
+
+p { margin: 0 0 var(--e3); }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--sonda); text-underline-offset: 0.15em; }
+
+/* El rótulo de instrumento. Va encima del título de cada pantalla y dice qué
+   pregunta contesta — la decisión 40 impresa en la pantalla y no solo respetada
+   en el código. En monoespaciada y con tracking ancho porque es una etiqueta de
+   panel, no una frase. */
+.rotulo {
+  display: block;
+  margin: 0 0 var(--e1);
+  font-family: var(--medida);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.lead { font-size: var(--t-lead); margin: 0 0 var(--e3); text-wrap: pretty; }
+
+.muted { color: var(--apagado); font-size: var(--t-corto); word-break: break-word; }
+
+/* Cualquier cifra medida. Ver el punto 2 de la cabecera.
+   Solo CIFRAS: una frase entera en monoespaciada («a 400 m · 30-45 minutos ·
+   verificado en el mapa») se lee peor, no mejor. La monoespaciada aquí sirve
+   para alinear columnas de números, no para dar aire de terminal. */
+.medida, .marcador-valor, .barra-valor, .barra-etiqueta, .momento-hora,
+.cola-meta, .chat-pie, .fuego-leyenda, #place-coords {
+  font-family: var(--medida);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--apagado);
+  font-size: var(--t-corto);
+  padding: var(--e1) 0;
+}
+summary::marker { color: var(--trazo-fuerte); }
+
+
+/* -----------------------------------------------------------------------------
+   4. Estructura: cabecera, navegación, contenido
+   -------------------------------------------------------------------------- */
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  padding: 0.9rem 1.1rem;
-  background: var(--accent);
-  color: #fff;
-}
-@media (prefers-color-scheme: dark) {
-  .topbar { background: #23261d; }
+  gap: var(--e4);
+  padding: var(--e3) var(--e5);
+  background: var(--superficie);
+  border-bottom: 1px solid var(--trazo);
 }
 
-.brand { font-weight: 600; letter-spacing: 0.01em; }
-.logout { color: inherit; opacity: 0.85; font-size: 0.9rem; }
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e2);
+  font-weight: 640;
+  letter-spacing: -0.01em;
+}
+/* Una brújula minúscula dibujada con dos círculos: el único ornamento de la
+   app, y cuesta cero bytes de red. */
+.brand::before {
+  content: "";
+  width: 0.6rem; height: 0.6rem;
+  border-radius: 50%;
+  border: 2px solid var(--sonda);
+  border-top-color: transparent;
+  transform: rotate(45deg);
+  align-self: center;
+}
 
-.content { max-width: 34rem; margin: 0 auto; padding: 1.1rem; }
+.logout {
+  color: var(--apagado);
+  font-size: var(--t-corto);
+  text-decoration: none;
+  padding: var(--e2);
+  margin: calc(var(--e2) * -1);
+}
+
+/* La navegación va ABAJO, y no es moda: esto se usa a una mano y en marcha, y
+   en un iPhone actual el pulgar no llega a la franja superior de la pantalla.
+   Fija, no `sticky`, para que cambiar de pantalla nunca exija volver arriba. */
+.nav {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 900;
+  display: flex;
+  background: var(--superficie);
+  border-top: 1px solid var(--trazo);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav a {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* 3,5rem = 56px de alto real: por encima del mínimo de 48px, que es lo que
+     hace falta para acertar con el pulgar en una carretera de montaña. */
+  min-height: var(--nav-alto);
+  padding: var(--e2) var(--e1);
+  font-size: var(--t-micro);
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: var(--apagado);
+  text-decoration: none;
+  transition: color var(--transicion);
+}
+.nav a svg { width: 22px; height: 22px; display: block; }
+.nav a.activo { color: var(--sonda); }
+/* La pastilla del activo va ARRIBA del icono: es la única marca que se ve de
+   reojo sin leer la etiqueta. */
+.nav a.activo::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 1.75rem; height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--sonda);
+}
+.nav a { position: relative; }
+
+.content {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: var(--e5) var(--e4);
+  /* Hueco para la barra fija: sin esto, la última tarjeta queda debajo. */
+  padding-bottom: calc(var(--nav-alto) + env(safe-area-inset-bottom) + var(--e8));
+}
+
+/* La cabecera de pantalla: rótulo, título y, si hace falta, un control a la
+   derecha (el filtro de año del Mapa). */
+.pantalla-cabecera {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+  margin-bottom: var(--e4);
+}
+.pantalla-cabecera h1 { margin: 0; }
+.progreso-cabecera { /* nombre heredado, mismo comportamiento */
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+.progreso-cabecera h1 { margin: 0; }
+
+
+/* -----------------------------------------------------------------------------
+   5. La tarjeta y la gramática de la certeza
+   -------------------------------------------------------------------------- */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.3rem;
+  position: relative;
+  background: var(--superficie);
+  border: 1px solid var(--trazo);
+  border-radius: var(--r2);
+  padding: var(--e5);
+  overflow: hidden;   /* para que el filete de estado respete la esquina */
+}
+.card + .card { margin-top: var(--e4); }
+
+/* El filete de estado: 2px en el borde superior de la tarjeta. Sin modificador
+   no se pinta nada, que es lo correcto para una tarjeta que no afirma nada
+   sobre su propia procedencia. */
+.card[data-certeza]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+}
+.card[data-certeza="medido"]::before  { background: var(--sonda); }
+.card[data-certeza="parcial"]::before {
+  /* Discontinuo: hay dato y es cierto, pero es un suelo. */
+  background: repeating-linear-gradient(
+    90deg, var(--sonda) 0 6px, transparent 6px 10px
+  );
+}
+.card[data-certeza="hueco"]::before { background: var(--trama-hueco); }
+.card[data-certeza="fallo"]::before { background: var(--baliza); }
+
+/* Cabecera de tarjeta con su marca de procedencia a la derecha. */
+.card-cabecera {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e3);
+}
+.card-cabecera h2 { margin: 0; }
+
+.result {
+  margin-top: var(--e5);
+  border-top: 1px solid var(--trazo);
+  padding-top: var(--e4);
 }
 
-h1 { margin: 0 0 1rem; font-size: 1.4rem; }
-h2 { margin: 0 0 0.6rem; font-size: 1.15rem; }
 
-label { display: block; margin-bottom: 0.35rem; font-size: 0.9rem; color: var(--muted); }
+/* -----------------------------------------------------------------------------
+   6. Controles
+   -------------------------------------------------------------------------- */
 
-input[type="password"] {
+button, .button {
+  display: block;
   width: 100%;
-  padding: 0.75rem;
-  /* 16px evita que Safari en iOS haga zoom automático al enfocar el campo. */
-  font-size: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-  margin-bottom: 1rem;
-}
-
-button {
-  width: 100%;
-  /* Área táctil cómoda: 48px es el mínimo recomendado para el pulgar. */
-  min-height: 48px;
-  padding: 0.8rem 1rem;
-  font-size: 1rem;
+  /* 48px es el mínimo para el pulgar; aquí van 50 porque se pulsa en marcha. */
+  min-height: 50px;
+  padding: var(--e3) var(--e4);
+  font-family: inherit;
+  font-size: var(--t-base);
   font-weight: 600;
-  color: #fff;
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
+  letter-spacing: -0.005em;
+  text-align: center;
+  text-decoration: none;
+  color: var(--sonda-tinta);
+  background: var(--sonda);
+  border: 1px solid transparent;
+  border-radius: var(--r1);
   cursor: pointer;
+  transition: background var(--transicion), border-color var(--transicion),
+              opacity var(--transicion), transform 90ms ease;
 }
-@media (prefers-color-scheme: dark) {
-  button { color: #14150f; }
+button + button, button + .button, .button + button { margin-top: var(--e2); }
+
+/* Botones que comparten línea. Se reparten a partes iguales, y si uno está
+   oculto el otro ocupa el ancho entero sin dejar un hueco. */
+.botonera { display: flex; gap: var(--e2); margin-top: var(--e2); align-items: stretch; }
+.botonera button { flex: 1 1 0; margin-top: 0; }
+.botonera select { flex: 0 1 auto; min-width: 8rem; }
+
+/* Respuesta al toque. En un móvil no hay `hover`, así que el único acuse de
+   recibo posible es este: sin él, con mala cobertura no se sabe si el toque ha
+   entrado y se pulsa dos veces. */
+button:active, .button:active { transform: scale(0.985); }
+button:disabled { opacity: 0.5; cursor: progress; transform: none; }
+
+/* Lanzar un atajo de iOS es navegar a `shortcuts://`, así que tiene que ser un
+   enlace de verdad y no un botón: un `<button>` con JavaScript detrás abriría la
+   misma URL, pero perdería el pulsado largo, «abrir en otra pestaña» y que
+   Safari lo reconozca como navegación. Se le da el aspecto del botón para que no
+   parezca de otra familia. */
+button.secondary, .button.secondary {
+  background: transparent;
+  color: var(--sonda);
+  border-color: var(--trazo-fuerte);
 }
-button:disabled { opacity: 0.55; cursor: progress; }
+button.secondary:active, .button.secondary:active { background: var(--sonda-suave); }
 
-.status { margin: 1rem 0 0; min-height: 1.5em; color: var(--muted); font-size: 0.95rem; }
-.status.error, .error { color: var(--error); font-weight: 500; }
+button.pequeno {
+  width: auto;
+  min-height: 36px;
+  padding: var(--e1) var(--e3);
+  font-size: var(--t-mini);
+  margin: 0;
+}
 
-/* `.ok` lo usaban ya las notas y el mapa, y no tenía ninguna regla: el mensaje
-   salía en gris de texto secundario, igual que un "cargando…". Justo al revés
-   de lo que hace falta — «2 fotos nuevas» o «Nota enviada» son la confirmación
-   de que lo que acabas de hacer ha llegado, y si no se distinguen del ruido,
-   se comprueba a mano igualmente. */
-.status.ok { color: var(--accent); font-weight: 600; }
+.atajo { margin: var(--e4) 0 0; }
+.atajo .muted { display: block; margin-top: var(--e2); text-align: center; }
 
-.result { margin-top: 1.4rem; border-top: 1px solid var(--border); padding-top: 1.1rem; }
+label {
+  display: block;
+  margin-bottom: var(--e1);
+  font-size: var(--t-corto);
+  color: var(--apagado);
+}
+
+input[type="password"], textarea, select {
+  width: 100%;
+  padding: var(--e3);
+  /* 16px o Safari en iOS hace zoom al enfocar el campo y descoloca la pantalla
+     justo cuando vas a escribir. */
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1.45;
+  color: var(--tinta);
+  background: var(--superficie-2);
+  border: 1px solid var(--trazo-fuerte);
+  border-radius: var(--r1);
+  transition: border-color var(--transicion);
+}
+input[type="password"] { margin-bottom: var(--e4); }
+textarea { resize: vertical; margin-bottom: var(--e3); }
+input[type="password"]:focus, textarea:focus, select:focus { border-color: var(--sonda); }
+
+select {
+  width: auto;
+  min-height: 44px;
+  padding: var(--e2) var(--e3);
+  font-size: var(--t-menor);
+}
+
+input[type="checkbox"] {
+  width: 1.15rem; height: 1.15rem;
+  accent-color: var(--sonda);
+}
+
+
+/* -----------------------------------------------------------------------------
+   7. Mensajes: estado, veredictos, avisos
+   -------------------------------------------------------------------------- */
+
+.status {
+  margin: var(--e4) 0 0;
+  min-height: 1.5em;
+  color: var(--apagado);
+  font-size: var(--t-menor);
+}
+.status.error, .error { color: var(--baliza); font-weight: 550; }
+
+/* `.ok` es la confirmación de que lo que acabas de hacer ha llegado —«2 fotos
+   nuevas», «Nota enviada»—. Si no se distingue del gris de «cargando…», se
+   acaba comprobando a mano igualmente. */
+.status.ok { color: var(--sonda); font-weight: 600; }
+
+.tag {
+  display: inline-block;
+  padding: var(--e1) var(--e3);
+  border-radius: var(--r-redondo);
+  font-size: var(--t-mini);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  background: var(--superficie-2);
+  border: 1px solid var(--trazo);
+  color: var(--tinta);
+  margin: 0 var(--e1) var(--e1) 0;
+}
+.tag-bueno     { background: var(--bueno-fondo);   color: var(--bueno-tinta);   border-color: transparent; }
+.tag-regular   { background: var(--regular-fondo); color: var(--regular-tinta); border-color: transparent; }
+.tag-malo,
+.tag-peligroso { background: var(--malo-fondo);    color: var(--malo-tinta);    border-color: transparent; }
+.tag-cat       { background: transparent; border-color: var(--trazo-fuerte); color: var(--apagado); font-weight: 500; }
+
+/* Un aviso no es un error: es una fuente que no ha contestado y una app que lo
+   dice en voz alta en vez de fingir que tiene el contexto entero (decisión 9). */
+.warnings { border-left: 3px solid var(--baliza); }
+.warnings ul {
+  margin: 0;
+  padding-left: var(--e5);
+  font-size: var(--t-menor);
+  color: var(--apagado);
+}
+
+/* Aviso sobre el MUNDO: el sendero está expuesto, la marea sube. Ámbar. */
+.aviso {
+  background: var(--atencion-suave);
+  border-left: 3px solid var(--atencion);
+  border-radius: 0 var(--r1) var(--r1) 0;
+  padding: var(--e3) var(--e4);
+  font-size: var(--t-menor);
+  margin: 0 0 var(--e4);
+}
+/* Aviso sobre el DATO: esto es simulado, esta fuente lleva días parada. Magenta,
+   el mismo de `.warnings`, porque es la misma familia de problema: lo que ves no
+   es lo que crees que ves. */
+.aviso-procedencia {
+  background: var(--baliza-suave);
+  border-left-color: var(--baliza);
+}
 
 .details {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0 0 1rem;
-  font-size: 0.95rem;
+  gap: var(--e1) var(--e4);
+  margin: 0 0 var(--e4);
+  font-size: var(--t-menor);
 }
-.details dt { color: var(--muted); }
+.details dt { color: var(--apagado); }
 .details dd { margin: 0; }
 
-.muted { color: var(--muted); font-size: 0.9rem; word-break: break-word; }
-summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
-a { color: var(--accent); }
-
-/* ---------- Fase 2: tiempo, recomendaciones y POIs ---------- */
-
-.card + .card { margin-top: 1rem; }
-
-button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--border);
-  margin-top: 0.6rem;
-}
-
-/* Lanzar un atajo de iOS es navegar a `shortcuts://`, así que tiene que ser un
-   enlace de verdad y no un botón: un `<button>` con JavaScript detrás abriría
-   la misma URL, pero perdería el pulsado largo, "abrir en otra pestaña" y que
-   Safari lo reconozca como navegación. Se le da el aspecto del botón para que
-   no parezca de otra familia. */
-a.button {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 48px;
-  padding: 0.8rem 1rem;
-  font-size: 1rem;
-  font-weight: 600;
+/* Un estado vacío es una invitación a hacer algo, no un hueco. */
+.vacio {
+  color: var(--apagado);
+  font-size: var(--t-menor);
   text-align: center;
-  text-decoration: none;
-  border-radius: 8px;
+  padding: var(--e5) var(--e3);
+  border: 1px dashed var(--trazo-fuerte);
+  border-radius: var(--r1);
 }
-a.button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--border);
-}
-.atajo { margin: 1rem 0 0; }
-.atajo .muted { display: block; margin-top: 0.4rem; text-align: center; }
 
-.lead { font-size: 1.05rem; margin: 0 0 0.8rem; }
 
-.tag {
-  display: inline-block;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: var(--border);
-  color: var(--ink);
-  margin: 0 0.3rem 0.3rem 0;
-}
-.tag-bueno     { background: #cfe8d8; color: #17402c; }
-.tag-regular   { background: #f6e5c0; color: #4a3812; }
-.tag-malo,
-.tag-peligroso { background: #f3d0cb; color: #5c1d15; }
-.tag-cat       { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 500; }
-
-.warnings { border-left: 3px solid #d19a2e; }
-.warnings ul { margin: 0; padding-left: 1.1rem; font-size: 0.92rem; color: var(--muted); }
-
-.aviso {
-  background: rgba(209, 154, 46, 0.14);
-  border-radius: 8px;
-  padding: 0.7rem 0.9rem;
-  font-size: 0.94rem;
-  margin: 0 0 1rem;
-}
+/* -----------------------------------------------------------------------------
+   8. Inicio — ¿qué hago aquí, ahora?
+   -------------------------------------------------------------------------- */
 
 .activity {
-  border-top: 1px solid var(--border);
-  padding-top: 0.9rem;
-  margin-top: 0.9rem;
+  border-top: 1px solid var(--trazo);
+  padding-top: var(--e4);
+  margin-top: var(--e4);
 }
 .activity:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 
@@ -199,96 +615,67 @@ a.button.secondary {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.6rem;
+  gap: var(--e2);
   flex-wrap: wrap;
 }
-.activity h3 { margin: 0; font-size: 1.05rem; }
+.activity h3 { margin: 0; }
+/* Sin monoespaciada: es una frase («a 400 m · 30-45 minutos · verificado en el
+   mapa»), no una columna de cifras que haya que alinear. */
+.activity-meta {
+  margin: var(--e1) 0 var(--e2);
+  font-size: var(--t-mini);
+  color: var(--apagado);
+}
+.activity p { margin: 0 0 var(--e2); font-size: var(--t-menor); }
 
-.activity-meta { margin: 0.15rem 0 0.5rem; font-size: 0.82rem; color: var(--muted); }
-.activity p { margin: 0 0 0.5rem; font-size: 0.95rem; }
-
-/* El "por qué ahora" es el valor añadido frente a una lista de sitios:
-   se distingue visualmente para que se lea. */
+/* El «por qué ahora» es el valor añadido frente a una lista de sitios: se
+   distingue para que se lea. */
 .activity-why {
-  border-left: 2px solid var(--accent);
-  padding-left: 0.7rem;
-  font-size: 0.9rem;
-  color: var(--muted);
-  font-style: italic;
+  border-left: 2px solid var(--sonda);
+  padding-left: var(--e3);
+  font-size: var(--t-corto);
+  color: var(--apagado);
 }
 
-.pois { margin: 0.6rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); }
-.pois li { margin-bottom: 0.25rem; }
-/* Cada punto es un enlace a Mapas. Se le da altura de línea generosa y no se
-   subraya para que la lista siga leyéndose como una lista y no como un muro de
-   enlaces — pero sigue siendo un objetivo cómodo de pulsar con el dedo en
-   marcha, que es cuando se usa esto. */
-.pois a { color: var(--muted); text-decoration: none; display: inline-block; padding: 0.15rem 0; }
-.pois a:hover, .pois a:focus { color: var(--fg); text-decoration: underline; }
+.pois { margin: var(--e2) 0 0; padding-left: var(--e5); font-size: var(--t-corto); color: var(--apagado); }
+.pois li { margin-bottom: var(--e1); }
+/* Cada punto es un enlace a Mapas. No se subraya para que la lista siga
+   leyéndose como una lista y no como un muro de enlaces, pero sigue siendo un
+   objetivo cómodo de pulsar con el dedo en marcha, que es cuando se usa. */
+.pois a { color: var(--apagado); text-decoration: none; display: inline-block; padding: var(--e1) 0; }
+.pois a:hover, .pois a:focus { color: var(--tinta); text-decoration: underline; }
 
 /* Un grupo por categoría, plegable. Con ocho categorías, una sola lista
    ordenada por distancia es un revoltijo: cuando buscas una barra de calistenia
    o dónde vaciar aguas, leerte veinte líneas mezcladas es no encontrarlo. */
-.pois-grupos { margin-top: 0.8rem; }
-.pois-grupo { border-top: 1px solid var(--borde, #2a3b34); padding: 0.4rem 0; }
+.pois-grupos { margin-top: var(--e3); }
+.pois-grupo { border-top: 1px solid var(--trazo); padding: var(--e1) 0; }
 .pois-grupo > summary {
-  cursor: pointer;
-  font-size: 0.95rem;
-  /* La categoría llega en minúsculas desde el servidor; la mayúscula es cosa
-     de la presentación y no del dato. */
+  font-size: var(--t-menor);
+  color: var(--tinta);
+  /* La categoría llega en minúsculas desde el servidor; la mayúscula es cosa de
+     la presentación y no del dato. */
   text-transform: capitalize;
 }
 
-/* Visible para un lector de pantalla y no para la vista: el desplegable se
-   entiende solo por su contenido, pero sin etiqueta no se puede navegar a
-   ciegas. */
-.visualmente-oculto {
-  position: absolute;
-  width: 1px; height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
+#pois-categoria { margin-right: var(--e2); margin-bottom: var(--e2); }
 
-#pois-categoria { margin-right: 0.5rem; }
 
-/* ---------- Fase 3: notas geolocalizadas y mapa ---------- */
+/* -----------------------------------------------------------------------------
+   9. Notas y su cola de envío
+   -------------------------------------------------------------------------- */
 
-textarea {
-  width: 100%;
-  padding: 0.75rem;
-  /* 16px otra vez: por debajo de eso Safari en iOS hace zoom al enfocar y
-     descoloca la pantalla justo cuando vas a escribir. */
-  font-size: 16px;
-  font-family: inherit;
-  line-height: 1.45;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-  resize: vertical;
-  margin-bottom: 0.7rem;
-}
-
-button.pequeno {
-  width: auto;
-  min-height: 34px;
-  padding: 0.25rem 0.7rem;
-  font-size: 0.82rem;
-  margin: 0;
-}
-
-/* La cola de envío. Se ve siempre que tenga algo dentro: una cola invisible
-   es una cola en la que no confías. */
-.cola { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+/* Se ve siempre que tenga algo dentro: una cola invisible es una cola en la que
+   no confías. */
+.cola { list-style: none; margin: var(--e2) 0 0; padding: 0; }
 .cola li {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: var(--e3);
   flex-wrap: wrap;
-  border-top: 1px solid var(--border);
-  padding: 0.5rem 0;
-  font-size: 0.9rem;
+  border-top: 1px solid var(--trazo);
+  padding: var(--e2) 0;
+  font-size: var(--t-corto);
 }
 .cola-texto {
   flex: 1 1 60%;
@@ -297,303 +684,395 @@ button.pequeno {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cola-meta { color: var(--muted); font-size: 0.82rem; }
-.cola-rechazada .cola-meta { color: var(--error); }
+.cola-meta { color: var(--apagado); font-size: var(--t-mini); }
+.cola-rechazada .cola-meta { color: var(--baliza); }
+/* Una nota pendiente lleva la trama: aún no está a salvo en el servidor. */
+.cola-pendiente { border-left: 2px solid transparent; border-image: var(--trama-hueco) 1; }
 
-/* --- Progreso del mapa --- */
 
-.progreso-cabecera {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  flex-wrap: wrap;
-}
-.progreso-cabecera h1 { margin: 0; }
-
-#filtro-anio {
-  padding: 0.4rem 0.6rem;
-  font-size: 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-}
+/* -----------------------------------------------------------------------------
+   10. Mapa — ¿dónde he estado?
+   -------------------------------------------------------------------------- */
 
 .marcadores {
   display: grid;
   /* auto-fit + minmax: cuatro cifras en una pantalla ancha, dos en un iPhone,
      sin media queries que mantener. */
   grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
-  gap: 0.6rem;
-  margin: 1rem 0;
+  gap: var(--e2);
+  margin: var(--e4) 0;
 }
 .marcador {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0.7rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
+  gap: 2px;
+  padding: var(--e3) var(--e2);
+  border: 1px solid var(--trazo);
+  border-radius: var(--r1);
+  background: var(--superficie-2);
 }
-.marcador-valor { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
-.marcador-etiqueta { font-size: 0.82rem; color: var(--muted); }
-.marcador-detalle { font-size: 0.72rem; color: var(--muted); opacity: 0.8; }
+.marcador-valor { font-size: var(--t-cifra); font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
+.marcador-etiqueta { font-size: var(--t-mini); color: var(--apagado); text-align: center; }
+.marcador-detalle { font-size: var(--t-micro); color: var(--apagado); opacity: 0.85; text-align: center; }
 
-/* El tablero de comunidades: lo que hace que el mapa se quiera completar.
-   Las que faltan se ven apagadas pero se ven, que es el punto. */
+/* El tablero de comunidades: lo que hace que el mapa se quiera completar. Las
+   que faltan se ven apagadas pero se ven, que es el punto. */
 .casillas {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.5rem 0 0;
+  gap: var(--e1);
+  margin: var(--e2) 0 0;
   padding: 0;
 }
+/* Diecinueve casillas son un muro si todas pesan lo mismo. Las que faltan van
+   discretas —discontinuas, pequeñas, apagadas— y las hechas destacan: el
+   tablero tiene que leerse de un vistazo como «cuánto llevo», no como una lista
+   de comunidades autónomas. */
 .casilla {
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  border: 1px dashed var(--border);
-  color: var(--muted);
+  padding: 2px var(--e2);
+  border-radius: var(--r-redondo);
+  font-size: var(--t-micro);
+  border: 1px dashed var(--trazo);
+  color: var(--apagado);
+  opacity: 0.75;
 }
 .casilla-hecha {
-  background: var(--accent);
+  padding: var(--e1) var(--e3);
+  font-size: var(--t-mini);
+  background: var(--sonda);
   border-style: solid;
-  border-color: var(--accent);
-  color: #fff;
+  border-color: var(--sonda);
+  color: var(--sonda-tinta);
   font-weight: 600;
-}
-@media (prefers-color-scheme: dark) {
-  .casilla-hecha { color: #14150f; }
+  opacity: 1;
 }
 
-/* --- El mapa --- */
-
-#mapa {
-  height: 60vh;
-  /* Un mínimo en píxeles además del alto relativo: en un iPhone en
-     horizontal, 60vh son 180 px y el mapa deja de servir para nada. */
+#mapa, #fuego-mapa {
+  height: 58vh;
+  /* Un mínimo en píxeles además del alto relativo: en un iPhone en horizontal,
+     58vh son 175 px y el mapa deja de servir para nada. */
   min-height: 320px;
-  border-radius: 8px;
+  border-radius: var(--r1);
   /* Leaflet pinta los tiles fuera del contenedor si no se recorta. */
   overflow: hidden;
 }
-/* El fondo gris del mapa sin tiles es el mismo del tema: sin cobertura no
-   parece un error de la app, y el aviso de debajo explica qué pasa. */
-.leaflet-container { background: var(--border); font: inherit; }
+/* Leaflet en el tema de la app.
+   `body` delante NO es adorno: `leaflet.css` se carga en el bloque `head_extra`,
+   o sea DESPUÉS de este archivo, así que con la misma especificidad ganaba él y
+   el mapa salía con su `#ddd` gris claro — encima de un fondo casi negro, de
+   noche, en una furgoneta. No daba ningún error: solo un rectángulo blanco que
+   deslumbra justo cuando se mira el mapa de incendios. Un punto más de
+   especificidad lo resuelve sin tocar el archivo vendorizado, que tiene que
+   seguir siendo el de Leaflet tal cual (decisión 28). */
+body .leaflet-container { background: var(--superficie-2); font: inherit; }
+body .leaflet-popup-content-wrapper, body .leaflet-popup-tip {
+  background: var(--superficie);
+  color: var(--tinta);
+}
+body .leaflet-bar a, body .leaflet-control-layers {
+  background: var(--superficie);
+  color: var(--tinta);
+  border-color: var(--trazo);
+}
+body .leaflet-bar a { border-bottom-color: var(--trazo); }
+/* El control de capas es una imagen de Leaflet pensada para fondo claro: en
+   oscuro se invierte en vez de quedarse como un cuadro blanco. */
+@media (prefers-color-scheme: dark) {
+  body .leaflet-control-layers-toggle { filter: invert(1) hue-rotate(180deg); }
+  /* `.leaflet-container` delante porque así lo escribe Leaflet, y con un
+     selector más corto ganaba su fondo blanco: una pastilla blanca encima de un
+     mapa negro, que es lo único que se ve de la pantalla a oscuras. */
+  body .leaflet-container .leaflet-control-attribution {
+    background: rgba(18, 25, 23, 0.85);
+    color: var(--apagado);
+  }
+  body .leaflet-container .leaflet-control-attribution a { color: var(--sonda); }
+}
 
-.notas { list-style: none; margin: 0; padding: 0; }
-.notas li {
-  border-top: 1px solid var(--border);
-  padding: 0.8rem 0;
+.notas, .visitados { list-style: none; margin: 0; padding: 0; }
+.notas li, .visitados li {
+  border-top: 1px solid var(--trazo);
+  padding: var(--e3) 0;
   cursor: pointer;
 }
-.notas li:first-child { border-top: none; }
+.notas li:first-child, .visitados li:first-child { border-top: none; }
+.visitados { font-size: var(--t-menor); }
 .nota-cabecera {
   display: flex;
   justify-content: space-between;
-  gap: 0.6rem;
+  gap: var(--e2);
   flex-wrap: wrap;
   align-items: baseline;
 }
-.notas p { margin: 0.3rem 0 0; font-size: 0.95rem; }
+.notas p { margin: var(--e1) 0 0; font-size: var(--t-menor); }
 
-.visitados { list-style: none; margin: 0; padding: 0; font-size: 0.92rem; }
-.visitados li {
-  border-top: 1px solid var(--border);
-  padding: 0.5rem 0;
-  cursor: pointer;
-}
-.visitados li:first-child { border-top: none; }
-
-/* ---------- Fase 3b: el trayecto y revivir el viaje ---------- */
-
+/* Revivir el viaje: recorre los momentos en orden centrando el mapa en cada
+   uno. Es la diferencia entre un mapa de chinchetas y volver a recorrerlo. */
 .revivir {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.7rem;
-  margin-top: 0.9rem;
+  gap: var(--e3);
+  margin-top: var(--e4);
 }
 .revivir button {
   /* No ocupa toda la línea: al lado tiene que caber la barra del tiempo. */
   width: auto;
   flex: 0 0 auto;
-  padding: 0.55rem 1rem;
-  min-height: 42px;
+  min-height: 44px;
+  padding: var(--e2) var(--e4);
 }
 #revivir-slider {
   flex: 1 1 12rem;
   /* Área táctil cómoda para arrastrar con el pulgar en un móvil. */
-  height: 42px;
-  accent-color: var(--accent);
+  height: 44px;
+  accent-color: var(--sonda);
   background: transparent;
 }
 #revivir-pie { flex: 1 1 100%; margin: 0; }
 
-/* El viaje día a día */
-.jornada { border-top: 1px solid var(--border); padding-top: 0.9rem; margin-top: 0.9rem; }
+/* El viaje día a día. La línea vertical convierte una lista de días en algo que
+   avanza — que es la mitad de «constancia» que pedía la fase. */
+.jornada {
+  position: relative;
+  border-top: 1px solid var(--trazo);
+  padding: var(--e4) 0 0 var(--e5);
+  margin-top: var(--e4);
+}
 .jornada:first-child { border-top: none; padding-top: 0; margin-top: 0; }
-.jornada h3 { margin: 0 0 0.4rem; font-size: 1rem; }
-.jornada h3 .muted { font-weight: 400; font-size: 0.85rem; }
+.jornada::before {
+  content: "";
+  position: absolute;
+  left: 3px; top: var(--e6); bottom: var(--e2);
+  width: 1px;
+  background: var(--trazo);
+}
+.jornada h3 { margin: 0 0 var(--e2); font-size: var(--t-base); }
+.jornada h3 .muted { font-weight: 400; }
 
 .momentos { list-style: none; margin: 0; padding: 0; }
 .momento {
+  position: relative;
   display: flex;
-  gap: 0.7rem;
+  gap: var(--e3);
   align-items: baseline;
-  padding: 0.35rem 0;
+  padding: var(--e1) 0;
   cursor: pointer;
-  font-size: 0.93rem;
+  font-size: var(--t-menor);
 }
+/* El punto sobre la línea de la jornada. */
+.momento::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--e5) * -1 + 1px);
+  top: 0.65em;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--trazo-fuerte);
+}
+.momento-nota::before { background: var(--sonda); }
 .momento-hora {
   flex: 0 0 3rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--apagado);
+  font-size: var(--t-mini);
 }
 .momento-texto { flex: 1 1 auto; }
 /* Una foto pesa menos que una nota en el relato: se distingue sin gritar. */
-.momento-foto .momento-texto { color: var(--muted); }
+.momento-foto .momento-texto { color: var(--apagado); }
 .momento-nota .momento-texto { font-weight: 500; }
 
-/* ---------------------------------------------------------------------------
-   El chat (Fase 6)
-   --------------------------------------------------------------------------- */
 
-.chat-hilo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  /* Alto acotado y con scroll propio: si el hilo empujara la página, el campo
-     de escribir se iría fuera de la pantalla justo al crecer la conversación,
-     que es cuando más se usa. */
-  max-height: 55vh;
-  overflow-y: auto;
-  margin-bottom: 0.8rem;
-}
-
-.chat-mensaje {
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.9rem;
-  max-width: 85%;
-  font-size: 0.95rem;
-}
-.chat-mensaje p { margin: 0; white-space: pre-wrap; }
-
-/* La pregunta a la derecha y la respuesta a la izquierda: es la convención de
-   cualquier app de mensajes, y aquí importa más de lo normal porque la
-   respuesta se lee en marcha y hay que saber de un vistazo quién habla. */
-.chat-usuario {
-  align-self: flex-end;
-  background: var(--accent, #1b3a2f);
-  color: #fff;
-}
-.chat-asistente {
-  align-self: flex-start;
-  background: rgba(127, 127, 127, 0.14);
-}
-
-.chat-pie {
-  display: block;
-  margin-top: 0.3rem;
-  font-size: 0.75rem;
-  opacity: 0.7;
-}
-
-.chat-form { display: flex; gap: 0.5rem; align-items: flex-end; }
-.chat-form textarea {
-  flex: 1 1 auto;
-  resize: vertical;
-  /* 16px o iOS hace zoom al enfocar el campo y descoloca la pantalla. */
-  font-size: 16px;
-  font-family: inherit;
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-}
-
-/* ---------------------------------------------------------------------------
-   Navegación y perfil
-   --------------------------------------------------------------------------- */
-
-.nav {
-  display: flex;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  /* Se queda arriba al bajar: en un móvil en marcha, volver a otra pantalla no
-     puede exigir subir hasta el principio de la página. */
-  position: sticky;
-  top: 0;
-  z-index: 500;
-}
-.nav a {
-  flex: 1 1 0;
-  text-align: center;
-  padding: 0.7rem 0.3rem;
-  font-size: 0.9rem;
-  color: var(--muted);
-  text-decoration: none;
-  border-bottom: 2px solid transparent;
-}
-.nav a.activo { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+/* -----------------------------------------------------------------------------
+   11. Perfil — ¿cómo estoy, y de qué me fío?
+   -------------------------------------------------------------------------- */
 
 .barras {
   display: flex;
   align-items: flex-end;
-  gap: 0.4rem;
-  margin: 0.9rem 0 0.7rem;
+  gap: var(--e1);
+  margin: var(--e4) 0 var(--e3);
 }
 .barra {
   flex: 1 1 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--e1);
   min-width: 0;
 }
 /* Alto fijo para que el porcentaje del tallo tenga contra qué resolverse. */
-.barra-pista { width: 100%; height: 88px; display: flex; align-items: flex-end; }
+.barra-pista {
+  width: 100%;
+  height: 92px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--superficie-2);
+  border-radius: 5px 5px 0 0;
+}
 .barra-tallo {
   width: 100%;
-  border-radius: 4px 4px 0 0;
-  background: var(--accent);
+  border-radius: 5px 5px 0 0;
+  background: var(--sonda);
+  transform-origin: bottom;
+  animation: brotar 420ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
 }
-/* Un día sin muestras no es un cero: se dibuja como una silueta vacía para que
-   se vea que falta, no que no anduviste. */
+/* Un día sin muestras no es un cero: se dibuja como silueta rayada para que se
+   vea que FALTA, no que no anduviste. Misma trama que el resto de la app. */
 .barra-hueco {
-  background: repeating-linear-gradient(
-    45deg, transparent, transparent 3px, var(--border) 3px, var(--border) 6px
-  );
-  border: 1px dashed var(--border);
+  background: var(--trama-hueco);
+  border: 1px dashed var(--trazo-fuerte);
 }
-/* Un día parcial SÍ tiene dato, pero es un suelo: se anduvo eso o más. Se
-   dibuja sólido —el número es cierto— con el borde superior abierto, que dice
-   "esto sigue hacia arriba" sin inventarse cuánto. */
-.barra-parcial {
-  border-top: 2px dashed var(--bg);
-  opacity: 0.75;
-}
-.barra-valor { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.barra-etiqueta { font-size: 0.72rem; color: var(--muted); }
-.barra-hoy .barra-valor { color: var(--ink); font-weight: 600; }
+/* Un día parcial SÍ tiene dato, pero es un suelo: se anduvo eso o más. Se dibuja
+   sólido —el número es cierto— con el borde superior abierto, que dice «esto
+   sigue hacia arriba» sin inventarse cuánto. */
+.barra-parcial { border-top: 2px dashed var(--superficie); opacity: 0.8; }
+.barra-valor { font-size: var(--t-micro); color: var(--apagado); }
+.barra-etiqueta { font-size: var(--t-micro); color: var(--apagado); }
+/* El único uso de `--ahora` en toda la app. */
+.barra-hoy .barra-valor { color: var(--ahora); font-weight: 700; }
+.barra-hoy .barra-etiqueta { color: var(--tinta); font-weight: 600; }
+
+@keyframes brotar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 
 .fuentes { list-style: none; margin: 0; padding: 0; }
-.fuentes li { border-top: 1px solid var(--border); padding: 0.7rem 0; }
+.fuentes li { border-top: 1px solid var(--trazo); padding: var(--e3) 0; }
 .fuentes li:first-child { border-top: none; padding-top: 0; }
-.fuentes p { margin: 0.2rem 0 0; }
+.fuentes p { margin: var(--e1) 0 0; font-size: var(--t-corto); color: var(--apagado); }
 .fuente-cabecera {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.6rem;
+  gap: var(--e2);
 }
-.fuente-cabecera .tag { margin: 0; }
+.fuente-cabecera .tag { margin: 0; flex: 0 0 auto; }
 
-/* Etiqueta para lector de pantalla sin ocuparle sitio a nadie. */
-.sr-only {
+
+/* -----------------------------------------------------------------------------
+   12. Fuego — ¿hacia dónde me muevo?
+   -------------------------------------------------------------------------- */
+
+.fuego-mandos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e2);
+  margin: var(--e3) 0;
+}
+.fuego-mandos button { width: auto; min-height: 44px; padding: var(--e2) var(--e4); margin: 0; }
+/* Etiqueta encima de su control y pegada a él. */
+.mando { display: flex; flex-direction: column; gap: 2px; }
+.mando label {
+  margin: 0;
+  font-family: var(--medida);
+  font-size: var(--t-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.mando select { width: 100%; }
+.fuego-check {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  /* El interruptor que de verdad hace útil el mapa: se toca, así que tiene el
+     área de un control y no la de una etiqueta. */
+  min-height: 44px;
+  padding: 0 var(--e3);
+  font-size: var(--t-corto);
+  color: var(--tinta);
+  border: 1px solid var(--trazo-fuerte);
+  border-radius: var(--r-redondo);
+  cursor: pointer;
+}
+.fuego-check:has(input:checked) {
+  background: var(--sonda-suave);
+  border-color: var(--sonda);
+  color: var(--sonda);
+  font-weight: 600;
+}
+
+.fuego-leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e4);
+  list-style: none;
+  padding: 0;
+  margin: var(--e3) 0 var(--e2);
+  font-family: var(--medida);
+  font-size: var(--t-mini);
+  color: var(--apagado);
+}
+.fuego-leyenda .punto {
+  display: inline-block;
+  width: 0.65rem; height: 0.65rem;
+  border-radius: 50%;
+  margin-right: var(--e1);
+  vertical-align: middle;
+}
+
+
+/* -----------------------------------------------------------------------------
+   13. Chat — preguntar en vez de buscar
+   -------------------------------------------------------------------------- */
+
+.chat-hilo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  /* Alto acotado y con scroll propio: si el hilo empujara la página, el campo de
+     escribir se iría fuera de la pantalla justo al crecer la conversación, que
+     es cuando más se usa. */
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: var(--e3);
+  overscroll-behavior: contain;
+}
+
+.chat-mensaje {
+  padding: var(--e2) var(--e3);
+  border-radius: var(--r2);
+  max-width: 85%;
+  font-size: var(--t-menor);
+}
+.chat-mensaje p { margin: 0; white-space: pre-wrap; }
+
+/* La pregunta a la derecha y la respuesta a la izquierda: es la convención de
+   cualquier app de mensajes, y aquí importa más de lo normal porque la respuesta
+   se lee en marcha y hay que saber de un vistazo quién habla. */
+.chat-usuario {
+  align-self: flex-end;
+  background: var(--sonda);
+  color: var(--sonda-tinta);
+  border-bottom-right-radius: var(--e1);
+}
+.chat-asistente {
+  align-self: flex-start;
+  background: var(--superficie-2);
+  border: 1px solid var(--trazo);
+  border-bottom-left-radius: var(--e1);
+}
+
+.chat-pie {
+  display: block;
+  margin-top: var(--e1);
+  font-family: var(--medida);
+  font-size: var(--t-micro);
+  opacity: 0.75;
+}
+
+.chat-form { display: flex; gap: var(--e2); align-items: flex-end; }
+.chat-form textarea { flex: 1 1 auto; margin-bottom: 0; }
+.chat-form button { width: auto; flex: 0 0 auto; min-height: 50px; padding: var(--e3) var(--e5); }
+
+
+/* -----------------------------------------------------------------------------
+   14. Utilidades
+   -------------------------------------------------------------------------- */
+
+/* Visible para un lector de pantalla y no para la vista: un desplegable se
+   entiende por su contenido, pero sin etiqueta no se puede navegar a ciegas. */
+.sr-only, .visualmente-oculto {
   position: absolute;
   width: 1px; height: 1px;
   padding: 0; margin: -1px;
@@ -604,35 +1083,16 @@ button.pequeno {
 }
 
 
-/* ---------- Fuego: el mapa de incendios ---------- */
+/* -----------------------------------------------------------------------------
+   15. Movimiento
+   -------------------------------------------------------------------------- */
 
-/* Alto fijo y generoso: este mapa se mira para decidir una ruta, así que hace
-   falta ver la comarca entera de un vistazo. */
-#fuego-mapa { height: 60vh; min-height: 320px; border-radius: 6px; }
-
-.fuego-mandos {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  margin: 0.6rem 0;
-}
-.fuego-check { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
-
-.fuego-leyenda {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.9rem;
-  list-style: none;
-  padding: 0;
-  margin: 0.7rem 0 0.3rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-.fuego-leyenda .punto {
-  display: inline-block;
-  width: 0.7rem; height: 0.7rem;
-  border-radius: 50%;
-  margin-right: 0.25rem;
-  vertical-align: middle;
+/* Quien pide menos movimiento lo pide en serio: mareo, migraña o batería. Se
+   apaga todo, incluida la entrada de las barras. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

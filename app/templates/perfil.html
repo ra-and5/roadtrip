@@ -4,7 +4,10 @@
 {% block content %}
 <div class="card">
   <div class="progreso-cabecera">
-    <h1 id="perfil-titulo">Perfil</h1>
+    <div>
+      <span class="rotulo">Tú · hoy</span>
+      <h1 id="perfil-titulo">Perfil</h1>
+    </div>
     <span class="muted" id="perfil-fecha"></span>
   </div>
   <p id="perfil-estado" class="status" aria-live="polite">Cargando…</p>
@@ -14,7 +17,7 @@
   <h2>Tu día</h2>
   <!-- El aviso de simulado va ARRIBA: una cifra inventada que se lee antes que
        su advertencia ya ha hecho el daño. -->
-  <p id="cuerpo-simulado" class="aviso" hidden></p>
+  <p id="cuerpo-simulado" class="aviso aviso-procedencia" hidden></p>
   <p class="lead" id="cuerpo-hoy"></p>
   <div class="barras" id="cuerpo-barras"></div>
   <p class="muted" id="cuerpo-pie"></p>
