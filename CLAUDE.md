@@ -2335,6 +2335,62 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     señal. Las dos son calendario y móvil, no trabajo — y ninguna herramienta las
     puede sustituir (decisión 36).
 
+58. **Inicio deja de ser una lista de tarjetas y pasa a ser un panel.** Lo que
+    contesta «¿qué hago aquí?» no son los datos: son los **veredictos**, y ya se
+    calculaban todos en Python (decisión 5). Estaban repartidos en cuatro
+    tarjetas apiladas —tiempo, agua, luna, fuego—, cada una con su título y su
+    párrafo, así que para saber si podías salir a andar había que leer las
+    cuatro. De nueve tarjetas a cinco.
+
+    Ahora son **cuatro señales en una fila**: `Aire · Agua · Luna · Fuego`, cada
+    una con su valor corto y un filete del color de su grado. El dato que las
+    justifica —oleaje, salida y puesta, motivo de la luna, detecciones del
+    satélite, coordenadas— baja a un `<details>` titulado *«Por qué»*.
+
+    Tres decisiones dentro:
+
+    - **Reparto fijo en cuatro columnas, no `auto-fit`.** Son siempre cuatro y
+      siempre las mismas: si cambiaran de sitio o de ancho según cuántas hayan
+      contestado, en marcha se leería la equivocada. Una que falta deja su hueco,
+      y el hueco dice que falta.
+    - **El grado va en un `data-` del contenedor**, no como clase del texto. Es
+      lo que permite teñir filete y letra con una sola regla, y lo que hace que
+      «no se pudo consultar» se pinte con la trama de «no lo sé» en vez de
+      parecer que todo está bien — tranquilizar sin haber mirado es el fallo del
+      que avisa la decisión 22.
+    - **El nivel del fuego lo decide `incendios.py`, no el JavaScript.** Se le
+      añadió un campo `nivel` (`tranquilo` / `puntos` / `foco`) porque la
+      frontera entre un horno industrial y un incendio es razonamiento, y el
+      JavaScript no se puede probar sin abrir un navegador. Si el nivel se
+      dedujera de la frase, cambiar la redacción cambiaría el color sin que nada
+      avisara.
+
+    **Y el contexto se pide solo al abrir.** Es la decisión 32 llevada hasta el
+    final: cuesta 0,18 s con la caché caliente y no gasta un token, así que
+    exigir una pulsación para saber dónde estás era cobrar un peaje por lo único
+    que esta pantalla enseña siempre. Lo que sigue detrás de un botón es la
+    **recomendación**, que cuesta tokens y segundos — esa mitad de la decisión 35
+    no cambia. El botón se queda como *Actualizar*, porque el GPS puede tardar,
+    denegarse o dar un sitio viejo y hay que poder reintentar sin recargar.
+
+    Con eso las acciones bajan **debajo** del panel: antes presidían la pantalla
+    con un título que repetía el de la pestaña y no informaban de nada.
+
+    Dos cosas que salieron al hacerlo:
+
+    - **Los textos se acortan en la presentación, no en el módulo.**
+      «desaconsejado» no cabe en una casilla de cuatro columnas y recortado deja
+      «desacon…», que no dice nada. Pero ese valor lo lee también el prompt del
+      modelo, donde «no» a secas se entendería peor. Así que la tabla de
+      abreviaturas vive en el JavaScript y `weather_context.py` no se toca.
+    - **Dos cargas solapadas dejaban el panel en blanco.** La automática y un
+      click encima: la segunda hace `hideAll()` justo cuando la primera acababa
+      de pintar. `hideAll()` se queda —es lo que garantiza que ningún veredicto
+      del sitio anterior sobreviva a un cambio de sitio, y un dato viejo con
+      pinta de nuevo es peor que un parpadeo— y lo que se arregla es el guion,
+      que ahora espera a la carga automática antes de pulsar. El síntoma apuntaba
+      al sitio equivocado: «no salió la tarjeta del tiempo».
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

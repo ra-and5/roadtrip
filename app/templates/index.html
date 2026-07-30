@@ -2,47 +2,92 @@
 {% block title %}¿Qué hago aquí?{% endblock %}
 
 {% block content %}
-<div class="card">
-  <!-- El rótulo dice qué pregunta contesta ESTA pantalla y ninguna otra. Es la
-       decisión 40 impresa donde se lee, y no solo respetada en el código. -->
-  <span class="rotulo">Ahora · aquí</span>
-  <h1>¿Qué hago aquí?</h1>
+<!-- Cada pieza se rellena y se muestra por separado. Es lo que permite que la
+     app siga siendo útil aunque una de las fuentes haya fallado (decisión 9). -->
+<!-- EL PANEL. Antes esto eran cuatro tarjetas apiladas —sitio, tiempo, luna,
+     fuego— cada una con su título, y para saber si podías salir a andar había
+     que leer las cuatro. Pero lo que contesta «¿qué hago aquí?» no son los
+     datos: son los VEREDICTOS, que ya se calculan en Python (decisión 5). Aquí
+     van los cuatro juntos, en una fila que se lee de un vistazo a una mano y en
+     marcha; el dato que los justifica queda debajo, plegado.
 
-  <!-- Dos botones y no uno, y ese es el cambio de la fase: mirar dónde estás y
-       qué tiempo hace es gratis e instantáneo; pedirle un plan al modelo cuesta
-       tokens y unos segundos, así que se pide aparte y cuando tú quieras. -->
-  <button id="contexto-btn" class="primary">¿Dónde estoy?</button>
-  <!-- Los dos secundarios comparten línea. Tres botones a ancho completo se
-       comen un tercio de la pantalla y hacen que los tres parezcan igual de
-       importantes: el que se pulsa siempre es el de arriba. -->
-  <div class="botonera">
-    <button id="locate-btn" class="secondary">Recomiéndame algo</button>
-    <button id="refresh-btn" class="secondary" hidden>Otra distinta</button>
+     No se repite nada de otras pantallas: ni un paso, ni un kilómetro, ni una
+     nota (decisión 40). Todo lo de aquí es AHORA. -->
+<section id="place-card" class="card panel" hidden>
+  <span class="rotulo" id="place-momento"></span>
+  <h2 id="place-label"></h2>
+  <p class="panel-linea">
+    <span id="weather-summary"></span>
+    <span class="muted" id="place-altitud"></span>
+  </p>
+
+  <div class="senales">
+    <!-- Cada señal conserva el id de la tarjeta que sustituye: son los mismos
+         datos y el mismo estado de «se pudo consultar o no», solo que ahora se
+         enseñan como un instrumento y no como un párrafo. -->
+    <div class="senal" id="weather-card" hidden>
+      <span class="senal-etiqueta">Aire</span>
+      <span class="senal-valor" id="weather-outdoor"></span>
+    </div>
+    <div class="senal" id="agua-card" hidden>
+      <span class="senal-etiqueta">Agua</span>
+      <span class="senal-valor" id="weather-water"></span>
+    </div>
+    <div class="senal" id="luna-card" hidden>
+      <span class="senal-etiqueta">Luna</span>
+      <span class="senal-valor" id="luna-veredicto"></span>
+    </div>
+    {# La tarjeta del fuego se renderiza SIEMPRE, aunque no haya clave, y sale
+       con `hidden`. Si se renderizara condicionalmente, `hideAll()` buscaría un
+       id que no está y reventaría el botón principal — que es literalmente el
+       fallo de la decisión 42. Sin clave, el JavaScript no la usa y punto. #}
+    <div class="senal" id="fuego-card" hidden
+         data-firms-key="{{ firms_map_key }}"
+         data-firms-base="{{ firms_base }}"
+         data-firms-sensor="{{ firms_sensor }}"
+         data-firms-grados="{{ firms_grados }}"
+         data-firms-dias="1">
+      <span class="senal-etiqueta">Fuego</span>
+      <span class="senal-valor" id="fuego-veredicto"></span>
+    </div>
   </div>
 
-  <p id="status" class="status" aria-live="polite"></p>
-</div>
-
-<!-- Cada sección se rellena y se muestra por separado. Es lo que permite que
-     la app siga siendo útil aunque una de las fuentes haya fallado. -->
-
-<!-- Sin coordenadas crudas: "38.39099, -0.52101 · ±1020 m" no le dice nada a
-     nadie. El pueblo, la comunidad y la altitud sí. La precisión del GPS sigue
-     existiendo, pero en el detalle plegado, que es donde se mira cuando algo
-     parece raro y no presidiendo la tarjeta. -->
-<section id="place-card" class="card" hidden>
-  <h2 id="place-label"></h2>
-  <p class="muted" id="place-altitud"></p>
-  <p class="muted" id="place-momento"></p>
-  <!-- Plegado y con un título que dice PARA QUÉ sirve. Las coordenadas se
-       quedan aquí porque cuando la chincheta sale en un sitio raro son lo
-       primero que se mira y borrarlas dejaría sin forma de depurarlo; lo que no
-       pueden es presidir la tarjeta ni invitar a abrirse sin motivo. -->
-  <details id="place-detalle">
-    <summary>¿La ubicación parece mal?</summary>
-    <p class="muted" id="place-coords"></p>
+  <!-- El dato que sostiene cada señal. Plegado porque en marcha no se lee, y
+       presente porque cuando una señal sorprende es lo primero que se mira. -->
+  <details id="place-detalle" class="panel-detalle">
+    <summary>Por qué</summary>
+    <dl class="details">
+      <dt>Cielo</dt><dd id="weather-sun"></dd>
+      <dt>Mar</dt><dd id="weather-water-reason"></dd>
+      <dt>Luna</dt><dd id="luna-fase"></dd>
+      <dt></dt><dd id="luna-horas"></dd>
+      <dt></dt><dd id="luna-motivo"></dd>
+      <dt>Satélite</dt><dd id="fuego-detalle"></dd>
+      <dt>GPS</dt><dd id="place-coords"></dd>
+    </dl>
+    <details id="fuego-detalle-lista" hidden>
+      <summary>Detecciones (<span id="fuego-count">0</span>)</summary>
+      <ul id="fuego-lista" class="pois"></ul>
+    </details>
   </details>
 </section>
+
+<!-- Las acciones van DEBAJO del panel, no encima. Lo primero que tiene que
+     enseñar esta pantalla es dónde estás y qué se puede hacer con el tiempo que
+     hace; los botones son lo que haces DESPUÉS de mirarlo. Antes presidían la
+     pantalla con un título que repetía el de la pestaña y no informaban de nada.
+
+     Siguen siendo dos acciones distintas, que es la decisión 35: mirar el
+     contexto es gratis e instantáneo y ahora se hace solo al abrir; pedirle un
+     plan al modelo cuesta tokens y unos segundos, así que se pide a mano. -->
+<div class="card">
+  <button id="locate-btn" class="primary">Recomiéndame algo</button>
+  <div class="botonera">
+    <button id="refresh-btn" class="secondary" hidden>Otra distinta</button>
+    <button id="contexto-btn" class="secondary">Actualizar</button>
+  </div>
+  <p id="status" class="status" aria-live="polite"></p>
+</div>
 
 <!-- «Aviso» no decía de qué. Esta tarjeta lista fuentes que NO han contestado, y
      decirlo con esas palabras es la diferencia entre «algo va mal» y «esto que
@@ -50,52 +95,6 @@
 <section id="warnings-card" class="card warnings" hidden>
   <h2>Lo que no he podido consultar</h2>
   <ul id="warnings-list"></ul>
-</section>
-
-<section id="weather-card" class="card" hidden>
-  <h2>El tiempo</h2>
-  <p id="weather-summary" class="lead"></p>
-  <p><span class="tag" id="weather-outdoor"></span> <span class="tag" id="weather-water"></span></p>
-  <p class="muted" id="weather-water-reason"></p>
-  <p class="muted" id="weather-sun"></p>
-</section>
-
-<!-- La luna. La fase y la iluminación se calculan en el servidor sin red, así
-     que esta tarjeta sale aunque no haya cobertura para met.no; lo único que
-     falta entonces es la hora de salida y puesta. -->
-<section id="luna-card" class="card" hidden>
-  <h2>La luna de esta noche</h2>
-  <p id="luna-fase" class="lead"></p>
-  <p class="muted" id="luna-horas"></p>
-  <p><span class="tag" id="luna-veredicto"></span></p>
-  <p class="muted" id="luna-motivo"></p>
-</section>
-
-{# Detecciones de calor por satélite. La petición a la NASA la hace el
-   NAVEGADOR, no el servidor: su dominio no está en la lista blanca del proxy de
-   PythonAnywhere (decisión 21) y FIRMS permite CORS. Por eso la clave viaja
-   hasta aquí.
-
-   La tarjeta existe SIEMPRE, aunque no haya clave, y sale con `hidden`. Si se
-   renderizara condicionalmente, `hideAll()` buscaría un id que no está y
-   reventaría el botón principal — que es literalmente el fallo de la decisión
-   42. Sin clave, el JavaScript no la usa y punto.
-
-   Los parámetros los pone el servidor (sensor, radio, días): así siguen siendo
-   UNA definición, en `incendios.py`, y el navegador solo concatena. #}
-<section id="fuego-card" class="card" hidden
-         data-firms-key="{{ firms_map_key }}"
-         data-firms-base="{{ firms_base }}"
-         data-firms-sensor="{{ firms_sensor }}"
-         data-firms-grados="{{ firms_grados }}"
-         data-firms-dias="1">
-  <h2>Fuego cerca</h2>
-  <p id="fuego-veredicto" class="lead"></p>
-  <p class="muted" id="fuego-detalle"></p>
-  <details id="fuego-detalle-lista" hidden>
-    <summary>Detecciones (<span id="fuego-count">0</span>)</summary>
-    <ul id="fuego-lista" class="pois"></ul>
-  </details>
 </section>
 
 <section id="reco-card" class="card" hidden>

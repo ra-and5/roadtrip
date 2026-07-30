@@ -141,6 +141,13 @@ class Situacion:
     # frase y los umbrales que la justifican vivan en el mismo sitio.
     veredicto: str = ""
     detalle: str = ""
+    # El grado, en una palabra, para poder pintarlo como una señal de panel:
+    # "tranquilo" | "puntos" | "foco". Se decide AQUÍ y no en el navegador por lo
+    # mismo que el veredicto (decisión 5): los umbrales que separan un horno
+    # industrial de un incendio son razonamiento, y el JavaScript no se puede
+    # probar sin abrir un navegador. Si el nivel se dedujera allí de la frase,
+    # cambiar la redacción cambiaría el color sin que nada avisara.
+    nivel: str = "tranquilo"
     detecciones: list[Deteccion] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -153,6 +160,7 @@ class Situacion:
             "frp_maxima_mw": self.frp_maxima_mw,
             "veredicto": self.veredicto,
             "detalle": self.detalle,
+            "nivel": self.nivel,
             "detecciones": [d.to_dict() for d in self.detecciones],
         }
 
@@ -389,6 +397,7 @@ def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> S
     if not detecciones:
         return Situacion(
             hay_algo=False,
+            nivel="tranquilo",
             veredicto="Sin detecciones de calor por satélite en 50 km.",
             detalle="Últimas 24 h, sensor VIIRS (375 m). No detecta fuegos pequeños ni de noche bajo nubes.",
         )
@@ -398,6 +407,7 @@ def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> S
     llamativas = [d for d in detecciones if d.frp_mw >= FRP_LLAMATIVA_MW]
 
     if llamativas and llamativas[0].distancia_km <= KM_CERCA:
+        nivel = "foco"
         veredicto = (
             f"Foco activo a {llamativas[0].distancia_km:.0f} km "
             f"({llamativas[0].frp_mw:.0f} MW)."
@@ -407,12 +417,14 @@ def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> S
             "Mira los avisos de Protección Civil de la zona."
         )
     elif llamativas:
+        nivel = "foco"
         veredicto = (
             f"Foco activo a {llamativas[0].distancia_km:.0f} km "
             f"({llamativas[0].frp_mw:.0f} MW), lejos."
         )
         detalle = "No es tu zona inmediata, pero conviene mirar el viento."
     else:
+        nivel = "puntos"
         veredicto = (
             f"{len(detecciones)} punto{'s' if len(detecciones) > 1 else ''} de calor, "
             f"el más cercano a {cercana.distancia_km:.0f} km."
@@ -427,6 +439,7 @@ def evaluar(texto: str, lat: float, lon: float, *, hoy: date | None = None) -> S
         cuantas=len(detecciones),
         mas_cercana_km=cercana.distancia_km,
         frp_maxima_mw=round(frp_maxima, 2),
+        nivel=nivel,
         veredicto=veredicto,
         detalle=detalle,
         # Solo las diez más cercanas: la pantalla no puede enseñar doscientas y

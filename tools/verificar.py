@@ -249,8 +249,19 @@ def entrar(page: Any, errores: Errores) -> str:
 
 
 def inicio_contexto(page: Any) -> str:
+    # El contexto se pide solo al abrir, así que primero se espera a ESA carga.
+    # Pulsar encima la solapaba con la automática: la segunda hace `hideAll()` y
+    # deja el panel en blanco justo cuando la primera acababa de pintarlo. El
+    # guion lo veía como «no salió la tarjeta del tiempo», que apunta al sitio
+    # equivocado.
+    esperar(lambda: page.locator("#weather-card").is_visible(),
+            "la pantalla no pintó el contexto al abrirse")
+
+    # Y ahora sí: el botón «Actualizar» tiene que volver a pintarlo entero.
     page.click("#contexto-btn")
-    esperar(lambda: texto(page, "place-label"), "el botón «¿Dónde estoy?» no pintó el sitio")
+    esperar(lambda: page.locator("#weather-card").is_visible(),
+            "el botón «Actualizar» no repintó el contexto")
+    esperar(lambda: texto(page, "place-label"), "no se pintó el sitio")
 
     lugar = texto(page, "place-label")
     if "Cudillero" not in lugar:
@@ -266,6 +277,9 @@ def inicio_contexto(page: Any) -> str:
     # las dos se queda vacía, algo se ha desconectado por el camino.
     if "47" not in texto(page, "place-altitud"):
         raise Fallo("no se pintó la altitud que da Open-Meteo")
+    # El «por qué» de cada señal vive plegado: se abre para leerlo, lo que de
+    # paso comprueba que el plegable existe y funciona.
+    page.locator("#place-detalle > summary").click()
     if "%" not in texto(page, "luna-fase"):
         raise Fallo("la fase de la luna salió sin iluminación")
 
@@ -350,21 +364,34 @@ def inicio_fuego(page: Any) -> str:
     try:
         page.reload()
         page.click("#contexto-btn")
-        esperar(lambda: page.locator("#fuego-card").is_visible(),
-                "no salió la tarjeta de fuego", segundos=20)
-        veredicto = texto(page, "fuego-veredicto")
+        # Se espera al TEXTO y no solo a que la casilla sea visible: la señal se
+        # rellena y se muestra en el mismo paso, pero el panel entero aparece
+        # antes, así que mirar la visibilidad podía leer la casilla todavía en
+        # blanco. Un guion que lee demasiado pronto no falla: da un valor vacío.
+        senal = esperar(lambda: texto(page, "fuego-veredicto"),
+                        "la señal de fuego no llegó a decir nada", segundos=20)
+        # El veredicto completo se fue al detalle plegado del panel: en una
+        # casilla de cuatro no cabe una frase, y leerla a medias es peor que no
+        # leerla. Se abre para comprobar que sigue diciendo lo que debe.
+        page.locator("#place-detalle > summary").click()
         detalle = texto(page, "fuego-detalle")
     finally:
         page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
 
-    if "incendio" in veredicto.lower():
-        raise Fallo(f"dos detecciones de 1 MW anunciadas como incendio: {veredicto!r}")
-    if "punto" not in veredicto:
-        raise Fallo(f"no se nombran como puntos de calor: {veredicto!r}")
+    # Solo la SEÑAL: el detalle dice legítimamente «casi nunca es un incendio»,
+    # que es justo la frase que hay que conservar.
+    if "incendio" in senal.lower():
+        raise Fallo(f"dos detecciones de 1 MW anunciadas como incendio: {senal!r}")
+    # La señal no puede decir «sin focos» habiendo detecciones: sería
+    # tranquilizar con datos que dicen otra cosa.
+    if senal != "puntos":
+        raise Fallo(f"dos detecciones flojas no salen como «puntos»: {senal!r}")
+    if "punto" not in detalle:
+        raise Fallo(f"no se nombran como puntos de calor: {detalle!r}")
     if "industria" not in detalle:
         raise Fallo("no se explica que el satélite marca también industria y quemas")
 
-    return veredicto
+    return f"señal «{senal}» y el detalle sin la palabra incendio"
 
 
 def inicio_nota_offline(page: Any, sesion: Any, errores: Errores) -> str:

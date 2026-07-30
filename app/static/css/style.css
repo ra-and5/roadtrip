@@ -604,6 +604,82 @@ input[type="checkbox"] {
    8. Inicio — ¿qué hago aquí, ahora?
    -------------------------------------------------------------------------- */
 
+/* --- El panel: dónde estás y los cuatro veredictos --- */
+
+.panel h2 { font-size: var(--t-h1); margin-bottom: var(--e1); }
+.panel-linea {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--e4);
+  font-size: var(--t-lead);
+}
+
+/* Las cuatro señales. Reparto fijo en cuatro columnas y no `auto-fit`: son
+   siempre cuatro y siempre las mismas, y que cambien de sitio o de ancho según
+   cuántas hayan contestado haría que en marcha se leyera la equivocada. Una que
+   falta deja su hueco, que además dice que falta. */
+.senales {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--e1);
+}
+.senal {
+  display: flex;
+  flex-direction: column;
+  /* El valor pegado abajo y la etiqueta arriba: si una etiqueta rompe en dos
+     líneas, su veredicto se desalinea del de al lado y la fila deja de leerse
+     como una fila. */
+  justify-content: space-between;
+  gap: var(--e1);
+  padding: var(--e2) var(--e2) var(--e3);
+  border-radius: var(--r1);
+  background: var(--superficie-2);
+  /* El filete de color va arriba, del ancho de la casilla: es lo que se ve de
+     reojo sin llegar a leer. */
+  border-top: 3px solid var(--trazo-fuerte);
+  min-width: 0;
+}
+.senal-etiqueta {
+  font-family: var(--medida);
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+.senal-valor {
+  font-size: var(--t-menor);
+  font-weight: 620;
+  line-height: 1.15;
+  /* Un veredicto largo no puede ensanchar su columna y descolocar las otras
+     tres: se corta y el texto entero está en el detalle. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* El grado lo pone el JavaScript en un `data-`, con el valor que calculó
+   Python. Una sola regla tiñe el filete y la letra. */
+.senal[data-grado="bueno"]     { border-top-color: var(--bueno-tinta); }
+.senal[data-grado="bueno"] .senal-valor { color: var(--bueno-tinta); }
+.senal[data-grado="regular"]   { border-top-color: var(--atencion); }
+.senal[data-grado="regular"] .senal-valor { color: var(--atencion); }
+.senal[data-grado="malo"],
+.senal[data-grado="peligroso"] { border-top-color: var(--baliza); }
+.senal[data-grado="malo"] .senal-valor,
+.senal[data-grado="peligroso"] .senal-valor { color: var(--baliza); }
+/* Sin grado es «no se pudo mirar», y no puede parecer «todo bien»: se queda con
+   la trama de «no lo sé», igual que un hueco en las barras de pasos. */
+.senal[data-grado=""] { border-top-color: transparent; border-image: var(--trama-hueco) 1; }
+.senal[data-grado=""] .senal-valor { color: var(--apagado); font-weight: 500; }
+
+.panel-detalle { margin-top: var(--e4); }
+.panel-detalle .details { margin: var(--e2) 0 0; }
+.panel-detalle .details dd:empty,
+.panel-detalle .details dd:empty + dt { display: none; }
+
 .activity {
   border-top: 1px solid var(--trazo);
   padding-top: var(--e4);

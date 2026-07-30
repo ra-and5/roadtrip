@@ -23,9 +23,14 @@
    * sitios, y esconderla al pedir una recomendación dejaría el botón
    * desapareciendo y reapareciendo sin motivo. Lo que se oculta es su
    * desplegable de resultados, que sí depende de haber buscado. */
+  /* Todo lo que se esconde antes de volver a pedir el contexto. Las cuatro
+   * señales entran en la lista aunque vivan DENTRO del panel: si no se
+   * escondieran, al cambiar de sitio se quedaría la señal del anterior mientras
+   * llega la nueva — un veredicto de otro sitio, con su color, mientras la
+   * pantalla dice que ya estás aquí. */
   const SECTIONS = [
-    "place-card", "warnings-card", "weather-card", "luna-card",
-    "reco-card", "fuego-card",
+    "place-card", "warnings-card", "reco-card",
+    "weather-card", "agua-card", "luna-card", "fuego-card",
   ];
 
   function setStatus(message, kind) {
@@ -184,17 +189,43 @@
     show("warnings-card");
   }
 
+  /* Pinta una señal del panel: su valor y el grado que le da color.
+   *
+   * El grado va en un `data-` del contenedor y no como clase del texto, y esa
+   * diferencia es la que permite teñir el filete, el fondo y la letra con una
+   * sola regla de CSS. Antes cada veredicto era un `.tag` suelto dentro de un
+   * párrafo, y para saber si podías salir a andar había que leer cuatro
+   * tarjetas enteras. */
+  function senal(idCaja, idValor, texto_, grado) {
+    const caja = document.getElementById(idCaja);
+    document.getElementById(idValor).textContent = texto_;
+    caja.dataset.grado = grado;
+    caja.hidden = false;
+  }
+
+  /* En una casilla de cuatro columnas no cabe «desaconsejado», y cortarlo con
+   * puntos suspensivos deja «desacon…», que no dice nada. Se acorta aquí, en la
+   * presentación, y NO en `weather_context.py`: allí el valor lo lee también el
+   * prompt del modelo, y «no» a secas se leería peor que «desaconsejado». */
+  const AGUA_CORTO = {
+    excelente: "buena",
+    aceptable: "regular",
+    desaconsejado: "no",
+    "sin datos": "—",
+  };
+
   function renderWeather(weather) {
     if (!weather) return;
     text("weather-summary", weather.summary);
 
-    const outdoor = document.getElementById("weather-outdoor");
-    outdoor.textContent = "Aire libre: " + weather.outdoor_rating;
-    outdoor.className = "tag tag-" + weather.outdoor_rating;
-
-    const water = document.getElementById("weather-water");
-    water.textContent = "Deportes de agua: " + weather.water_sports.rating;
-    water.className = "tag tag-" + (weather.water_sports.suitable ? "bueno" : "malo");
+    /* La etiqueta ya la pone el HTML («Aire libre»), así que el valor es solo
+     * el veredicto: repetirla aquí daría «Aire libre  Aire libre: bueno». */
+    senal("weather-card", "weather-outdoor", weather.outdoor_rating, weather.outdoor_rating);
+    senal(
+      "agua-card", "weather-water",
+      AGUA_CORTO[weather.water_sports.rating] || weather.water_sports.rating,
+      weather.water_sports.suitable ? "bueno" : "malo"
+    );
 
     text("weather-water-reason", weather.water_sports.reason);
 
@@ -204,7 +235,6 @@
         "Amanece " + weather.sunrise.slice(-5) + " · Anochece " + weather.sunset.slice(-5)
       );
     }
-    show("weather-card");
   }
 
   function renderLuna(luna) {
@@ -228,14 +258,18 @@
         : "Sin hora de salida ni de puesta: no se pudieron consultar."
     );
 
-    const tag = document.getElementById("luna-veredicto");
-    tag.textContent = luna.veredicto.hay_luz
-      ? "Se puede caminar de noche"
-      : "Hace falta frontal";
-    tag.className = "tag tag-" + (luna.veredicto.hay_luz ? "bueno" : "malo");
+    /* En la señal va la ILUMINACIÓN, que es un número y se lee de un vistazo;
+     * el veredicto entero («se puede caminar sin frontal») está debajo, en el
+     * detalle. Una frase de cinco palabras dentro de una casilla de panel no se
+     * lee en marcha: se adivina. El color sí lo pone el veredicto, que es lo
+     * que de verdad decide si sales de noche. */
+    senal(
+      "luna-card", "luna-veredicto",
+      luna.fase.iluminacion_pct.toFixed(0) + "%",
+      luna.veredicto.hay_luz ? "bueno" : "malo"
+    );
 
     text("luna-motivo", luna.veredicto.motivo);
-    show("luna-card");
   }
 
   function renderRecommendation(reco) {
@@ -406,17 +440,15 @@
         /* Que no se haya podido mirar NO se pinta como "todo limpio": eso
          * sería tranquilizar sin haber mirado, que es el fallo del que avisa
          * la decisión 22. Se dice, y se dice corto. */
-        text("fuego-veredicto", "No se pudo consultar el satélite de incendios.");
-        text("fuego-detalle", "");
+        senal("fuego-card", "fuego-veredicto", "sin datos", "");
+        text("fuego-detalle", "No se pudo consultar el satélite de incendios.");
         document.getElementById("fuego-detalle-lista").hidden = true;
-        show("fuego-card");
         return;
       }
       renderFuego(data.situacion);
     } catch (err) {
-      text("fuego-veredicto", "No se pudo consultar el satélite de incendios.");
-      text("fuego-detalle", mensajeDeError(err));
-      show("fuego-card");
+      senal("fuego-card", "fuego-veredicto", "sin datos", "");
+      text("fuego-detalle", "No se pudo consultar el satélite: " + mensajeDeError(err));
     }
   }
 
@@ -440,9 +472,23 @@
             caja, card.dataset.firmsDias].join("/");
   }
 
+  /* Del nivel que calcula Python a lo que se lee en la señal. El texto corto y
+   * el grado se deciden aquí porque son presentación; QUÉ nivel es —dónde está
+   * la frontera entre un horno industrial y un incendio— lo decide
+   * `incendios.py`, que es donde se puede probar sin abrir un navegador. */
+  const FUEGO_SENAL = {
+    tranquilo: { texto: "sin focos", grado: "bueno" },
+    puntos: { texto: "puntos", grado: "regular" },
+    foco: { texto: "activo", grado: "peligroso" },
+  };
+
   function renderFuego(situacion) {
-    text("fuego-veredicto", situacion.veredicto);
-    text("fuego-detalle", situacion.detalle);
+    /* El veredicto entero («foco activo a 12 km, 117 MW») va al detalle: en la
+     * casilla del panel no cabe y se leería a medias, que en esto es peor que
+     * no leerlo. */
+    const marca = FUEGO_SENAL[situacion.nivel] || FUEGO_SENAL.tranquilo;
+    senal("fuego-card", "fuego-veredicto", marca.texto, marca.grado);
+    text("fuego-detalle", situacion.veredicto + "  " + situacion.detalle);
 
     const detalle = document.getElementById("fuego-detalle-lista");
     const lista = document.getElementById("fuego-lista");
@@ -465,8 +511,6 @@
     } else {
       detalle.hidden = true;
     }
-
-    show("fuego-card");
   }
 
   /* El estado de los POIs se enseña con las palabras de cada caso, no con un
@@ -683,4 +727,17 @@
     run(true);
   });
   poisBtn.addEventListener("click", buscarSitios);
+
+  /* El contexto se pide SOLO al abrir, y el botón pasa a ser «Actualizar».
+   *
+   * Es la consecuencia de la decisión 32 llevada hasta el final: el contexto
+   * cuesta 0,18 s con la caché caliente y no gasta ni un token, así que exigir
+   * una pulsación para saber dónde estás era cobrar un peaje por lo único que
+   * esta pantalla tiene que enseñar siempre. Lo que sigue detrás de un botón es
+   * la RECOMENDACIÓN, que cuesta tokens y segundos — esa parte de la decisión 35
+   * no cambia.
+   *
+   * El botón no sobra: el GPS puede tardar, denegarse o dar un sitio viejo, y
+   * entonces hace falta poder reintentar sin recargar la página. */
+  verContexto();
 })();
