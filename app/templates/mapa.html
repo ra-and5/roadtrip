@@ -18,12 +18,36 @@
     <select id="filtro-anio" aria-label="Filtrar por año"></select>
   </div>
 
+  <!-- Tres cifras y no seis, y esa es la diferencia entre una tabla y un viaje.
+       Kilómetros, días y sitios son lo que CRECE al viajar; las notas y las
+       fotos son cuánto has registrado, que es otra cosa y va debajo en pequeño.
+       Con las seis del mismo tamaño ninguna significaba nada. -->
   <div class="marcadores" id="progreso-cifras"></div>
+  <p class="muted" id="progreso-secundario"></p>
+
+  <!-- El tablero de comunidades es lo único de esta pantalla que dice cuánto
+       queda, así que se dibuja como lo que es: una barra que se llena. Las 19
+       píldoras seguían debajo sin decir de un vistazo si vas por el principio o
+       por el final (decisión 29). -->
+  <div id="tablero">
+    <!-- El texto ANTES de la barra: «3 de 19 comunidades» se lee de un vistazo
+         y la barra confirma la proporción. Al revés hay que mirar la barra,
+         estimar, y luego buscar el número que ya estaba. -->
+    <p class="muted" id="tablero-resumen"></p>
+    <div class="progreso-pista" id="tablero-barra" role="img" aria-label="Comunidades visitadas">
+      <div class="progreso-relleno" id="tablero-relleno"></div>
+    </div>
+    <ul class="casillas" id="tablero-casillas"></ul>
+    <p class="muted" id="tablero-otras" hidden></p>
+  </div>
 
   {# El servidor no puede ir a buscar las fotos: viven en el iPhone, y iOS no
      tiene ningún disparador de "he metido una foto en el álbum". Así que o se
      espera a la automatización, o se pide a mano. Este enlace abre Atajos y lo
      ejecuta, que convierte "mañana estará" en "pulsa y recarga".
+
+     Va al FINAL de la tarjeta y no en medio: partía en dos la lectura de las
+     cifras justo donde se mira el avance del viaje.
 
      Solo aparece si SHORTCUT_FOTOS tiene nombre: un botón que no hace nada es
      peor que no tenerlo. #}
@@ -36,12 +60,6 @@
     <span class="muted">Abre Atajos. Al volver, recarga para verlas.</span>
   </p>
   {% endif %}
-
-  <div id="tablero">
-    <p class="muted" id="tablero-resumen"></p>
-    <ul class="casillas" id="tablero-casillas"></ul>
-    <p class="muted" id="tablero-otras" hidden></p>
-  </div>
 </section>
 
 <section class="card">

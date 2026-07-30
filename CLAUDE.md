@@ -2128,6 +2128,37 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     una chincheta en el sitio equivocado, y el título dice para qué sirve en vez
     de invitar a abrirlo.
 
+    **Segundo pase, Mapa y Perfil: seis cifras iguales son una tabla.** El §2 del
+    encargo pedía enseñar el viaje «como algo que avanza y no como una tabla», y
+    el Mapa daba seis cajas idénticas donde «223 km» y «4 racha» pesaban lo
+    mismo. Se separan por lo que **son**: kilómetros, días y sitios son lo que
+    crece al viajar y se quedan arriba en grande; notas y fotos son cuánto has
+    **registrado** —otra cosa— y bajan a una línea en pequeño. Fuera las cajas:
+    lo que separa tres cifras es el espacio, no tres bordes.
+
+    Y el tablero de comunidades gana **la barra que le faltaba**. Era el único
+    dato de la pantalla que dice cuánto queda, y estaba dibujado como diecinueve
+    píldoras que no dan la proporción de un vistazo. Las píldoras siguen —las que
+    faltan tienen que verse (decisión 29)—, con el texto **antes** de la barra:
+    «3 de 19» se lee entero, y la barra confirma; al revés hay que estimar y
+    luego buscar el número que ya estaba.
+
+    En el Perfil, los pasos de hoy pasan a ser la cifra que preside, y las
+    fuentes llevan la gramática **fila por fila**: sin eso, «fiable» y «simulado»
+    tenían el mismo aspecto salvo por una palabra al final de la línea, en la
+    tarjeta cuyo único trabajo es distinguirlos. La correspondencia entre los
+    estados del Perfil y la gramática se escribe una vez (`CERTEZA_DE_ESTADO`)
+    porque son vocabularios distintos a propósito: allí se contesta «¿se puede
+    construir encima?» y aquí «¿lo sé o no?».
+
+    Dos correcciones del mismo pase, y las dos son la misma regla: **la
+    monoespaciada es para cifras, no para frases**. «9100 pasos hoy» entero en
+    mono sale con los espaciados de una tabla y se lee como una salida de
+    consola; ahora el número va en mono y la palabra en la del texto. Y cuando no
+    hay muestra, ese hueco lleva una frase — que a cuerpo de titular se lee como
+    un grito—, así que el JavaScript la marca: el CSS no puede saber cuál de los
+    dos textos ha entrado.
+
     **Y el rediseño encontró su propio fallo, que es la prueba de que las redes
     puestas sirven:** el estado vacío del Chat se creó con un `id`, y
     `test_frontend_ids.py` lo cazó al primer intento — el test de la decisión 42

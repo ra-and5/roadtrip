@@ -17,6 +17,18 @@
     parada: { texto: "parada", clase: "tag-malo" },
   };
 
+  /* Los estados del Perfil traducidos a la gramática visual del proyecto
+   * (decisión 55). Son vocabularios distintos a propósito —aquí se contesta
+   * "¿se puede construir encima?" y la gramática dice "¿lo sé o no?"— así que la
+   * correspondencia se escribe una vez y en un sitio, en vez de deducirse en
+   * cada plantilla. `sin_datos` no lleva filete: no hay nada de lo que dudar. */
+  const CERTEZA_DE_ESTADO = {
+    demostrada: "medido",
+    con_huecos: "hueco",
+    simulada: "fallo",
+    parada: "fallo",
+  };
+
   function el(id) { return document.getElementById(id); }
   function text(id, valor) { el(id).textContent = valor || ""; }
   function show(id) { el(id).hidden = false; }
@@ -86,13 +98,33 @@
     }
 
     /* Sin muestra de hoy NO se dice que no has andado: a las 00:30 lo normal es
-     * que aún no haya llegado nada, y un "0 pasos" ahí es falso. */
-    text(
-      "cuerpo-hoy",
-      cuerpo.pasos_hoy === null || cuerpo.pasos_hoy === undefined
-        ? "Hoy todavía no ha llegado ninguna muestra."
-        : miles(cuerpo.pasos_hoy) + " pasos hoy"
-    );
+     * que aún no haya llegado nada, y un "0 pasos" ahí es falso.
+     *
+     * Y cuando toca frase en vez de cifra, se marca: el hueco se compone con el
+     * cuerpo de una cifra grande, y una oración entera a ese tamaño se lee como
+     * un grito. Lo decide el dato, no el CSS, porque el CSS no puede saber cuál
+     * de los dos textos ha entrado. */
+    const sinMuestra = cuerpo.pasos_hoy === null || cuerpo.pasos_hoy === undefined;
+    const hoy = el("cuerpo-hoy");
+    hoy.classList.toggle("es-frase", sinMuestra);
+    hoy.textContent = "";
+
+    if (sinMuestra) {
+      hoy.textContent = "Hoy todavía no ha llegado ninguna muestra.";
+    } else {
+      /* La CIFRA en monoespaciada y la palabra en la del texto. Con la frase
+       * entera en mono, «9100 pasos hoy» sale con los espaciados de una tabla y
+       * se lee como una salida de consola. La mono está para que las columnas de
+       * números cuadren, no para dar aire técnico. */
+      const numero = document.createElement("span");
+      numero.className = "cifra";
+      numero.textContent = miles(cuerpo.pasos_hoy);
+      const unidad = document.createElement("span");
+      unidad.className = "cifra-unidad";
+      unidad.textContent = " pasos hoy";
+      hoy.appendChild(numero);
+      hoy.appendChild(unidad);
+    }
 
     renderBarras(perfil.serie);
 
@@ -186,6 +218,13 @@
       const nombre = document.createElement("strong");
       nombre.textContent = fuente.nombre;
       cabecera.appendChild(nombre);
+
+      /* La misma gramática que las barras y que el filete de la tarjeta, ahora
+       * fuente por fuente: el borde de cada fila dice de qué te puedes fiar
+       * antes de leer la etiqueta. Sin esto, "de qué te puedes fiar" era una
+       * lista donde lo fiable y lo simulado tenían exactamente el mismo aspecto
+       * salvo por una palabra al final de la línea. */
+      li.dataset.certeza = CERTEZA_DE_ESTADO[fuente.estado] || "";
 
       const marca = ESTADOS[fuente.estado] || { texto: fuente.estado, clase: "tag-cat" };
       const tag = document.createElement("span");

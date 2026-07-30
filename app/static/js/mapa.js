@@ -215,22 +215,41 @@
   // --- Pintado --------------------------------------------------------------
 
   function pintarProgreso(progreso, resumen) {
+    /* Solo lo que CRECE al viajar. Las notas y las fotos son cuánto has
+     * registrado —no cuánto has viajado— y bajan al pie en pequeño: con las seis
+     * cifras del mismo tamaño, "223 km" y "4 racha" pesaban igual y ninguna
+     * llegaba a significar nada. */
     const cifras = document.getElementById("progreso-cifras");
     cifras.innerHTML = "";
-    cifras.appendChild(cifra(resumen.notas, resumen.notas === 1 ? "nota" : "notas"));
-    cifras.appendChild(cifra(resumen.fotos, resumen.fotos === 1 ? "foto" : "fotos"));
-    cifras.appendChild(cifra(progreso.lugares, "sitios"));
-    cifras.appendChild(cifra(resumen.dias, "días"));
     /* "En línea recta" no es un tecnicismo que sobre: entre dos fotos
      * separadas por dos horas de carretera de montaña hay muchas más curvas
      * que la recta que las une, así que este número es un MÍNIMO. Llamarlo
      * "kilómetros del viaje" a secas sería prometer lo que no es. */
     cifras.appendChild(cifra(Math.round(resumen.km_linea_recta), "km", "en línea recta"));
-    cifras.appendChild(cifra(progreso.racha_maxima, "racha", "días seguidos"));
+    cifras.appendChild(cifra(resumen.dias, resumen.dias === 1 ? "día" : "días"));
+    cifras.appendChild(cifra(progreso.lugares, progreso.lugares === 1 ? "sitio" : "sitios"));
+
+    const secundario = [];
+    secundario.push(resumen.notas + (resumen.notas === 1 ? " nota" : " notas"));
+    secundario.push(resumen.fotos + (resumen.fotos === 1 ? " foto" : " fotos"));
+    /* Es la racha MÁXIMA, no la de ahora: decir "racha de 4 días" a secas
+     * sonaría a que sigue viva, y eso no lo sabe este dato. */
+    if (progreso.racha_maxima > 1) {
+      secundario.push("mejor racha: " + progreso.racha_maxima + " días seguidos");
+    }
+    document.getElementById("progreso-secundario").textContent = secundario.join("  ·  ");
 
     const tablero = progreso.tablero;
     document.getElementById("tablero-resumen").textContent =
-      "Comunidades: " + tablero.completadas + " de " + tablero.total;
+      tablero.completadas + " de " + tablero.total + " comunidades";
+
+    /* La barra es lo que contesta "¿voy por el principio o por el final?" de un
+     * vistazo. Las píldoras siguen debajo porque las que faltan tienen que
+     * verse (decisión 29); lo que no hacían era dar la proporción. */
+    const relleno = document.getElementById("tablero-relleno");
+    relleno.style.width = tablero.total
+      ? Math.round((tablero.completadas / tablero.total) * 100) + "%"
+      : "0%";
 
     const lista = document.getElementById("tablero-casillas");
     lista.innerHTML = "";

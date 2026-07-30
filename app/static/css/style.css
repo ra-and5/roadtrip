@@ -694,27 +694,57 @@ input[type="checkbox"] {
    10. Mapa — ¿dónde he estado?
    -------------------------------------------------------------------------- */
 
+/* Tres cifras, no seis, y sin cajas: lo que las separa es el espacio y el
+   tamaño, que es más barato de leer que tres bordes. Con cajas, seis cifras
+   iguales se leían como una tabla de base de datos. */
 .marcadores {
   display: grid;
-  /* auto-fit + minmax: cuatro cifras en una pantalla ancha, dos en un iPhone,
-     sin media queries que mantener. */
-  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--e2);
-  margin: var(--e4) 0;
+  margin: var(--e5) 0 var(--e2);
 }
 .marcador {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: var(--e3) var(--e2);
-  border: 1px solid var(--trazo);
-  border-radius: var(--r1);
-  background: var(--superficie-2);
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0 var(--e3) 0 0;
+  border-left: 2px solid var(--trazo);
+  padding-left: var(--e3);
 }
-.marcador-valor { font-size: var(--t-cifra); font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
-.marcador-etiqueta { font-size: var(--t-mini); color: var(--apagado); text-align: center; }
-.marcador-detalle { font-size: var(--t-micro); color: var(--apagado); opacity: 0.85; text-align: center; }
+/* El primero es el que crece de verdad: se le da el acento. */
+.marcador:first-child { border-left-color: var(--sonda); }
+.marcador-valor {
+  font-size: var(--t-cifra);
+  font-weight: 620;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+.marcador-etiqueta { font-size: var(--t-mini); color: var(--apagado); }
+.marcador-detalle { font-size: var(--t-micro); color: var(--apagado); opacity: 0.85; }
+
+#progreso-secundario {
+  margin: 0 0 var(--e5);
+  padding-bottom: var(--e5);
+  border-bottom: 1px solid var(--trazo);
+}
+#tablero-resumen { margin-bottom: var(--e2); }
+
+/* La barra de comunidades. Es lo único de la pantalla que dice cuánto QUEDA. */
+.progreso-pista {
+  height: 6px;
+  border-radius: var(--r-redondo);
+  background: var(--superficie-2);
+  border: 1px solid var(--trazo);
+  overflow: hidden;
+  margin-bottom: var(--e4);
+}
+.progreso-relleno {
+  height: 100%;
+  background: var(--sonda);
+  border-radius: var(--r-redondo);
+  transition: width 600ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
 
 /* El tablero de comunidades: lo que hace que el mapa se quiera completar. Las
    que faltan se ven apagadas pero se ven, que es el punto. */
@@ -888,6 +918,29 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
    11. Perfil — ¿cómo estoy, y de qué me fío?
    -------------------------------------------------------------------------- */
 
+/* Los pasos de hoy son LA cifra de esta pantalla, así que se dicen como tal.
+   Como `.lead` corriente competía en peso con el pie de «media diaria», que es
+   contexto y no la respuesta. */
+#cuerpo-hoy {
+  font-size: var(--t-cifra);
+  font-weight: 620;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 var(--e2);
+}
+/* Solo el número va en monoespaciada; la palabra, en la del texto. */
+.cifra { font-family: var(--medida); font-variant-numeric: tabular-nums; }
+.cifra-unidad { font-weight: 400; font-size: var(--t-lead); color: var(--apagado); }
+/* Cuando no hay cifra, hay frase, y una frase a cuerpo de titular se lee como
+   un grito. Vuelve al cuerpo normal. */
+#cuerpo-hoy.es-frase {
+  font-family: var(--letra);
+  font-size: var(--t-lead);
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--apagado);
+}
+
 .barras {
   display: flex;
   align-items: flex-end;
@@ -937,8 +990,16 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
 @keyframes brotar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 
 .fuentes { list-style: none; margin: 0; padding: 0; }
-.fuentes li { border-top: 1px solid var(--trazo); padding: var(--e3) 0; }
+.fuentes li { border-top: 1px solid var(--trazo); padding: var(--e3) 0 var(--e3) var(--e3); }
 .fuentes li:first-child { border-top: none; padding-top: 0; }
+
+/* La gramática de la certeza, fuente por fuente. Sin esto, «fiable» y
+   «simulado» tenían el mismo aspecto salvo por una palabra al final de la
+   línea — en la tarjeta cuyo único trabajo es distinguirlos. */
+.fuentes li[data-certeza] { border-left: 2px solid transparent; }
+.fuentes li[data-certeza="medido"] { border-left-color: var(--sonda); }
+.fuentes li[data-certeza="hueco"] { border-left-color: transparent; border-image: var(--trama-hueco) 1; }
+.fuentes li[data-certeza="fallo"] { border-left-color: var(--baliza); }
 .fuentes p { margin: var(--e1) 0 0; font-size: var(--t-corto); color: var(--apagado); }
 .fuente-cabecera {
   display: flex;
