@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Diario{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="progreso-cabecera">
+    <div>
+      <span class="rotulo">Qué pasó</span>
+      <h1>Diario</h1>
+    </div>
+    <select id="diario-anio" aria-label="Filtrar por año"></select>
+  </div>
+  <p id="diario-estado" class="status" aria-live="polite">Cargando…</p>
+
+  {# Lo que la ruta NO puede enseñar se enseña igual: fotos sin fecha (no se
+     pueden colocar en el día) y fotos sin GPS (cuentan en el relato, no en el
+     mapa). Esconderlas haría creer que el viaje está entero. #}
+  <p class="muted" id="diario-avisos" hidden></p>
+</section>
+
+<section class="card" id="diario-card" hidden>
+  <div id="diario-muro"></div>
+</section>
+
+{# Va al final y no arriba: esta pantalla se abre para leer el viaje, no para
+   administrarlo. Solo aparece si SHORTCUT_FOTOS tiene nombre — un botón que no
+   hace nada es peor que no tenerlo. #}
+{% if shortcut_fotos %}
+<section class="card">
+  <p class="atajo">
+    <a class="button secondary"
+       href="shortcuts://run-shortcut?name={{ shortcut_fotos|urlencode }}">
+      Enviar fotos nuevas del álbum
+    </a>
+    <span class="muted">Abre Atajos. Al volver, recarga para verlas.</span>
+  </p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/diario.js') }}"></script>
+{% endblock %}

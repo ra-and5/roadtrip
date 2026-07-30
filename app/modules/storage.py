@@ -665,6 +665,30 @@ def delete_waypoints_ausentes(fuente: str, archivos: Sequence[str]) -> int:
         return cur.rowcount
 
 
+def waypoint_archivos_ausentes(fuente: str, archivos: Sequence[str]) -> list[str]:
+    """Qué archivos de `fuente` se irían al borrar los ausentes de `archivos`.
+
+    Existe porque el borrado tiene una segunda mitad fuera de SQLite: cada punto
+    puede tener su miniatura en disco, y `DELETE` devuelve un contador, no
+    nombres. Sin esta consulta habría que adivinarlos, y una miniatura huérfana
+    gasta cuota sin que la vea nadie.
+
+    Mismas dos protecciones que el borrado, y por lo mismo: con `archivos` vacío
+    no devuelve nada —no vaya a ser que un cliente roto se lleve el álbum por
+    delante— y va acotado a la fuente.
+    """
+    if not archivos:
+        return []
+
+    marcadores = ", ".join("?" for _ in archivos)
+    with get_conn() as conn:
+        filas = conn.execute(
+            f"SELECT archivo FROM waypoints WHERE fuente = ? AND archivo NOT IN ({marcadores})",
+            (fuente, *archivos),
+        ).fetchall()
+    return [fila["archivo"] for fila in filas]
+
+
 def list_waypoints(limit: int = 5000) -> list[dict[str, Any]]:
     """Los puntos del viaje, del más antiguo al más reciente.
 

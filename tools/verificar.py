@@ -1,4 +1,4 @@
-"""Recorre las cuatro pantallas en un navegador de verdad y dice qué se ha roto.
+"""Recorre las seis pantallas en un navegador de verdad y dice qué se ha roto.
 
 Uso:
     python tools/verificar.py            # headless, es lo normal
@@ -41,6 +41,7 @@ mi portátil" a "funciona en el iPhone".
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import socket
@@ -584,7 +585,6 @@ def perfil_reintento(page: Any, errores: Errores) -> str:
 def mapa(page: Any) -> str:
     page.goto(f"{BASE}/mapa")
     esperar(lambda: page.locator("#progreso-cifras").inner_text().strip(), "no salió el progreso")
-    esperar(lambda: page.locator("#dias-lista").inner_text().strip(), "no salió la línea de días")
 
     cifras = page.inner_text("#progreso-cifras")
     if "km" not in cifras:
@@ -675,36 +675,116 @@ def mapa_album_de_fotos(page: Any) -> str:
             raise Fallo(f"el envío del álbum falló: {respuesta.status_code} {respuesta.text[:120]}")
         return respuesta.json()
 
-    def fotos_en_el_mapa() -> int:
-        page.goto(f"{BASE}/mapa")
-        esperar(lambda: page.inner_text("#dias-lista").strip(), "el mapa no pintó los días")
-        return page.inner_text("#dias-lista").count("VERIFICACION_")
+    def fotos_en_el_diario() -> int:
+        # Se cuentan en el Diario y no en el Mapa: ahí es donde se ven desde que
+        # el "día a día" se mudó a su pantalla (decisión 40). Lo que se comprueba
+        # es lo mismo — que el álbum se refleje— y el sitio donde mirarlo cambió.
+        page.goto(f"{BASE}/diario")
+        esperar(lambda: page.inner_text("#diario-muro").strip(), "el diario no pintó los días")
+        return page.inner_text("#diario-muro").count("VERIFICACION_")
 
     alta = enviar_album(["VERIFICACION_1.jpeg", "VERIFICACION_2.jpeg"])
     if alta.get("guardados") != 2:
         raise Fallo(f"el álbum no guardó las dos fotos: {alta}")
-    if fotos_en_el_mapa() != 2:
-        raise Fallo("las fotos enviadas no aparecen en el mapa")
+    if fotos_en_el_diario() != 2:
+        raise Fallo("las fotos enviadas no aparecen en el diario")
 
     # Reenviar el álbum entero es lo normal (el atajo lo manda completo cada
     # vez): tiene que dejar el viaje igual, no duplicarlo.
     repetido = enviar_album(["VERIFICACION_1.jpeg", "VERIFICACION_2.jpeg"])
-    if repetido.get("duplicados") != 2 or fotos_en_el_mapa() != 2:
-        raise Fallo(f"reenviar el álbum cambió el mapa: {repetido}")
+    if repetido.get("duplicados") != 2 or fotos_en_el_diario() != 2:
+        raise Fallo(f"reenviar el álbum cambió el diario: {repetido}")
 
     # Y quitar una del álbum tiene que quitarla del mapa. Esta es la mitad que
     # no existía hasta la decisión 45: un `INSERT OR IGNORE` nunca borra.
     quitada = enviar_album(["VERIFICACION_1.jpeg"])
     if quitada.get("eliminados") != 1:
         raise Fallo(f"quitar una foto del álbum no la borró: {quitada}")
-    if fotos_en_el_mapa() != 1:
+    if fotos_en_el_diario() != 1:
         raise Fallo("la foto quitada del álbum sigue en el mapa")
+
+    # Y se lleva también su MINIATURA del disco. Es la otra mitad de la
+    # decisión 45: si al quitar la foto del álbum su imagen se quedara, gastaría
+    # cuota para siempre sin que pueda verla nadie, y el presupuesto de disco lo
+    # notaría meses después sin saber por qué. Se comprueba pidiéndola por HTTP,
+    # que es la única forma de saber que se fue del disco y no solo de la tabla.
+    #
+    # `IMG_4736` tiene miniatura sembrada y el álbum de esta comprobación no la
+    # incluye, así que el `completo` de arriba ya se la llevó por delante.
+    nombre = hashlib.sha256(b"fotos\x00IMG_4736").hexdigest()[:32] + ".jpg"
+    # `page.request` y no `requests`: lleva las cookies del contexto, que ya
+    # está autenticado, y /miniaturas/ va con sesión (decisión 24).
+    respuesta = page.request.get(f"{BASE}/miniaturas/{nombre}")
+    if respuesta.status != 404:
+        raise Fallo(
+            f"la miniatura de una foto quitada del álbum sigue servible "
+            f"({respuesta.status}): gastaría cuota sin que la vea nadie"
+        )
 
     # Se deja el álbum como se sembró. Esta comprobación va la última del Mapa
     # justamente por esto: `completo` borra lo que no viene, así que cualquier
     # cosa que cuente chinchetas tiene que ir antes o volver a sembrar.
     enviar_album(["IMG_4736", "IMG_4737", "IMG_4738", "IMG_4739"])
-    return "2 fotos entran, reenviar no duplica, quitar una la borra del mapa"
+    return "2 fotos entran, reenviar no duplica, quitar una borra su punto y su miniatura"
+
+
+def diario(page: Any) -> str:
+    """El muro cronológico: días, fotos y notas, y las miniaturas si las hay."""
+    page.goto(f"{BASE}/diario")
+    esperar(lambda: page.inner_text("#diario-muro").strip(), "no salió el muro del diario")
+
+    dias = page.locator("#diario-muro .jornada").count()
+    if dias == 0:
+        raise Fallo("el diario no pintó ningún día")
+
+    # Una nota sembrada tiene que poder leerse: el diario existe para eso.
+    if not page.locator("#diario-muro .apunte-texto").count():
+        raise Fallo("el diario no enseña el texto de ninguna nota")
+
+    # Se siembran dos fotos CON miniatura y dos SIN, así que tienen que verse
+    # las dos formas. Exigir solo "alguna foto" dejaría pasar los dos fallos que
+    # de verdad importan aquí: que la miniatura no se sirva (y todo salga como
+    # hueco), o que una foto sin miniatura desaparezca del muro y haga creer que
+    # ese día hubo menos de lo que hubo.
+    imagenes = page.locator("#diario-muro .tira-foto").count()
+    huecos = page.locator("#diario-muro .tira-hueco").count()
+    if imagenes == 0:
+        raise Fallo("ninguna foto se enseña como miniatura: ¿se están sirviendo?")
+    if huecos == 0:
+        raise Fallo("las fotos sin miniatura no salen como hueco: se están perdiendo")
+
+    # Y que la imagen haya CARGADO de verdad, no solo que el `<img>` exista: un
+    # 404 deja la etiqueta en su sitio con `naturalWidth` a cero, y el muro se
+    # vería lleno de recuadros rotos sin que nada fallara por aquí.
+    cargadas = page.locator("#diario-muro .tira-foto").evaluate_all(
+        "nodos => nodos.filter(n => n.complete && n.naturalWidth > 0).length"
+    )
+    if cargadas != imagenes:
+        raise Fallo(f"{imagenes - cargadas} de {imagenes} miniaturas no cargaron")
+
+    return f"{dias} días, {imagenes} miniaturas, {huecos} huecos y las notas legibles"
+
+
+def diario_filtro(page: Any) -> str:
+    """Filtrar por año cambia el muro, o el desplegable no sirve de nada."""
+    opciones = page.locator("#diario-anio option").count()
+    if opciones < 2:
+        raise Fallo(f"el filtro de años solo tiene {opciones} opción(es)")
+
+    antes = page.inner_text("#diario-muro")
+    valores = page.locator("#diario-anio option").evaluate_all(
+        "nodos => nodos.map(n => n.value)"
+    )
+    anio = next((v for v in valores if v and v != "todos"), None)
+    if anio is None:
+        raise Fallo("el filtro no ofrece ningún año concreto")
+
+    page.select_option("#diario-anio", anio)
+    esperar(
+        lambda: page.inner_text("#diario-muro") != antes,
+        f"filtrar por {anio} no cambió el muro",
+    )
+    return f"{opciones} opciones; filtrar por {anio} cambia el muro"
 
 
 def fuego_mapa(page: Any) -> str:
@@ -874,10 +954,10 @@ class Corredor:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verificación de las cuatro pantallas.")
+    parser = argparse.ArgumentParser(description="Verificación de las seis pantallas.")
     parser.add_argument("--ver", action="store_true", help="con ventana, no headless")
     parser.add_argument("--lento", action="store_true", help="ralentiza cada acción")
-    parser.add_argument("--solo", default="", help="inicio | perfil | mapa | chat")
+    parser.add_argument("--solo", default="", help="inicio | perfil | mapa | diario | fuego | chat")
     parser.add_argument("-v", "--verboso", action="store_true", help="traza completa")
     args = parser.parse_args()
 
@@ -966,6 +1046,17 @@ def main() -> int:
                                lambda: perfil_reintento(page, errores))
                 corredor.sin_errores_de_js("Perfil")
 
+            # El Diario va ANTES del Mapa a propósito. La comprobación del
+            # álbum manda `completo`, que borra las fotos que no vienen Y SUS
+            # MINIATURAS; repone las fotos al terminar, pero las miniaturas no,
+            # porque el endpoint de puntos no las manda. Mirarlo después dejaría
+            # el muro sin una sola imagen y el fallo parecería del Diario.
+            if quiere("diario"):
+                corredor.bloque("DIARIO   (¿qué pasó?)")
+                corredor.check("muro de días, fotos y notas", lambda: diario(page))
+                corredor.check("filtro por año", lambda: diario_filtro(page))
+                corredor.sin_errores_de_js("Diario")
+
             if quiere("mapa"):
                 corredor.bloque("MAPA   (¿dónde he estado?)")
                 corredor.check("trayecto y progreso", lambda: mapa(page))
@@ -1000,7 +1091,7 @@ def main() -> int:
               + ", ".join(corredor.fallos))
         print("No despliegues sin arreglarlo.\n")
         return 1
-    print("Todo en verde. Las cuatro pantallas responden en un navegador de verdad.")
+    print("Todo en verde. Las seis pantallas responden en un navegador de verdad.")
     print("Ojo: esto no prueba el GPS de iOS, ni IndexedDB a los 7 días, ni lo que")
     print("tarda en el servidor con un solo worker.\n")
     return 0

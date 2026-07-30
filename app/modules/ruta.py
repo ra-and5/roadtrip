@@ -30,6 +30,8 @@ from datetime import date, datetime
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
+from app.modules import miniaturas
+
 RADIO_TIERRA_KM = 6371.0
 
 # Salto entre dos puntos seguidos a partir del cual se deja de sumar como
@@ -103,7 +105,31 @@ def _momento_de_punto(punto: dict[str, Any]) -> dict[str, Any] | None:
         "archivo": punto.get("archivo"),
         "altitud": punto.get("altitud"),
         "id": punto.get("id"),
+        # El nombre de su miniatura, o `None` si esa foto no la tiene.
+        #
+        # Se resuelve preguntándole AL DISCO y no a una columna, porque no hay
+        # columna: el nombre se deriva de `(fuente, archivo)` y el archivo existe
+        # o no existe (ver `miniaturas.py`). Una columna podría afirmar que la
+        # miniatura está cuando se perdió al desplegar, y entonces el diario
+        # pintaría imágenes rotas sin que nada avisara.
+        #
+        # Y se decide aquí, en el servidor, en vez de dejar que el navegador pida
+        # la imagen y trate el 404: así una foto sin miniatura no cuesta una
+        # petición fallida por foto en una pantalla que se abre con mala
+        # cobertura.
+        "miniatura": _miniatura_de(punto),
     }
+
+
+def _miniatura_de(punto: dict[str, Any]) -> str | None:
+    """El nombre de la miniatura de este punto, si la tiene en disco."""
+    archivo = punto.get("archivo")
+    if not archivo:
+        return None
+    fuente = punto.get("fuente") or "fotos"
+    if not miniaturas.existe(fuente, archivo):
+        return None
+    return miniaturas.nombre_de(fuente, archivo)
 
 
 def _tramos(ubicados: list[dict[str, Any]]) -> list[tuple[dict[str, Any], float]]:

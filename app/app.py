@@ -17,7 +17,9 @@ import time
 from datetime import timedelta
 from typing import Any
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import (
+    Flask, abort, g, jsonify, redirect, render_template, request, send_file, session, url_for
+)
 
 from app.config import Config
 from app.modules import (
@@ -27,6 +29,7 @@ from app.modules import (
     diario,
     incendios,
     ingest,
+    miniaturas,
     notes,
     perfil,
     ruta,
@@ -35,6 +38,7 @@ from app.modules import (
 )
 from app.modules.ai_orchestrator import AIError, get_recommendations
 from app.modules.ingest import IngestError
+from app.modules.miniaturas import MiniaturaError
 from app.modules.notes import NoteError
 from app.modules.waypoints import WaypointError
 from app.modules.llm_providers import build_provider, redact
@@ -83,6 +87,10 @@ app.logger.setLevel(logging.INFO)
 # Cuánto del cuerpo se devuelve cuando no era JSON válido. Suficiente para ver
 # el error en una muestra típica (~100 bytes) sin reflejar un cuerpo entero.
 _MAX_ECO_CUERPO = 400
+# Cuántos motivos de rechazo se devuelven de un lote de miniaturas. Se acota
+# por lo mismo que en la ingesta: la respuesta la lee un atajo en la pantalla
+# de un móvil, y trescientos mensajes iguales no ayudan más que veinte.
+_MAX_ERRORES_MINIATURAS = 20
 
 
 @app.before_request
@@ -233,6 +241,20 @@ def mapa() -> Any:
     tiles, que vienen de OpenStreetMap.
     """
     return render_template("mapa.html", shortcut_fotos=Config.SHORTCUT_FOTOS)
+
+
+@app.route("/diario")
+@auth.login_required
+def diario_page() -> Any:
+    """El muro cronológico: qué pasó cada día, fotos y notas mezcladas.
+
+    Pantalla propia y no una sección más del Mapa, porque contesta otra pregunta
+    (decisión 40): el Mapa es *dónde he estado* —el avance, el trayecto, los
+    sitios— y el Diario es *qué pasó*. Se apoyan en los mismos datos y en el
+    mismo `/api/ruta`, pero ninguna repite lo que enseña la otra: el «día a día»
+    se fue de allí al mudarse aquí, no se duplicó.
+    """
+    return render_template("diario.html", shortcut_fotos=Config.SHORTCUT_FOTOS)
 
 
 @app.route("/perfil")
@@ -871,6 +893,114 @@ def api_waypoints() -> Any:
         resultado.eliminados,
     )
     return jsonify(resultado.to_dict())
+
+
+@app.route("/api/miniaturas", methods=["POST"])
+def api_miniaturas() -> Any:
+    """Recibe las miniaturas de las fotos, en `multipart/form-data`.
+
+    Multipart y no base64 dentro del JSON, que es la decisión 27 y no se
+    rediscute: base64 infla un 33 %, obliga a materializar el cuerpo entero como
+    cadena en memoria y a decodificarlo aquí —CPU, que en PythonAnywhere es cuota
+    diaria— y haría que el techo midiera el tamaño inflado, con lo que «64 KiB»
+    dejaría de significar 64 KiB de imagen.
+
+    Ruta aparte de `/api/waypoints` y no un campo más suyo: allí viaja un JSON
+    con los metadatos de hasta 300 fotos, y mezclarlo con un cuerpo binario
+    obligaría a parsear las dos cosas a la vez para que un fallo en cualquiera
+    tirase el lote entero. Separadas, el atajo puede mandar los metadatos aunque
+    las imágenes no quepan, que es el caso que de verdad pasa: los puntos son lo
+    que dibuja el mapa y las miniaturas solo lo decoran.
+
+    Mismo token que la ingesta y sin cookie de sesión, por la decisión 24: cada
+    ruta, exactamente un camino de autenticación.
+    """
+    if not ingest.token_valido(request.headers.get("Authorization")):
+        app.logger.warning("Miniaturas rechazadas: credencial inválida")
+        return jsonify({"error": "no_autorizado"}), 401
+
+    # El techo general son 128 KiB, pensado para la ingesta. Un lote de veinte
+    # miniaturas de 8 KB no cabe, así que se sube SOLO aquí, igual que en
+    # `/api/incendios` (decisión 54). El límite por IMAGEN sigue siendo el de
+    # `miniaturas.MAX_BYTES`, que es el que impide que alguien mande la foto
+    # original: sin él, este techo más alto sería una invitación.
+    request.max_content_length = 2 * 1024 * 1024
+
+    fuente = request.form.get("fuente") or "fotos"
+    if fuente not in waypoints.FUENTES_VALIDAS:
+        return jsonify({"error": f"fuente desconocida: {fuente!r}"}), 400
+
+    imagenes = request.files.getlist("imagen")
+    if not imagenes:
+        return jsonify({"error": "No llegó ninguna imagen en el campo 'imagen'."}), 400
+
+    # El presupuesto se mira ANTES de escribir nada. Cuando no cabe se rechaza y
+    # se dice; no se borran las más antiguas. Es la asimetría de la decisión 45:
+    # una miniatura de más se ve y se quita a mano, y una borrada sola es una
+    # foto del viaje que desaparece del diario sin que nadie lo pida.
+    cabe, usado = miniaturas.hay_sitio()
+    if not cabe:
+        app.logger.warning("Miniaturas rechazadas: %.1f MB usados de %.1f", usado, miniaturas.CUOTA_MB)
+        return jsonify({
+            "error": (
+                f"Las miniaturas ocupan {usado:.1f} MB de los {miniaturas.CUOTA_MB:.0f} "
+                f"del presupuesto. Borra fotos del álbum o sube MINIATURAS_CUOTA_MB."
+            ),
+            "usado_mb": round(usado, 1),
+        }), 507  # Insufficient Storage: es del servidor, no del cliente.
+
+    guardadas = duplicadas = 0
+    rechazadas: list[str] = []
+    for imagen in imagenes:
+        # `imagen.filename` viene del cliente y NO se usa como ruta: solo como
+        # clave para derivar el nombre real (`miniaturas.nombre_de`). Es la
+        # decisión 27: el nombre del archivo sale de nosotros, siempre.
+        try:
+            if miniaturas.guardar(fuente, imagen.filename or "", imagen.read()):
+                guardadas += 1
+            else:
+                duplicadas += 1
+        except MiniaturaError as exc:
+            # Una imagen mala no tumba el lote, igual que en la ingesta
+            # (decisión 23): el envío más largo es el que llega tras días sin
+            # cobertura, y es el que más papeletas tiene de traer algo torcido.
+            if len(rechazadas) < _MAX_ERRORES_MINIATURAS:
+                rechazadas.append(str(exc))
+
+    app.logger.info(
+        "Miniaturas: %d guardadas, %d duplicadas, %d rechazadas, %.1f MB en total",
+        guardadas, duplicadas, len(rechazadas), miniaturas.usado_mb(),
+    )
+    return jsonify({
+        "guardadas": guardadas,
+        "duplicadas": duplicadas,
+        "rechazadas": rechazadas,
+        "usado_mb": round(miniaturas.usado_mb(), 1),
+    })
+
+
+@app.route("/miniaturas/<nombre>")
+@auth.login_required
+def servir_miniatura(nombre: str) -> Any:
+    """Sirve una miniatura ya guardada.
+
+    Con sesión y no con el token: al otro lado hay un navegador enseñando el
+    diario, no una máquina. Es el reverso de `/api/miniaturas` y la decisión 24
+    otra vez — cada ruta, un solo camino.
+
+    `nombre` llega de la URL, así que `miniaturas.ruta_servible()` lo valida
+    contra la FORMA que producimos nosotros (32 hex + `.jpg`) en vez de intentar
+    limpiarlo. Una lista blanca de forma no se escapa con `..%2f`; un saneado sí.
+    """
+    ruta = miniaturas.ruta_servible(nombre)
+    if ruta is None:
+        abort(404)
+    # Cacheable a lo bestia y `immutable`: el nombre es un hash del contenido de
+    # origen, así que una miniatura distinta tiene otra URL. Es la misma razón
+    # que hace seguro el `max-age` de un año en los estáticos (decisión 48).
+    # `private` porque son fotos del viaje de una persona: ningún intermediario
+    # tiene por qué guardarlas.
+    return send_file(ruta, mimetype="image/jpeg", max_age=31536000)
 
 
 @app.route("/api/telemetria", methods=["POST"])

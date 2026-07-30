@@ -58,6 +58,15 @@
       </svg>
       <span>Mapa</span>
     </a>
+    <a href="{{ url_for('diario_page') }}" {% if request.endpoint == 'diario_page' %}class="activo" aria-current="page"{% endif %}>
+      {# Un cuaderno abierto: qué pasó. #}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v13c4.5 0 6.5.5 8 2 1.5-1.5 3.5-2 8-2v-13c-4.5 0-6.5.5-8 2z"/>
+        <path d="M12 6.5v13"/>
+      </svg>
+      <span>Diario</span>
+    </a>
     <a href="{{ url_for('fuego_page') }}" {% if request.endpoint == 'fuego_page' %}class="activo" aria-current="page"{% endif %}>
       {# Una llama: ¿hacia dónde me muevo? #}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"

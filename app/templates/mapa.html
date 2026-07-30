@@ -86,11 +86,16 @@
   <ul class="visitados" id="visitados-lista"></ul>
 </section>
 
+<!-- El «día a día» se mudó al Diario, que es la pantalla que contesta «qué
+     pasó» (decisión 40). Aquí quedan el estado de la carga y los avisos de la
+     ruta, que sí son de esta pantalla: dicen cuántas fotos no se pueden dibujar
+     en el mapa. -->
 <section class="card">
-  <h2>Día a día</h2>
   <p id="notas-estado" class="status" aria-live="polite"></p>
   <p class="muted" id="ruta-avisos" hidden></p>
-  <div id="dias-lista"></div>
+  <p class="muted">
+    Lo que pasó cada día, con sus fotos, está en <a href="{{ url_for('diario_page') }}">el diario</a>.
+  </p>
 </section>
 
 {% endblock %}

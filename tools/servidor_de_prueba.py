@@ -293,7 +293,7 @@ def sembrar() -> None:
     Los números que el guion comprueba salen de aquí: 5 notas, 4 fotos, 2 años.
     Sembrar por `storage` y no con SQL a mano deja el esquema real de por medio.
     """
-    from app.modules import storage
+    from app.modules import miniaturas, storage
 
     storage.init_db()
     ahora = datetime.now(timezone.utc)
@@ -355,6 +355,26 @@ def sembrar() -> None:
             for archivo, dias, lat, lon in fotos
         ]
     )
+
+    # Miniaturas para DOS de las cuatro fotos, a propósito. El diario tiene que
+    # enseñar las dos cosas: la imagen cuando ha llegado, y un hueco declarado
+    # cuando no — que es el estado normal de cualquier foto anterior a que
+    # existieran las miniaturas. Sembrar las cuatro dejaría sin probar justo el
+    # camino que más se va a ver al principio.
+    #
+    # El JPEG es de un píxel, escrito a mano en bytes: no hace falta que sea una
+    # foto de verdad para comprobar que se guarda, se sirve y se pinta, y así no
+    # entra ningún binario en el repositorio (decisión 30).
+    jpeg = bytes.fromhex(
+        "ffd8ffe000104a46494600010100000100010000ffdb004300ff"
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        "ffc2000b080001000101011100ffc40014000100000000000000"
+        "00000000000000000009ffda0008010100000000013fffd9"
+    )
+    for archivo, _, _, _ in fotos[:2]:
+        miniaturas.guardar("fotos", archivo, jpeg)
 
     # Telemetría en las dos fuentes, que es lo que exige la decisión 36: la
     # pantalla las pinta juntas pero solo `atajos-iphone` certifica nada.

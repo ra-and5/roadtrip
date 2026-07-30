@@ -146,11 +146,6 @@
     return ymd[2] + "/" + ymd[1] + "/" + ymd[0] + " · " + iso.slice(11, 16);
   }
 
-  function diaLegible(iso) {
-    const ymd = iso.split("-");
-    return ymd[2] + "/" + ymd[1] + "/" + ymd[0];
-  }
-
   function cifra(valor, etiqueta, detalle) {
     const div = document.createElement("div");
     div.className = "marcador";
@@ -354,56 +349,6 @@
     }
   }
 
-  function pintarDias(dias) {
-    const contenedor = document.getElementById("dias-lista");
-    contenedor.innerHTML = "";
-
-    dias.forEach(function (jornada) {
-      const bloque = document.createElement("section");
-      bloque.className = "jornada";
-
-      const cabecera = document.createElement("h3");
-      cabecera.textContent = diaLegible(jornada.dia);
-      const km = document.createElement("span");
-      km.className = "muted";
-      km.textContent =
-        "  " + jornada.momentos.length +
-        (jornada.momentos.length === 1 ? " momento" : " momentos") +
-        (jornada.km_linea_recta ? "  ·  " + jornada.km_linea_recta + " km" : "");
-      cabecera.appendChild(km);
-      bloque.appendChild(cabecera);
-
-      const lista = document.createElement("ul");
-      lista.className = "momentos";
-      jornada.momentos.forEach(function (momento) {
-        const li = document.createElement("li");
-        li.className = "momento momento-" + momento.tipo;
-
-        const hora = document.createElement("span");
-        hora.className = "momento-hora";
-        hora.textContent = momento.cuando.slice(11, 16);
-        li.appendChild(hora);
-
-        const cuerpo = document.createElement("span");
-        cuerpo.className = "momento-texto";
-        cuerpo.textContent =
-          momento.tipo === "foto"
-            ? "📷  " + momento.archivo
-            : momento.texto || "(sin texto)";
-        li.appendChild(cuerpo);
-
-        if (momento.lat !== null) {
-          li.addEventListener("click", function () {
-            irA(momentos.indexOf(momento));
-          });
-        }
-        lista.appendChild(li);
-      });
-      bloque.appendChild(lista);
-      contenedor.appendChild(bloque);
-    });
-  }
-
   // --- Revivir el viaje -----------------------------------------------------
 
   function irA(indice) {
@@ -522,7 +467,6 @@
       pintarAvisos(datos.resumen);
       pintarAnios(datos.progreso.por_anio, anio);
       pintarTrayecto();
-      pintarDias(datos.dias);
 
       slider.max = String(Math.max(0, momentos.length - 1));
       slider.value = "0";

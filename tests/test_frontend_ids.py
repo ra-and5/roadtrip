@@ -34,6 +34,7 @@ PAGINAS = {
     "mapa.js": "mapa.html",
     "chat.js": "chat.html",
     "fuego.js": "fuego.html",
+    "diario.js": "diario.html",
 }
 
 # Las tres formas que tiene este frontend de nombrar un id: la directa y los dos

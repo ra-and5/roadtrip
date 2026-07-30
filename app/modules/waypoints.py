@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from app.modules import storage
+from app.modules import miniaturas, storage
 
 # Hoy solo hay una. Lista blanca y no texto libre por lo mismo que en la
 # ingesta: una errata ("foto" en vez de "fotos") crearía una serie paralela sin
@@ -308,8 +308,20 @@ def import_waypoints(payload: Any) -> ResultadoImportacion:
         # importa: si el insert falla, no se ha borrado nada. Al revés, un fallo
         # a mitad dejaría el viaje vacío y sin nada que lo repueble.
         if payload.get("completo") is True:
-            resultado.eliminados = storage.delete_waypoints_ausentes(
-                fuente, [w.archivo for w in validos]
-            )
+            presentes = [w.archivo for w in validos]
+            # Los nombres se piden ANTES de borrar: después ya no están en la
+            # tabla y sus miniaturas se quedarían en disco para siempre, gastando
+            # cuota en imágenes que no puede enseñar nadie. Quitar una foto del
+            # álbum es decir «esta no cuenta», y eso vale también para su copia
+            # reducida.
+            se_van = storage.waypoint_archivos_ausentes(fuente, presentes)
+            resultado.eliminados = storage.delete_waypoints_ausentes(fuente, presentes)
+            # El disco se limpia DESPUÉS de que la fila se haya ido. Al revés, un
+            # fallo en el `DELETE` dejaría un punto en el mapa apuntando a una
+            # miniatura que ya no existe: un hueco visible en el diario en vez de
+            # un archivo de más que no molesta a nadie. Es el mismo criterio de
+            # «archivo primero, fila después» de la decisión 27, leído en el
+            # sentido del borrado.
+            miniaturas.borrar(fuente, se_van)
 
     return resultado

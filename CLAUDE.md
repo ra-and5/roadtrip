@@ -83,6 +83,7 @@ app/
     llm_providers.py         Único módulo que conoce Anthropic / Gemini / Kimi / Ollama
     ingest.py                Telemetría del móvil: token, validación e idempotencia
     notes.py                 Notas geolocalizadas, y el progreso del mapa
+    miniaturas.py            La foto reducida: nombre derivado, presupuesto y borrado
     photo_meta.py            EXIF de una foto: cuándo y dónde. Sin dependencias
     waypoints.py             Puntos del viaje sacados de las fotos
     ruta.py                  Notas + fotos en una línea de tiempo, y su medida
@@ -93,6 +94,7 @@ app/
     js/app.js                Pantalla principal: GPS → lugar, tiempo y recomendación
     js/notas.js              Cola offline en IndexedDB. Guarda primero, envía después
     js/mapa.js               Mapa, trayecto, progreso y "revivir el viaje"
+    js/diario.js             El muro: qué pasó cada día, con sus fotos
     js/chat.js               Conversación. El historial lo pone el servidor, no este
     js/perfil.js             El perfil. Pinta /api/perfil; sin GPS y sin red
     vendor/leaflet/          Leaflet 1.9.4, servido por nosotros (decisión 28)
@@ -101,7 +103,7 @@ app/
 Regla: `app.py` valida la entrada, llama a un módulo y formatea la respuesta.
 Cada módulo tiene una función de entrada tipada y lanza su propia excepción
 (`LocationError`, `WeatherError`, `AIError`, `IngestError`, `NoteError`,
-`WaypointError`, `PhotoMetaError`). Solo `storage.py` abre la BD.
+`WaypointError`, `PhotoMetaError`, `MiniaturaError`). Solo `storage.py` abre la BD.
 
 Hay **dos** formas de autenticarse, y no se cruzan: la sesión (`auth.py`) para
 todo lo que usa una persona con un navegador, y el token de `ingest.py` para lo
@@ -114,9 +116,9 @@ pip install -r requirements.txt            # producción (lo que va al servidor)
 pip install -r requirements-dev.txt        # + pytest, para desarrollar
 python run.py                              # servidor local (127.0.0.1:5000)
 python -m pytest -q                        # tests (sin red, sin API keys)
-python tools/verificar.py                  # las 4 pantallas EN UN NAVEGADOR (sin red)
+python tools/verificar.py                  # las 6 pantallas EN UN NAVEGADOR (sin red)
 python tools/verificar.py --ver            # con ventana, para mirarlo
-python tools/verificar.py --solo mapa      # una pantalla: inicio | perfil | mapa | fuego | chat
+python tools/verificar.py --solo mapa      # una: inicio | perfil | mapa | diario | fuego | chat
 tools/verificar_sabotaje.sh                # ¿el guion caza un fallo metido a propósito?
 python tools/medir_pantallas.py            # cuánto tarda cambiar de pantalla (local)
 python tools/medir_pantallas.py --url https://tuapp…   # contra el DESPLEGADO, que es el que decide
@@ -165,7 +167,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 | 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
-| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1 y §2 hechos**: sistema visual con la gramática de la certeza en las cinco pantallas y en los dos temas, y el avance del viaje enseñado como tal (decisión 55). Medido contra el desplegado: las cuatro pantallas **mejoran** sus tiempos de la decisión 48. Faltan el §3 (diario y miniaturas) y el §4 (PWA) — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
+| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1, §2 y §3 hechos**: sistema visual con la gramática de la certeza en las seis pantallas y en los dos temas (decisión 55), el avance del viaje enseñado como tal, y el **Diario con miniaturas** (decisión 56). Medido contra el desplegado: las cuatro pantallas que existían **mejoran** sus tiempos de la decisión 48. Falta el §4 (PWA), y montar el envío de miniaturas en el atajo — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
 | 7 | Verificar todo, navegación fluida, el diario, y la PWA | 🟨 **§1 y §2 hechos**: `tools/verificar.py` recorre las cuatro pantallas en Chromium y `tools/verificar_sabotaje.sh` demuestra que caza cinco fallos metidos a propósito (decisión 47). Falta el §2 en adelante — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -2180,6 +2182,105 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     `tools/verificar.py` daba «conversación borrada» por «hilo sin texto», que
     dejó de ser lo mismo al haber un vacío escrito; ahora cuenta **burbujas**,
     que es más preciso y no más laxo.
+
+56. **El diario tiene pantalla propia, y las miniaturas no tienen tabla.** Es el
+    §3 de la Fase 8, y son dos decisiones que se apoyan.
+
+    **La pantalla.** El «día a día» vivía dentro del Mapa, contestando la
+    pregunta de otra pantalla: el Mapa es *dónde he estado* —el avance, el
+    trayecto, los sitios a los que vuelves— y el Diario es *qué pasó*. Son las
+    dos caras del §1 de este documento, decidir y recordar, y mezclarlas dejaba
+    el Mapa en 4.886 px de alto. Se **mudó**, no se duplicó: las dos beben del
+    mismo `/api/ruta` y ninguna enseña lo de la otra (decisión 40).
+
+    Dentro del muro, el orden es cronológico y las fotos **no** se separan de las
+    notas: así es como se recuerda un día. Lo único que se agrupa son las fotos
+    seguidas, que se pintan como una tira y una nota corta. Y los días van del
+    más reciente al más antiguo, al revés que el Mapa: allí se recorre el
+    trayecto desde el principio, y aquí lo que quieres ver al abrir es lo de hoy.
+
+    **Las miniaturas no tienen tabla, y esa es la decisión que simplifica el
+    resto.** El nombre en disco se deriva de `(fuente, archivo)` con un hash, así
+    que saber si una foto tiene miniatura es preguntarle al disco. Una columna en
+    `waypoints` podría afirmar que la hay cuando el archivo se perdió al
+    desplegar —o al revés— y esa desincronización no daría ningún error: solo
+    imágenes rotas o huecos que no lo son. Es la idea de la decisión 23 otra vez:
+    la invariante la garantiza la construcción, no que alguien la mantenga.
+
+    Que el nombre lo derivemos **nosotros** es la decisión 27 y no se rediscute:
+    llega de iOS y podría traer `../` o separadores. Se descartó sanearlo con
+    `secure_filename()`, porque sanear puede colapsar dos nombres distintos en el
+    mismo archivo y entonces una foto se comería la miniatura de otra sin dar
+    ningún error. El separador `\0` entre los dos campos tampoco sobra: sin él,
+    `("ab", "c")` y `("a", "bc")` darían el mismo hash. Y al servir, el nombre de
+    la URL se valida contra la **forma** que producimos (32 hex + `.jpg`) en vez
+    de limpiarlo: una lista blanca de forma no se escapa con `..%2f`.
+
+    Las dos preguntas que el encargo dejaba abiertas, contestadas:
+
+    - **Al quitar una foto del álbum se borra también su miniatura.** Quitarla es
+      decir «esta no cuenta» (decisión 45), y dejar la imagen sería gastar cuota
+      para siempre en algo que no puede ver nadie. Hizo falta
+      `waypoint_archivos_ausentes()`, porque un `DELETE` devuelve un contador y
+      no nombres. El disco se limpia **después** de que la fila se haya ido: al
+      revés, un fallo en el `DELETE` dejaría un punto en el mapa apuntando a una
+      miniatura que ya no existe — un hueco visible contra un archivo de más que
+      no molesta.
+    - **Cuando no cabe, se rechaza y se dice; no se borra lo más antiguo.** Un
+      507 con los MB usados. Es la asimetría de siempre: una miniatura de más se
+      quita a mano, y una borrada sola es una foto del viaje que desaparece sin
+      que nadie lo pida. El presupuesto son 40 MB —unas 5.000 fotos— y se mide
+      contra las miniaturas y **no** contra la cuota global de la cuenta: lo
+      global lo llenan el virtualenv y el repositorio, que no crecen, y medirlo
+      sería recorrer el `$HOME` entero en cada foto recibida.
+
+    Detalles que decidieron algo:
+
+    - **Ruta aparte de `/api/waypoints`.** Allí viaja un JSON con hasta 300
+      fotos; aquí, binario. Juntarlos haría que un fallo en cualquiera tirase el
+      lote entero, y los puntos son lo que dibuja el mapa: tienen que poder
+      entrar aunque las imágenes no quepan.
+    - **Se escribe a un temporal y se renombra.** `os.replace` es atómico dentro
+      del mismo sistema de archivos, así que nunca hay un JPEG a medias que el
+      diario llegue a servir. Con mala cobertura una petición se corta a mitad
+      más de lo que parece.
+    - **Una imagen mala no tumba el lote**, igual que en la ingesta
+      (decisión 23), y una que ya está **no se reescribe**: reenviar el álbum
+      entero es lo normal (decisión 45), y en PythonAnywhere el disco es de red.
+    - **Se sirven con `max-age` de un año.** El nombre es un hash, así que una
+      imagen distinta tiene otra URL — la misma razón que hace seguro el
+      `immutable` de los estáticos (decisión 48).
+    - **Una foto sin miniatura sale como hueco declarado, con la trama de «no lo
+      sé».** Dejarla fuera del muro haría creer que ese día hubo menos de lo que
+      hubo, y es el estado normal de todo lo anterior a esta fase.
+
+    **Y dos fallos que solo se vieron mirando la pantalla**, los dos de los que
+    no dan error:
+
+    - **El `height="200"` del `<img>` ganaba al `aspect-ratio` del CSS.** Los
+      atributos `width`/`height` se mapean a reglas de presentación; el CSS
+      anulaba el ancho y dejaba vivo el alto, así que las miniaturas salían
+      rectángulos verticales mientras los huecos, que son `<span>`, salían
+      cuadrados. Los atributos están puestos a propósito —sin ellos el muro salta
+      con cada imagen que llega—, así que la solución es `height: auto`, no
+      quitarlos.
+    - **Con `1fr` de máximo, un día de UNA sola foto la estiraba a todo el ancho**
+      de la tarjeta, y el muro perdía el ritmo justo en los días tranquilos, que
+      son la mayoría.
+
+    En la verificación, el bloque del Diario va **antes** que el del Mapa: la
+    comprobación del álbum manda `completo`, que se lleva las fotos sembradas y
+    sus miniaturas, y repone las fotos pero no las imágenes —el endpoint de
+    puntos no las manda—. Mirarlo después dejaría el muro sin una sola imagen y
+    el fallo parecería del Diario. Y se comprueba que las miniaturas **cargan de
+    verdad** (`naturalWidth > 0`) y no solo que el `<img>` existe: un 404 deja la
+    etiqueta en su sitio y el muro se vería lleno de recuadros rotos sin que nada
+    fallara.
+
+    **Lo que falta para que esto sirva de algo**, y no es código: montar el
+    segundo envío en el atajo del iPhone. Está escrito en
+    [`docs/atajo-fotos.md`](docs/atajo-fotos.md) §4b. Hasta entonces el diario
+    funciona y enseña huecos, que es exactamente lo que debe hacer.
 
 ## 7. Roadmap
 

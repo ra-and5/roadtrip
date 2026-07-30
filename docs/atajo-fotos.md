@@ -254,6 +254,81 @@ reinterprete los números, que es exactamente el problema de la trampa 6.
 
 ---
 
+## 4b. Las miniaturas: que el diario enseñe la foto y no su nombre
+
+Esto es un **segundo envío**, a otra ruta, y se monta cuando el de arriba ya
+funcione. Sin él todo sigue igual que hasta ahora: los puntos entran, el mapa se
+dibuja, y el diario enseña el nombre del archivo en un recuadro rayado en vez de
+la foto. Con él, el diario pasa a ser un álbum.
+
+**Va aparte y no como un campo más del envío de puntos**, a propósito. Los
+metadatos son un JSON de hasta 300 fotos y las imágenes son binario: juntarlos
+haría que un fallo en cualquiera de las dos cosas tirase el lote entero. Separado,
+los puntos entran aunque las imágenes no quepan — y los puntos son lo que dibuja
+el mapa; las miniaturas solo lo decoran.
+
+**La foto se reduce en el iPhone, nunca en el servidor.** Subir 3 MB por el wifi
+de un camping es medio minuto en el que la conexión puede caerse, y redimensionar
+en PythonAnywhere gasta CPU, que ahí es **cuota diaria** (decisión 27).
+
+### Las acciones, al final del bucle
+
+Dentro del mismo `Repetir con cada`, después de las que ya construyen el JSON:
+
+| # | Acción | Ajustes |
+|---|---|---|
+| a | **Cambiar tamaño de la imagen** | Imagen: `Ítem de repetición` · Anchura: **400** · Altura: *Automático* |
+| b | **Convertir imagen** | A: **JPEG** · Calidad: **50 %** · *Conservar metadatos: NO* |
+| c | **Añadir a variable** | Variable: `Miniaturas` |
+
+Y **fuera** del bucle, después del envío de puntos:
+
+| Campo | Valor |
+|---|---|
+| URL | `https://TU_USUARIO.pythonanywhere.com/api/miniaturas` |
+| Método | **POST** |
+| Cabecera | `Authorization` → `Bearer <token>` (el **mismo** de los puntos) |
+| Cuerpo de la solicitud | **Formulario** |
+| Campo `fuente` | Texto: `fotos` |
+| Campo `imagen` | Archivo: variable **`Miniaturas`** |
+
+**Cuerpo `Formulario` y no `Archivo`.** Aquí sí, y es la única ruta del proyecto
+donde cambia: `Formulario` es lo que Atajos llama `multipart/form-data`, que es lo
+que permite mandar varias imágenes con su nombre en una sola petición.
+
+Tres cosas que importan y no se ven venir:
+
+- **400 px de ancho y calidad 50 %.** Sale una miniatura de ~8 KB, y el techo por
+  imagen son **64 KiB**. Si te pasas, el servidor la rechaza *a ella sola* y te
+  dice cuántos KiB traía; las demás entran igual.
+- **«Conservar metadatos: NO».** Una miniatura con el EXIF dentro lleva las
+  coordenadas otra vez y pesa más sin aportar nada: el sitio ya viajó en el JSON
+  de puntos.
+- **El nombre del archivo lo pone iOS y el servidor NO lo usa como ruta.** Lo
+  hashea para derivar el suyo (decisión 27), así que un nombre raro no puede
+  escribir donde no debe. Pero tiene que ser **el mismo** nombre que mandaste en
+  los puntos, o la miniatura no se emparejará con ninguna foto.
+
+### Qué contesta
+
+```json
+{"duplicadas":0,"guardadas":4,"rechazadas":[],"usado_mb":0.1}
+```
+
+Y al reejecutarlo, `duplicadas: 4` y `guardadas: 0`. Igual que con los puntos,
+**esa segunda respuesta es la prueba**: reenviar el álbum entero no reescribe
+nada.
+
+Si sale un **507**, las miniaturas han llegado al presupuesto de disco (40 MB,
+unas 5.000 fotos). No se borra nada solo: se rechaza y se dice, porque una foto
+borrada por su cuenta es historia que desaparece sin que nadie lo pida. Se
+arregla quitando fotos del álbum o subiendo el presupuesto.
+
+Y quitar una foto del álbum **se lleva también su miniatura**, por lo mismo que
+se lleva su punto: si no, gastaría cuota para siempre sin que pueda verla nadie.
+
+---
+
 ## 5. Probarlo
 
 Ejecuta el atajo a mano. La respuesta buena tiene esta forma (ojo, **Atajos
