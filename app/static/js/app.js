@@ -12,6 +12,7 @@
   const btn = document.getElementById("locate-btn");
   const refreshBtn = document.getElementById("refresh-btn");
   const poisBtn = document.getElementById("pois-btn");
+  const categoriaEl = document.getElementById("pois-categoria");
   const statusEl = document.getElementById("status");
 
   /* Guardamos la última posición para que "generar otra" no tenga que volver
@@ -296,16 +297,50 @@
     show("reco-card");
   }
 
+  /* Los sitios salen AGRUPADOS por categoría, cada grupo plegable y con su
+   * número. Antes era una sola lista ordenada por distancia, y con ocho
+   * categorías eso es un revoltijo: cuando lo que buscas es una barra de
+   * calistenia o un sitio donde vaciar aguas, tener que leerte veinte líneas
+   * mezcladas es no encontrarlo.
+   *
+   * El primer grupo se abre solo: una pantalla de acordeones todos cerrados
+   * parece que no ha encontrado nada. */
   function renderPois(pois) {
-    const detalle = document.getElementById("pois-detalle");
+    const grupos = document.getElementById("pois-grupos");
+    grupos.innerHTML = "";
     if (!pois || pois.length === 0) {
-      detalle.hidden = true;
+      grupos.hidden = true;
       return;
     }
-    text("pois-count", String(pois.length));
-    const list = document.getElementById("pois-list");
-    list.innerHTML = "";
+
+    const porCategoria = new Map();
     pois.forEach(function (poi) {
+      if (!porCategoria.has(poi.category)) porCategoria.set(poi.category, []);
+      porCategoria.get(poi.category).push(poi);
+    });
+
+    Array.from(porCategoria.keys()).sort().forEach(function (categoria, indice) {
+      const bloque = document.createElement("details");
+      bloque.className = "pois-grupo";
+      bloque.open = indice === 0;
+
+      const titulo = document.createElement("summary");
+      titulo.textContent = categoria + " (" + porCategoria.get(categoria).length + ")";
+      bloque.appendChild(titulo);
+
+      const list = document.createElement("ul");
+      list.className = "pois";
+      porCategoria.get(categoria).forEach(function (poi) {
+        list.appendChild(itemPoi(poi));
+      });
+      bloque.appendChild(list);
+      grupos.appendChild(bloque);
+    });
+
+    grupos.hidden = false;
+  }
+
+  function itemPoi(poi) {
       const km = poi.distance_m / 1000;
       const li = document.createElement("li");
 
@@ -331,14 +366,13 @@
         "https://www.google.com/maps/dir/?api=1&destination=" +
         poi.lat + "," + poi.lon;
       enlace.rel = "noopener";
+      /* Sin la categoría entre paréntesis: ahora la dice el grupo, y repetirla
+       * en cada línea solo alarga lo que hay que leer en marcha. */
       enlace.textContent =
-        (km < 1 ? poi.distance_m + " m" : km.toFixed(1) + " km") +
-        " — " + poi.name + " (" + poi.category + ")";
+        (km < 1 ? poi.distance_m + " m" : km.toFixed(1) + " km") + " — " + poi.name;
 
       li.appendChild(enlace);
-      list.appendChild(li);
-    });
-    detalle.hidden = false;
+      return li;
   }
 
   /* El estado de los POIs se enseña con las palabras de cada caso, no con un
@@ -481,6 +515,16 @@
     }
   }
 
+  function rellenarCategorias(categorias) {
+    if (!categorias || categoriaEl.options.length > 1) return;
+    categorias.forEach(function (nombre) {
+      const opcion = document.createElement("option");
+      opcion.value = nombre;
+      opcion.textContent = nombre;
+      categoriaEl.appendChild(opcion);
+    });
+  }
+
   /* Buscar sitios cerca. Va por su cuenta y no bloquea nada más: Overpass
    * puede tardar 30 s o no contestar, y esa espera es una decisión de quien
    * pulsa. Lo que deja hecho vale para toda la semana, porque el servidor
@@ -500,7 +544,11 @@
       const response = await fetch("/api/pois", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: coords.latitude, lon: coords.longitude }),
+        body: JSON.stringify({
+          lat: coords.latitude,
+          lon: coords.longitude,
+          categoria: categoriaEl.value || null,
+        }),
       });
 
       if (response.status === 401) {
@@ -518,6 +566,9 @@
 
       renderPois(data.pois);
       renderEstadoPois(data.fuente);
+      // Las opciones las manda el servidor, así que una categoría nueva aparece
+      // sola sin tocar este archivo.
+      rellenarCategorias(data.categorias);
     } catch (err) {
       text("pois-estado", mensajeDeError(err));
     } finally {

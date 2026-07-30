@@ -226,6 +226,32 @@ a.button.secondary {
 .pois a { color: var(--muted); text-decoration: none; display: inline-block; padding: 0.15rem 0; }
 .pois a:hover, .pois a:focus { color: var(--fg); text-decoration: underline; }
 
+/* Un grupo por categoría, plegable. Con ocho categorías, una sola lista
+   ordenada por distancia es un revoltijo: cuando buscas una barra de calistenia
+   o dónde vaciar aguas, leerte veinte líneas mezcladas es no encontrarlo. */
+.pois-grupos { margin-top: 0.8rem; }
+.pois-grupo { border-top: 1px solid var(--borde, #2a3b34); padding: 0.4rem 0; }
+.pois-grupo > summary {
+  cursor: pointer;
+  font-size: 0.95rem;
+  /* La categoría llega en minúsculas desde el servidor; la mayúscula es cosa
+     de la presentación y no del dato. */
+  text-transform: capitalize;
+}
+
+/* Visible para un lector de pantalla y no para la vista: el desplegable se
+   entiende solo por su contenido, pero sin etiqueta no se puede navegar a
+   ciegas. */
+.visualmente-oculto {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+#pois-categoria { margin-right: 0.5rem; }
+
 /* ---------- Fase 3: notas geolocalizadas y mapa ---------- */
 
 textarea {

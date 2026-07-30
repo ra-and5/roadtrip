@@ -76,11 +76,16 @@
   <h2>Sitios cerca</h2>
   <p class="muted" id="pois-estado">Se consulta OpenStreetMap. Suele tardar,
     y a veces no responde.</p>
+  <!-- Buscar UNA categoría pide dos cláusulas a Overpass en vez de diez, así
+       que además de dar una lista legible es bastante más rápido. Las opciones
+       las pone el servidor: escribirlas aquí a mano las dejaría desfasadas en
+       cuanto se añada una categoría, sin que nada avise. -->
+  <label class="visualmente-oculto" for="pois-categoria">Qué buscar</label>
+  <select id="pois-categoria">
+    <option value="">Todo</option>
+  </select>
   <button id="pois-btn" class="secondary">Buscar sitios cerca</button>
-  <details id="pois-detalle" hidden>
-    <summary>Puntos de interés cercanos (<span id="pois-count">0</span>)</summary>
-    <ul id="pois-list" class="pois"></ul>
-  </details>
+  <div id="pois-grupos" class="pois-grupos" hidden></div>
 </section>
 
 <!-- Marcar el sitio no depende de haber pedido una recomendación: se puede

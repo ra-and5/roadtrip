@@ -287,7 +287,19 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius_m * asin(sqrt(a))
 
 
-def _build_overpass_query(lat: float, lon: float, radius_m: int) -> str:
+def categorias_disponibles() -> list[str]:
+    """Los nombres de categoría que acepta la búsqueda, en orden estable.
+
+    Sale de `_POI_CATEGORIES` en vez de escribirse aparte: una lista a mano se
+    queda corta en cuanto se añade una categoría, y ese olvido no da ningún
+    error — solo una opción que no aparece en la pantalla (decisión 19).
+    """
+    return sorted(_POI_CATEGORIES)
+
+
+def _build_overpass_query(
+    lat: float, lon: float, radius_m: int, categoria: str | None = None
+) -> str:
     """Construye la consulta en Overpass QL.
 
     Pedimos nodes y ways: una playa o un castillo suelen estar mapeados como
@@ -300,8 +312,16 @@ def _build_overpass_query(lat: float, lon: float, radius_m: int) -> str:
     de una. Agrupando pasamos de 12 cláusulas a 8, y cada cláusula es una
     consulta geográfica que Overpass ejecuta por separado.
     """
+    # Con una categoría concreta se pide SOLO eso, y no es cosmética: cada
+    # cláusula es una búsqueda geográfica para un servidor comunitario que ya
+    # va justo (decisión 22). Buscar "deporte" son dos cláusulas en vez de diez,
+    # y además devuelve una lista que se puede leer entera.
+    elegidas = (
+        {categoria: _POI_CATEGORIES[categoria]} if categoria else _POI_CATEGORIES
+    )
+
     by_key: dict[str, set[str]] = {}
-    for osm_key, values in _POI_CATEGORIES.values():
+    for osm_key, values in elegidas.values():
         by_key.setdefault(osm_key, set()).update(values)
 
     clauses: list[str] = []
@@ -330,7 +350,9 @@ def _classify(tags: dict[str, str]) -> tuple[str, str] | None:
     return None
 
 
-def _parse_overpass(payload: dict[str, Any], lat: float, lon: float) -> list[Poi]:
+def _parse_overpass(
+    payload: dict[str, Any], lat: float, lon: float, categoria: str | None = None
+) -> list[Poi]:
     """Convierte la respuesta de Overpass en POIs ordenados y balanceados."""
     pois: list[Poi] = []
     seen: set[tuple[str, str]] = set()
@@ -386,16 +408,20 @@ def _parse_overpass(payload: dict[str, Any], lat: float, lon: float) -> list[Poi
     # siete primeras categorías sumaban exactamente el tope y **servicios de
     # camper no aparecía ninguna vez**. Una categoría que se añade y nunca sale,
     # sin que nada dé error (decisión 52).
+    # Buscando UNA categoría no hay nada que balancear, y el cupo de 5 estorba:
+    # quien pide "deporte" quiere ver los gimnasios que haya, no cinco.
+    por_cesta = _MAX_TOTAL if categoria else _MAX_PER_CATEGORY
+
     por_categoria: dict[str, list[Poi]] = {}
     for poi in pois:
         cesta = por_categoria.setdefault(poi.category, [])
-        if len(cesta) < _MAX_PER_CATEGORY:
+        if len(cesta) < por_cesta:
             cesta.append(poi)
 
     balanced: list[Poi] = []
     # `sorted` y no el orden de inserción: dos consultas iguales tienen que dar
     # la misma lista, que es lo que hace comparable una caché.
-    for ronda in range(_MAX_PER_CATEGORY):
+    for ronda in range(por_cesta):
         for categoria in sorted(por_categoria):
             if len(balanced) >= _MAX_TOTAL:
                 break
@@ -408,11 +434,20 @@ def _parse_overpass(payload: dict[str, Any], lat: float, lon: float) -> list[Poi
     return balanced
 
 
-def _poi_cache_key(lat: float, lon: float, radius_m: int) -> str:
-    return f"{storage.cache_key_for_coords('pois', lat, lon)}:r{radius_m}"
+def _poi_cache_key(lat: float, lon: float, radius_m: int, categoria: str | None = None) -> str:
+    # La categoría entra en la clave. Sin esto, buscar "deporte" en un sitio
+    # dejaría cacheado un payload que solo trae gimnasios, y la siguiente
+    # búsqueda general lo serviría tal cual: la pantalla diría que aquí no hay
+    # playas ni campings sin haberlos buscado nunca. Es la decisión 11 otra vez
+    # —una caché que responde a una pregunta distinta de la que se hizo— y la 22
+    # en su versión peor, porque el hueco parece un resultado.
+    sufijo = f":c{categoria}" if categoria else ""
+    return f"{storage.cache_key_for_coords('pois', lat, lon)}:r{radius_m}{sufijo}"
 
 
-def pois_cacheados(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi] | None:
+def pois_cacheados(
+    lat: float, lon: float, radius_m: int = 12_000, categoria: str | None = None
+) -> list[Poi] | None:
     """Los POIs que YA estén en caché. Nunca toca la red.
 
     Devuelve `None` cuando no hay nada cacheado para ese sitio, y eso es
@@ -434,13 +469,15 @@ def pois_cacheados(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi] 
     """
     lat, lon = validate_coords(lat, lon)
 
-    cached = storage.cache_get(_poi_cache_key(lat, lon, radius_m), _POI_CACHE_TTL)
+    cached = storage.cache_get(_poi_cache_key(lat, lon, radius_m, categoria), _POI_CACHE_TTL)
     if cached is None:
         return None
-    return _parse_overpass(cached, lat, lon)
+    return _parse_overpass(cached, lat, lon, categoria)
 
 
-def find_nearby_pois(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi]:
+def find_nearby_pois(
+    lat: float, lon: float, radius_m: int = 12_000, categoria: str | None = None
+) -> list[Poi]:
     """Busca puntos de interés alrededor de unas coordenadas. PUEDE TARDAR.
 
     Medido desde PythonAnywhere: hasta 31,3 s cuando los tres espejos fallan.
@@ -464,14 +501,20 @@ def find_nearby_pois(lat: float, lon: float, radius_m: int = 12_000) -> list[Poi
     """
     lat, lon = validate_coords(lat, lon)
 
-    cache_key = _poi_cache_key(lat, lon, radius_m)
+    if categoria is not None and categoria not in _POI_CATEGORIES:
+        raise LocationError(
+            f"categoría desconocida: {categoria!r}. "
+            f"Válidas: {', '.join(categorias_disponibles())}"
+        )
+
+    cache_key = _poi_cache_key(lat, lon, radius_m, categoria)
     cached = storage.cache_get(cache_key, _POI_CACHE_TTL)
     if cached is not None:
-        return _parse_overpass(cached, lat, lon)
+        return _parse_overpass(cached, lat, lon, categoria)
 
-    payload = _fetch_overpass(_build_overpass_query(lat, lon, radius_m))
+    payload = _fetch_overpass(_build_overpass_query(lat, lon, radius_m, categoria))
     storage.cache_set(cache_key, payload)
-    return _parse_overpass(payload, lat, lon)
+    return _parse_overpass(payload, lat, lon, categoria)
 
 
 def _ask_mirror(mirror: str, query: str) -> dict[str, Any]:

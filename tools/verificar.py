@@ -293,19 +293,34 @@ def inicio_recomendacion(page: Any) -> str:
 
 def inicio_pois(page: Any) -> str:
     page.click("#pois-btn")
-    esperar(lambda: page.locator("#pois-detalle").is_visible(), "no salieron los POIs")
+    esperar(lambda: page.locator("#pois-grupos").is_visible(), "no salieron los POIs")
 
-    cuantos = int(texto(page, "pois-count"))
+    # Agrupados por categoría y no en una lista sola: con ocho categorías, una
+    # lista mezclada ordenada por distancia no sirve para buscar una cosa
+    # concreta, que es justo cuando se usa esto.
+    grupos = page.locator("#pois-grupos .pois-grupo")
+    if grupos.count() < 2:
+        raise Fallo(f"los sitios no salen agrupados por categoría ({grupos.count()} grupos)")
+    if not page.locator("#pois-grupos .pois-grupo[open]").count():
+        raise Fallo("todos los grupos salen cerrados: parece que no encontró nada")
+
+    cuantos = page.locator("#pois-grupos .pois li").count()
     if cuantos != 4:
         raise Fallo(f"se esperaban 4 POIs con nombre, salieron {cuantos}")
 
+    # Las opciones del desplegable las manda el servidor: escritas a mano en el
+    # HTML se quedarían cortas al añadir una categoría, sin que nada avise.
+    opciones = page.locator("#pois-categoria option").count()
+    if opciones < 3:
+        raise Fallo(f"el selector de categoría trae {opciones} opciones")
+
     # Cada punto es un enlace a Google Maps con COORDENADAS, no con el nombre
     # (decisión 32). Que apunte al sitio equivocado no daría ningún error.
-    enlace = page.locator("#pois-list a").first.get_attribute("href")
+    enlace = page.locator("#pois-grupos .pois a").first.get_attribute("href")
     if "google.com/maps/dir/?api=1&destination=43.5" not in (enlace or ""):
         raise Fallo(f"el enlace del POI no lleva coordenadas: {enlace!r}")
 
-    return f"{cuantos} puntos, con enlace a Mapas"
+    return f"{cuantos} puntos en {grupos.count()} grupos, con enlace a Mapas"
 
 
 def inicio_nota_offline(page: Any, sesion: Any, errores: Errores) -> str:

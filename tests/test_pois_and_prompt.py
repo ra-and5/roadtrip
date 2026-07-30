@@ -7,6 +7,7 @@ gastar una llamada.
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import pytest
 
 from app.modules.ai_orchestrator import formatear_para_prompt, _format_pois, _format_weather
 from app.modules.contexto import ensamblar
@@ -270,3 +271,47 @@ def test_el_prompt_no_avisa_de_la_zona_cuando_open_meteo_la_ha_dado():
     tiempo = Weather(temperature_c=20.0, timezone="Europe/Madrid")
     texto = formatear_para_prompt(_contexto(tiempo=tiempo), [])
     assert "no se ha podido confirmar la zona horaria" not in texto.lower()
+
+
+# --- Buscar una categoría concreta ----------------------------------------
+
+def test_pedir_una_categoria_solo_consulta_esa():
+    """Menos cláusulas para Overpass, y una lista que se puede leer entera.
+
+    Cada cláusula es una búsqueda geográfica en un servidor comunitario que ya
+    va justo (decisión 22): pedir «deporte» son dos en vez de diez.
+    """
+    from app.modules.location_context import _build_overpass_query
+
+    solo_deporte = _build_overpass_query(43.5, -6.1, 12_000, "deporte")
+
+    assert "fitness_station" in solo_deporte
+    assert "camp_site" not in solo_deporte, "se está pidiendo más de lo que se buscó"
+    assert solo_deporte.count("(around:") == 2, "una clave OSM x node y way"
+
+
+def test_la_categoria_entra_en_la_clave_de_cache():
+    """Si no, buscar «deporte» envenena la búsqueda general de ese sitio.
+
+    La caché guardaría un payload que solo trae gimnasios y la siguiente
+    búsqueda lo serviría tal cual: la pantalla diría que aquí no hay playas ni
+    campings sin haberlos buscado nunca. Es la decisión 11 en su versión peor,
+    porque el hueco parece un resultado.
+    """
+    from app.modules.location_context import _poi_cache_key
+
+    general = _poi_cache_key(43.5, -6.1, 12_000)
+    deporte = _poi_cache_key(43.5, -6.1, 12_000, "deporte")
+
+    assert general != deporte
+
+
+def test_una_categoria_inventada_se_rechaza():
+    from app.modules.location_context import LocationError, find_nearby_pois
+
+    with pytest.raises(LocationError) as fallo:
+        find_nearby_pois(43.5, -6.1, categoria="discotecas")
+
+    # El mensaje dice cuáles valen: el error lo va a leer quien monte la
+    # pantalla, no el usuario final.
+    assert "deporte" in str(fallo.value)

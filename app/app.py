@@ -40,6 +40,7 @@ from app.modules.llm_providers import build_provider, redact
 from app.modules.location_context import (
     InvalidCoordinates,
     LocationError,
+    categorias_disponibles,
     find_nearby_pois,
     pois_cacheados,
     reverse_geocode,
@@ -360,8 +361,14 @@ def api_pois() -> Any:
     if lat is None:
         return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
 
+    # Buscar una categoría concreta pide dos cláusulas a Overpass en vez de
+    # diez, y devuelve una lista que se puede leer entera. Vacío = todas.
+    categoria = payload.get("categoria") or None
+    if categoria is not None and not isinstance(categoria, str):
+        return jsonify({"error": "'categoria' tiene que ser texto."}), 400
+
     try:
-        pois = find_nearby_pois(lat, lon)
+        pois = find_nearby_pois(lat, lon, categoria=categoria)
     except InvalidCoordinates as exc:
         return jsonify({"error": str(exc)}), 400
     except LocationError as exc:
@@ -372,12 +379,25 @@ def api_pois() -> Any:
         return jsonify({"pois": [], "fuente": fuente.to_dict(),
                         "warnings": [f"Sin puntos de interés cercanos: {exc}"]})
 
+    # El "aquí no hay nada" se acota a lo que se buscó: decirlo a secas tras
+    # pedir solo gimnasios afirmaría que tampoco hay playas ni campings, que no
+    # se han mirado (decisión 22).
+    sin_datos = (
+        f"No hay «{categoria}» mapeado en OpenStreetMap en esta zona."
+        if categoria else
+        "No hay nada mapeado en OpenStreetMap en esta zona."
+    )
     fuente = contexto.Fuente(contexto.OK) if pois else contexto.Fuente(
-        contexto.SIN_DATOS, "No hay nada mapeado en OpenStreetMap en esta zona."
+        contexto.SIN_DATOS, sin_datos
     )
     return jsonify({
         "pois": [p.to_dict() for p in pois],
         "fuente": fuente.to_dict(),
+        "categoria": categoria,
+        # La lista sale del servidor y no escrita en el JavaScript: una copia a
+        # mano se queda corta en cuanto se añade una categoría, y ese olvido no
+        # da error — solo una opción que no aparece nunca (decisión 19).
+        "categorias": categorias_disponibles(),
         "warnings": [],
     })
 
