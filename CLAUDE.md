@@ -122,6 +122,9 @@ python tools/verificar.py --solo mapa      # una: inicio | perfil | mapa | diari
 tools/verificar_sabotaje.sh                # ¿el guion caza un fallo metido a propósito?
 python tools/medir_pantallas.py            # cuánto tarda cambiar de pantalla (local)
 python tools/medir_pantallas.py --url https://tuapp…   # contra el DESPLEGADO, que es el que decide
+python tools/estado_limpio.py              # ¿queda algo simulado? (código 1 si sí)
+python tools/estado_limpio.py --limpiar    # borra SOLO lo simulado; no toca lo real
+python tools/estado_limpio.py --borrar-todo-el-viaje   # reset. IRREVERSIBLE
 python tools/diagnostico.py                # config, datos, fuentes y contexto
 python tools/diagnostico.py --todos        # prueba todos los proveedores de LLM
 python tools/diagnostico.py -v             # con la traza completa de cada fallo
@@ -2281,6 +2284,56 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     segundo envío en el atajo del iPhone. Está escrito en
     [`docs/atajo-fotos.md`](docs/atajo-fotos.md) §4b. Hasta entonces el diario
     funciona y enseña huecos, que es exactamente lo que debe hacer.
+
+57. **«Limpio» y «demostrado» son dos preguntas, y borrar lo inventado no es lo
+    mismo que borrar el viaje.** Sale de una decisión del usuario: la PWA no
+    entra hasta que la app esté limpia, *"sin muestras de prueba ni nada"*.
+
+    El problema era que las limpiezas estaban repartidas por cuatro herramientas
+    (`simular_telemetria --limpiar`, `ver_notas --borrar`, `ver_telemetria
+    --borrar`, `importar_fotos --limpiar`) y ninguna contestaba la pregunta que
+    de verdad se hace antes de estrenar: **¿queda algo aquí que no sea de
+    verdad?** Con la respuesta repartida, saberlo dependía de acordarse de las
+    cuatro, y una regla que depende de que alguien se acuerde no es una regla
+    (decisión 30).
+
+    `tools/estado_limpio.py` la contesta de una vez, y devuelve **código 1** si
+    queda algo simulado, para que sirva de comprobación sin leer la salida.
+
+    La distinción que ordena la herramienta, y por la que hay **dos banderas y no
+    una**:
+
+    | | Qué es | Se reconoce | Borrarlo |
+    |---|---|---|---|
+    | **Lo simulado** | muestras de `simular_telemetria.py` | sí: `fuente = "simulado"` | seguro |
+    | **El viaje** | tus notas, fotos y conversaciones | **no**: solo tú sabes si son de prueba | irreversible |
+
+    Nada en la base de datos distingue «una nota de prueba en Albatera» de «una
+    nota del viaje». Por eso `--limpiar` solo toca lo simulado, el reset va
+    detrás de `--borrar-todo-el-viaje` **y pide escribir `BORRAR` entero** —un
+    `s/n` se contesta por inercia—, y **no existe ningún `--todo`** que haga las
+    dos: juntarlas sería esconder la irreversible detrás de la inocua. Es la
+    asimetría de la decisión 45.
+
+    Tres detalles que son decisiones:
+
+    - **La caché se cuenta pero no se borra**, ni siquiera en el reset. No es
+      dato del viaje —son respuestas de Nominatim y Open-Meteo que se regeneran
+      solas— y borrarla solo hace que la primera consulta de cada sitio se vuelva
+      a pagar, justo al llegar a un sitio nuevo.
+    - **Las miniaturas se borran después de las filas**, por lo mismo que en el
+      álbum: si el `DELETE` falla, no se ha perdido ninguna imagen.
+    - **La herramienta dice en voz alta lo que NO puede contestar**: que no haya
+      nada inventado no significa que las fuentes estén demostradas. La
+      continuidad la mide `diagnostico.py` (decisión 39), y son preguntas
+      distintas. Sin esa línea, un «sin datos simulados» en verde se leería como
+      «todo listo».
+
+    **Y lo que esto no cambia: una simulación sigue sin cerrar nada.** La 2d se
+    cierra cuando la telemetría llegue sola y sin huecos durante días, y la 3
+    cuando se escriba una nota sin cobertura de verdad y aparezca al volver la
+    señal. Las dos son calendario y móvil, no trabajo — y ninguna herramienta las
+    puede sustituir (decisión 36).
 
 ## 7. Roadmap
 
