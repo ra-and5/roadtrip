@@ -222,6 +222,20 @@ class Config:
     # es una recomendación turística, no una demostración de un teorema.
     KIMI_REASONING_EFFORT: str = _env("KIMI_REASONING_EFFORT", default="low").strip().lower()
 
+    # --- Incendios (NASA FIRMS) ---
+    # Clave gratuita de https://firms.modaps.eosdis.nasa.gov/api/map_key/
+    # Vacía = la tarjeta de incendios no se enseña, que es mejor que un botón
+    # que no hace nada.
+    #
+    # OJO, y es lo que decide el diseño: `firms.modaps.eosdis.nasa.gov` **no
+    # está en la lista blanca** del proxy de PythonAnywhere (comprobado sobre la
+    # página de la lista, decisión 21), así que el servidor no puede llamarla.
+    # La petición la hace el NAVEGADOR —FIRMS permite CORS— y el servidor solo
+    # interpreta el CSV. Por eso esta clave viaja hasta la página, y por eso es
+    # una clave de solo lectura de datos públicos y con cuota, no un secreto de
+    # los que duelen. Aun así solo se sirve a una sesión iniciada.
+    FIRMS_MAP_KEY: str = _env("FIRMS_MAP_KEY", default="")
+
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.
     DATA_DIR: Path = Path(_env("DATA_DIR", default=str(BASE_DIR / "data")))

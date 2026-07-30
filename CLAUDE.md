@@ -1881,6 +1881,66 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     normal (decisión 33), porque Overpass sigue siendo la fuente cara y poco
     fiable. Más categorías no la hacen mejor.
 
+53. **Los incendios los pide el NAVEGADOR, y no se llaman incendios.** Dos
+    decisiones que salen de comprobar la API real antes de escribir el módulo, y
+    las dos cambian el diseño.
+
+    **Quién hace la petición.** `firms.modaps.eosdis.nasa.gov` **no está en la
+    lista blanca** del proxy de PythonAnywhere — comprobado sobre la página de
+    la lista, donde sí están otros diez dominios de la NASA (decisión 21). Desde
+    el servidor la llamada devolvería un 403 que la app leería como "fuente
+    caída", y la tarjeta estaría permanentemente vacía sin que nada explicara
+    por qué. Lo que sí se puede: FIRMS responde
+    `access-control-allow-origin: *` (comprobado con `curl -D -`), así que el
+    **navegador** llega.
+
+    De ahí el reparto: el navegador trae el CSV crudo y `/api/incendios` lo
+    interpreta. El navegador es una tubería, no un cerebro — con el veredicto en
+    JavaScript no habría forma de probar los umbrales sin abrir un navegador. Y
+    los parámetros (sensor, radio, días) los pone el servidor en los `data-` de
+    la tarjeta: repartidos entre Python y JavaScript serían dos copias que se
+    separan sin dar error.
+
+    Esto **no** contradice la decisión 32, que prohíbe recibir el contexto ya
+    construido. Allí lo que llegaba del cliente era dónde estás y qué tiempo
+    hace, y un cuerpo manipulado ponía al modelo a razonar sobre un sitio
+    inventado; aquí son datos públicos de satélite que solo se le enseñan a
+    quien los manda, en su sesión.
+
+    **Y las palabras.** VIIRS no ve fuego: ve **anomalías térmicas**. Medido con
+    la API real el 30-07-2026, a 2 km de San Vicente del Raspeig salían dos
+    detecciones nocturnas de **0,62 y 1,85 MW** — casi con seguridad industria.
+    Escribir "incendio a 2 km" con eso es la alarma que se aprende a ignorar, y
+    entonces tampoco se lee el día que arde el monte de al lado. El veredicto se
+    calcula en Python con umbrales razonados (decisión 5, la misma que el oleaje
+    y la luna) y elige las palabras por **potencia radiativa** y distancia:
+
+    | Qué hay | Qué se dice |
+    |---|---|
+    | nada en el radio | "sin detecciones", **y qué no se ha visto**: VIIRS no ve fuegos pequeños ni bajo nubes |
+    | detecciones flojas | "puntos de calor", y que el satélite marca hornos, industria y quemas |
+    | ≥ 20 MW y a ≤ 15 km | "foco activo", e infórmate antes de dormir aquí |
+
+    El umbral de 20 MW está muy por debajo de lo que da un incendio declarado
+    (pasa de 100 con facilidad) a propósito: equivocarse hacia el lado seguro
+    importa más aquí que en ningún otro veredicto.
+
+    Dos cosas más que no se ven venir:
+
+    - **FIRMS contesta los errores con HTTP 200 y texto plano** ("Invalid
+      MAP_KEY"). Sin comprobar la cabecera del CSV, ese mensaje se parsearía
+      como cero detecciones y la pantalla diría "sin detecciones" — una
+      afirmación tranquilizadora y falsa. Es la decisión 5 otra vez: un 200 no
+      significa que la respuesta sirva.
+    - **La tarjeta se renderiza SIEMPRE, aunque no haya clave.** Ponerla dentro
+      de un `{% if %}` dejaba a `hideAll()` buscando un id que no existe, que es
+      literalmente el fallo de la decisión 42.
+
+    Y no va en `/mapa`: esa pantalla es *dónde he estado* (decisión 40). Un foco
+    activo es *qué pasa ahora*, y va en Inicio con el tiempo y la luna. Se pide
+    **después** del contexto y sin esperarlo, para que una NASA lenta no retrase
+    lo que ya estaba resuelto (decisión 33).
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

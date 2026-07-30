@@ -25,6 +25,7 @@ from app.modules import (
     chat,
     contexto,
     diario,
+    incendios,
     ingest,
     notes,
     perfil,
@@ -208,7 +209,16 @@ def logout() -> Any:
 @app.route("/")
 @auth.login_required
 def index() -> Any:
-    return render_template("index.html")
+    # La clave de FIRMS viaja a la página porque la petición la hace el
+    # navegador: el dominio no está en la lista blanca del proxy (decisión
+    # 21). Vacía, la tarjeta no se enseña.
+    return render_template(
+        "index.html",
+        firms_map_key=Config.FIRMS_MAP_KEY,
+        firms_base=incendios.URL_BASE,
+        firms_sensor=incendios.SENSOR,
+        firms_grados=incendios.GRADOS_ALREDEDOR,
+    )
 
 
 @app.route("/mapa")
@@ -399,6 +409,55 @@ def api_pois() -> Any:
         # da error — solo una opción que no aparece nunca (decisión 19).
         "categorias": categorias_disponibles(),
         "warnings": [],
+    })
+
+
+@app.route("/api/incendios", methods=["POST"])
+@auth.login_required
+def api_incendios() -> Any:
+    """Interpreta el CSV de FIRMS que trae el navegador.
+
+    **Por qué el servidor no hace la petición**, que es lo raro de esta ruta:
+    `firms.modaps.eosdis.nasa.gov` no está en la lista blanca del proxy de
+    PythonAnywhere (decisión 21), así que desde producción devolvería un 403 que
+    la app leería como "fuente caída". El navegador sí puede —FIRMS manda
+    `access-control-allow-origin: *`—, y con eso el reparto es: él trae los
+    bytes, aquí se decide qué significan.
+
+    Aceptar un cuerpo del cliente contradice en apariencia la decisión 32, que
+    prohíbe recibir el contexto ya construido. No es el mismo caso: allí lo que
+    llegaba era **dónde estás y qué tiempo hace**, y un cuerpo manipulado ponía
+    al modelo a razonar sobre un sitio inventado. Aquí lo que llega son datos
+    públicos de satélite que solo se enseñan a quien los manda, en su propia
+    sesión. El techo de tamaño evita que esto sea una vía para gastar CPU.
+
+    Sin `GET`: hay que mandar el CSV, y una URL no es sitio para 200 KB.
+    """
+    payload = request.get_json(silent=True) or {}
+    lat, lon = _coordenadas_de(payload)
+    if lat is None:
+        return jsonify({"error": "Faltan 'lat' y/o 'lon'."}), 400
+
+    csv_crudo = payload.get("csv")
+    if not isinstance(csv_crudo, str):
+        return jsonify({"error": "Falta 'csv'."}), 400
+
+    try:
+        situacion = incendios.evaluar(csv_crudo, lat, lon)
+    except InvalidCoordinates as exc:
+        return jsonify({"error": str(exc)}), 400
+    except incendios.IncendioError as exc:
+        # 200 con el fallo declarado, igual que /api/pois: la petición ha hecho
+        # su trabajo y la respuesta dice exactamente qué pasó. Lo que no puede
+        # es contestar "sin detecciones", que sería tranquilizar sin haber
+        # mirado.
+        app.logger.warning("FIRMS ilegible: %s", exc)
+        fuente = contexto.Fuente(contexto.FALLO, str(exc))
+        return jsonify({"situacion": None, "fuente": fuente.to_dict()})
+
+    return jsonify({
+        "situacion": situacion.to_dict(),
+        "fuente": contexto.Fuente(contexto.OK).to_dict(),
     })
 
 

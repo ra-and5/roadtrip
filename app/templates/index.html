@@ -56,6 +56,33 @@
   <p class="muted" id="luna-motivo"></p>
 </section>
 
+{# Detecciones de calor por satélite. La petición a la NASA la hace el
+   NAVEGADOR, no el servidor: su dominio no está en la lista blanca del proxy de
+   PythonAnywhere (decisión 21) y FIRMS permite CORS. Por eso la clave viaja
+   hasta aquí.
+
+   La tarjeta existe SIEMPRE, aunque no haya clave, y sale con `hidden`. Si se
+   renderizara condicionalmente, `hideAll()` buscaría un id que no está y
+   reventaría el botón principal — que es literalmente el fallo de la decisión
+   42. Sin clave, el JavaScript no la usa y punto.
+
+   Los parámetros los pone el servidor (sensor, radio, días): así siguen siendo
+   UNA definición, en `incendios.py`, y el navegador solo concatena. #}
+<section id="fuego-card" class="card" hidden
+         data-firms-key="{{ firms_map_key }}"
+         data-firms-base="{{ firms_base }}"
+         data-firms-sensor="{{ firms_sensor }}"
+         data-firms-grados="{{ firms_grados }}"
+         data-firms-dias="1">
+  <h2>Fuego cerca</h2>
+  <p id="fuego-veredicto" class="lead"></p>
+  <p class="muted" id="fuego-detalle"></p>
+  <details id="fuego-detalle-lista" hidden>
+    <summary>Detecciones (<span id="fuego-count">0</span>)</summary>
+    <ul id="fuego-lista" class="pois"></ul>
+  </details>
+</section>
+
 <section id="reco-card" class="card" hidden>
   <h2>Recomendación</h2>
   <p id="reco-summary" class="lead"></p>

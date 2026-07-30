@@ -323,6 +323,49 @@ def inicio_pois(page: Any) -> str:
     return f"{cuantos} puntos en {grupos.count()} grupos, con enlace a Mapas"
 
 
+# Dos detecciones reales de FIRMS del 30-07-2026, a ~2 km de San Vicente del
+# Raspeig: 0,62 y 1,85 MW de noche. Casi con seguridad industria, y el caso que
+# de verdad importa — anunciarlo como "incendio" es la alarma que se aprende a
+# ignorar, y entonces tampoco se lee el día que arde el monte de al lado.
+CSV_FIRMS = (
+    "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,"
+    "instrument,confidence,version,bright_ti5,frp,daynight\n"
+    "43.5700,-6.1500,307.65,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,294.76,0.62,N\n"
+    "43.5800,-6.1600,325.82,0.4,0.37,2026-07-30,158,N,VIIRS,n,2.0NRT,292.52,1.85,N\n"
+)
+
+
+def inicio_fuego(page: Any) -> str:
+    """El satélite lo pide el navegador; el veredicto lo pone Python.
+
+    Se dobla la respuesta de la NASA porque la verificación corre sin red (y
+    porque el caso que hay que fijar es uno concreto: dos detecciones flojas).
+    Lo que se comprueba no es que salga una tarjeta, sino **qué palabras usa**.
+    """
+    page.route(
+        "**/firms.modaps.eosdis.nasa.gov/**",
+        lambda route: route.fulfill(status=200, content_type="text/plain", body=CSV_FIRMS),
+    )
+    try:
+        page.reload()
+        page.click("#contexto-btn")
+        esperar(lambda: page.locator("#fuego-card").is_visible(),
+                "no salió la tarjeta de fuego", segundos=20)
+        veredicto = texto(page, "fuego-veredicto")
+        detalle = texto(page, "fuego-detalle")
+    finally:
+        page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
+
+    if "incendio" in veredicto.lower():
+        raise Fallo(f"dos detecciones de 1 MW anunciadas como incendio: {veredicto!r}")
+    if "punto" not in veredicto:
+        raise Fallo(f"no se nombran como puntos de calor: {veredicto!r}")
+    if "industria" not in detalle:
+        raise Fallo("no se explica que el satélite marca también industria y quemas")
+
+    return veredicto
+
+
 def inicio_nota_offline(page: Any, sesion: Any, errores: Errores) -> str:
     """Los cuatro caminos de la cola: sin red, reintento, duplicada y rechazada."""
     contexto = page.context
@@ -852,6 +895,7 @@ def main() -> int:
                 corredor.check("¿Dónde estoy?", lambda: inicio_contexto(page))
                 corredor.check("Recomiéndame algo", lambda: inicio_recomendacion(page))
                 corredor.check("Buscar sitios cerca", lambda: inicio_pois(page))
+                corredor.check("fuego cerca, sin alarmismo", lambda: inicio_fuego(page))
                 corredor.check("nota con la cola offline",
                                lambda: inicio_nota_offline(page, sesion, errores))
                 corredor.sin_errores_de_js("Inicio")

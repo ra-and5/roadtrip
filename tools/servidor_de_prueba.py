@@ -94,6 +94,9 @@ def preparar_entorno(datos: Path) -> None:
             "LLM_PROVIDER": "gemini",
             "GEMINI_API_KEY": "clave-de-mentira-para-la-verificacion",
             # Con esto la barra enseña los botones de lanzar los atajos.
+            # La petición a la NASA la hace el navegador, así que la clave
+            # llega hasta la página. En la verificación se dobla la respuesta.
+            "FIRMS_MAP_KEY": "clave-de-mentira-firms",
             "SHORTCUT_FOTOS": "Fotos del viaje",
             "SHORTCUT_TELEMETRIA": "Telemetria del viaje",
         }
