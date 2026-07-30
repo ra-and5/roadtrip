@@ -446,6 +446,50 @@ def perfil(page: Any) -> str:
     return f"{page.locator('#fuentes-lista li').count()} fuentes con veredicto"
 
 
+def perfil_parada(page: Any, sesion: Any) -> str:
+    """Una fuente que dejó de llegar tiene que VERSE, no solo calcularse.
+
+    `perfil.PARADA` existe porque una automatización que no corre y un valle sin
+    cobertura salían con la misma etiqueta —«con huecos»—, y la primera no se
+    cura sola: hay que ir a mirar Atajos (decisión 50). Que el estado se calcule
+    bien lo fijan los tests de Python; que llegue hasta la pantalla, no lo fijaba
+    nadie, y es la mitad que se lee.
+
+    El payload se pide al servidor y se le cambia UNA clave, en vez de
+    fabricarlo entero: así, si mañana `/api/perfil` devuelve otra forma, esto se
+    entera en lugar de seguir probando contra una que ya no existe.
+    """
+    datos = sesion.get(f"{BASE}/api/perfil", timeout=15).json()
+    telemetria = [f for f in datos.get("fuentes", []) if f.get("clave") == "telemetria"]
+    if not telemetria:
+        raise Fallo(f"/api/perfil no trae la fuente 'telemetria': {list(datos)}")
+
+    telemetria[0]["estado"] = "parada"
+    telemetria[0]["detalle"] = (
+        "SIN LLEGAR desde hace 2 días · 3 de 7 días · revisa las automatizaciones de Atajos"
+    )
+
+    page.route(
+        "**/api/perfil*",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(datos)
+        ),
+    )
+    try:
+        page.goto(f"{BASE}/perfil")
+        esperar(lambda: page.locator("#fuentes-lista li").count() > 0, "no salieron las fuentes")
+        texto_fuentes = page.inner_text("#fuentes-lista")
+    finally:
+        page.unroute("**/api/perfil*")
+
+    if "parada" not in texto_fuentes:
+        raise Fallo(f"una fuente parada no se dice en la pantalla: {texto_fuentes[:160]!r}")
+    if "automatizaciones" not in texto_fuentes:
+        raise Fallo("no se dice qué hacer (mirar Atajos), solo que algo va mal")
+
+    return "una fuente parada se ve y dice dónde mirar"
+
+
 def perfil_reintento(page: Any, errores: Errores) -> str:
     """Un 5xx suelto se reintenta solo; el usuario no debería ni enterarse.
 
@@ -800,6 +844,8 @@ def main() -> int:
             if quiere("perfil"):
                 corredor.bloque("PERFIL   (¿cómo estoy, y de qué me fío?)")
                 corredor.check("carga y veredictos", lambda: perfil(page))
+                corredor.check("fuente parada, a la vista",
+                               lambda: perfil_parada(page, sesion))
                 corredor.check("reintento tras un 503",
                                lambda: perfil_reintento(page, errores))
                 corredor.sin_errores_de_js("Perfil")
