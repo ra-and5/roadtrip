@@ -1,4 +1,4 @@
-"""Herramientas de mapa para el chat: sitios, rutas y memoria del viaje.
+"""Herramientas para el chat: sitios, rutas, memoria y lecturas del contexto.
 
 La IA no debe inventar si un bar está cerca ni cuánto se tarda entre dos
 ciudades. Este módulo separa tres cosas:
@@ -25,6 +25,7 @@ from app.modules.location_context import Place, validate_coords
 _TOOLS_CACHE_TTL = 30 * 60
 _PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+_MAX_CONSULTAS_SITIOS = 3
 
 
 class ToolError(Exception):
@@ -62,10 +63,11 @@ class ToolBundle:
     sitios: list[ToolPlace] = field(default_factory=list)
     ruta: ToolRoute | None = None
     memoria: list[str] = field(default_factory=list)
+    lecturas: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
 
     def hay_algo(self) -> bool:
-        return bool(self.sitios or self.ruta or self.memoria or self.avisos)
+        return bool(self.sitios or self.ruta or self.memoria or self.lecturas or self.avisos)
 
 
 class MapsProvider(Protocol):
@@ -86,6 +88,8 @@ _TIPOS_GOOGLE: dict[str, tuple[str, ...]] = {
     "lavanderia": ("laundry",),
     "camping": ("campground", "rv_park"),
     "area camper": ("rv_park", "campground"),
+    "parking": ("parking",),
+    "mirador": ("tourist_attraction",),
 }
 
 _PATRONES_SITIOS = (
@@ -98,10 +102,16 @@ _PATRONES_SITIOS = (
     ("gasolinera", re.compile(r"\b(gasolinera|repostar|gas[oó]leo|gasolina)\b", re.I)),
     ("lavanderia", re.compile(r"\b(lavander[ií]a|lavar ropa)\b", re.I)),
     ("camping", re.compile(r"\b(camping|campamento)\b", re.I)),
+    ("parking", re.compile(r"\b(parking|aparcamiento|aparcar)\b", re.I)),
+    ("mirador", re.compile(r"\b(mirador|vistas|atardecer|amanecer)\b", re.I)),
 )
 
 _PATRON_RUTA = re.compile(
     r"\b(?:de|desde)\s+(.+?)\s+(?:a|hasta)\s+(.+?)(?:\?|$|\s+en\s+coche|\s+por\s+carretera)",
+    re.I,
+)
+_PATRON_RUTA_DESDE_AQUI = re.compile(
+    r"\b(?:a|hasta)\s+(.+?)(?:\?|$|\s+en\s+coche|\s+por\s+carretera)",
     re.I,
 )
 _PALABRAS_RUTA = re.compile(r"\b(cu[aá]nto tardo|cuanto tardo|ruta|llegar|distancia)\b", re.I)
@@ -109,6 +119,25 @@ _PALABRAS_MEMORIA = re.compile(
     r"\b(ayer|dorm[ií]|dormimos|nota|notas|foto|fotos|estuve|pas[eé]|viaje|recuerdo)\b",
     re.I,
 )
+_PATRONES_PLANES: tuple[tuple[tuple[str, ...], re.Pattern[str]], ...] = (
+    (
+        ("area camper", "camping", "supermercado"),
+        re.compile(r"\b(dormir|ducharme|pernoctar|autocaravana|camper|camping)\b", re.I),
+    ),
+    (
+        ("restaurante", "bar", "cafe"),
+        re.compile(r"\b(plan|planes|qu[eé] hago|hacer cerca|algo cerca|comer|cenar)\b", re.I),
+    ),
+    (
+        ("parking", "mirador", "bar"),
+        re.compile(r"\b(aparc|atardecer|amanecer|paseo tranquilo|vistas)\b", re.I),
+    ),
+    (
+        ("gasolinera", "supermercado"),
+        re.compile(r"\b(repostar|comprar|provisiones|agua|hielo|gasolina|gas[oó]leo)\b", re.I),
+    ),
+)
+_PALABRAS_AGUA = re.compile(r"\b(paddle|surf|tabla|kayak|mar|playa|ba[ñn]o|bañar)\b", re.I)
 
 
 def _segundos_a_minutos(valor: str | None) -> int | None:
@@ -278,17 +307,61 @@ def detectar_sitio(pregunta: str) -> str | None:
     return None
 
 
-def detectar_ruta(pregunta: str) -> tuple[str, str] | None:
+def detectar_consultas_sitios(pregunta: str) -> list[str]:
+    """Devuelve las consultas de Places que merece la pena hacer.
+
+    Una pregunta abierta como "qué hago cerca" no es una categoría de Google:
+    la convertimos en dos o tres búsquedas pequeñas y cacheables. El límite es
+    parte del contrato de coste de este módulo.
+    """
+    consultas: list[str] = []
+
+    def add(nombre: str) -> None:
+        if nombre not in consultas:
+            consultas.append(nombre)
+
+    explicita = detectar_sitio(pregunta)
+    if explicita:
+        add(explicita)
+    for nombres, patron in _PATRONES_PLANES:
+        if patron.search(pregunta):
+            for nombre in nombres:
+                add(nombre)
+    return consultas[:_MAX_CONSULTAS_SITIOS]
+
+
+def detectar_ruta(pregunta: str, ubicacion: Place | None = None) -> tuple[str, str] | None:
     if not _PALABRAS_RUTA.search(pregunta):
         return None
     match = _PATRON_RUTA.search(pregunta)
-    if not match:
+    if match:
+        origen = re.sub(r"\s+", " ", match.group(1)).strip(" .,")
+        destino = re.sub(r"\s+", " ", match.group(2)).strip(" .,")
+    elif ubicacion is not None:
+        match = _PATRON_RUTA_DESDE_AQUI.search(pregunta)
+        if not match:
+            return None
+        origen = ubicacion.display_name or ubicacion.name
+        destino = re.sub(r"\s+", " ", match.group(1)).strip(" .,")
+    else:
         return None
-    origen = re.sub(r"\s+", " ", match.group(1)).strip(" .,")
-    destino = re.sub(r"\s+", " ", match.group(2)).strip(" .,")
     if len(origen) < 2 or len(destino) < 2:
         return None
     return origen, destino
+
+
+def _lecturas_contexto(pregunta: str, tiempo: Any | None) -> list[str]:
+    lineas: list[str] = []
+    if _PALABRAS_AGUA.search(pregunta):
+        if tiempo is None:
+            lineas.append(
+                "PADDLE_SURF: no hay previsión meteorológica/marina en el contexto; "
+                "no des una recomendación segura para entrar al agua."
+            )
+        else:
+            water = tiempo.water_sports()
+            lineas.append(f"PADDLE_SURF: {water.rating.upper()} — {water.reason}")
+    return lineas
 
 
 def _memoria_basica(pregunta: str) -> list[str]:
@@ -320,6 +393,7 @@ def ejecutar(
     ubicacion: Place,
     *,
     provider: MapsProvider | None = None,
+    tiempo: Any | None = None,
 ) -> ToolBundle:
     """Ejecuta solo las herramientas que la pregunta parece necesitar."""
     provider = provider or GoogleMapsProvider()
@@ -327,16 +401,17 @@ def ejecutar(
     sitios: list[ToolPlace] = []
     ruta: ToolRoute | None = None
 
-    consulta_sitio = detectar_sitio(pregunta)
-    if consulta_sitio:
+    consultas_sitios = detectar_consultas_sitios(pregunta)
+    for consulta_sitio in consultas_sitios:
         try:
-            sitios = provider.buscar_sitios(consulta_sitio, ubicacion.lat, ubicacion.lon)
-            if not sitios:
+            encontrados = provider.buscar_sitios(consulta_sitio, ubicacion.lat, ubicacion.lon)
+            sitios.extend(encontrados)
+            if not encontrados:
                 avisos.append(f"No encontré {consulta_sitio} cerca con la herramienta de sitios.")
         except ToolError as exc:
-            avisos.append(str(exc))
+            avisos.append(f"{consulta_sitio}: {exc}")
 
-    ruta_detectada = detectar_ruta(pregunta)
+    ruta_detectada = detectar_ruta(pregunta, ubicacion)
     if ruta_detectada:
         try:
             ruta = provider.calcular_ruta(*ruta_detectada)
@@ -347,6 +422,7 @@ def ejecutar(
         sitios=sitios,
         ruta=ruta,
         memoria=_memoria_basica(pregunta),
+        lecturas=_lecturas_contexto(pregunta, tiempo),
         avisos=avisos,
     )
 
@@ -388,6 +464,10 @@ def formatear(bundle: ToolBundle) -> str:
     if bundle.memoria:
         lineas.append("MEMORIA DEL VIAJE:")
         lineas.extend(bundle.memoria)
+
+    if bundle.lecturas:
+        lineas.append("LECTURAS DEL CONTEXTO:")
+        lineas.extend("- " + lectura for lectura in bundle.lecturas)
 
     if bundle.avisos:
         lineas.append("AVISOS DE HERRAMIENTAS:")

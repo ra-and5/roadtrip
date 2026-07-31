@@ -2696,6 +2696,19 @@ para invalidarlo.
     compuesto cambia su `name/model` al proveedor real, para que la trazabilidad
     y la caché digan quién contestó.
 
+64. **El chat ya distingue preguntas abiertas de búsquedas concretas.** "Bar
+    cerca" sigue siendo una consulta de Places, pero "qué hago cerca",
+    "dónde duermo" o "necesito comprar/repostar" se convierten en un pequeño
+    paquete de búsquedas prácticas. El límite son tres consultas de Places por
+    pregunta: suficiente para dar contexto real y pequeño para no gastar cuota
+    de Google ni tokens de Kimi sin darte cuenta.
+
+    La misma herramienta también entiende rutas "desde aquí" (`cuánto tardo a
+    Vitoria`) usando el lugar actual como origen, y mete el veredicto calculado
+    de paddle surf cuando la pregunta habla de tabla, mar o playa. Ese dato no
+    se recalcula en el modelo: sale de `weather_context.water_sports()`, igual
+    que en el dashboard.
+
 ## 8. Conceptos de esta fase
 
 Ideas que conviene entender para mantener y extender esto.

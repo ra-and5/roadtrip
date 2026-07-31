@@ -186,6 +186,23 @@ def test_el_chat_mete_herramientas_en_el_prompt() -> None:
     assert "abierto ahora" in enviado
 
 
+def test_el_chat_mete_veredicto_de_paddle_en_herramientas() -> None:
+    proveedor = FakeProvider()
+
+    chat.responder(
+        "puedo sacar la tabla de paddle?",
+        _contexto(),
+        [],
+        provider=proveedor,
+        tools_provider=FakeTools(),
+    )
+
+    enviado = proveedor.llamadas[0]["context"]
+    assert "LECTURAS DEL CONTEXTO" in enviado
+    assert "PADDLE_SURF" in enviado
+    assert "sin datos" in enviado.lower()
+
+
 # ---------------------------------------------------------------------------
 # Lo que no se puede callar
 # ---------------------------------------------------------------------------

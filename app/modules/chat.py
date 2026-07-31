@@ -32,7 +32,10 @@ pregunta *y* el historial entero, así que casi nunca acertaría; y dos pregunta
 iguales en momentos distintos merecen respuestas distintas, que es justo lo que
 una conversación es.
 
-**No reintenta ante un 429.** Sigue habiendo alguien esperando (decisión 12).
+**No reintenta el mismo proveedor ante un 429.** Sigue habiendo alguien
+esperando (decisión 12). Si `llm_providers.build_provider()` ha montado una
+cadena de fallback, cambiar a otro proveedor configurado ocurre debajo de esta
+capa y conserva la trazabilidad de quién respondió.
 """
 
 from __future__ import annotations
@@ -296,7 +299,7 @@ def responder(
     """
     provider = provider or build_provider()
     herramientas = map_tools.ejecutar(
-        pregunta, contexto.ubicacion, provider=tools_provider
+        pregunta, contexto.ubicacion, provider=tools_provider, tiempo=contexto.tiempo
     )
 
     bruto = provider.generate(

@@ -94,6 +94,10 @@ def preparar_entorno(datos: Path) -> None:
             # diría en producción.
             "LLM_PROVIDER": "gemini",
             "GEMINI_API_KEY": "clave-de-mentira-para-la-verificacion",
+            # La verificación es sin red y sin API keys reales. Si el .env
+            # local trae Google Maps configurado, las preguntas abiertas del
+            # chat activarían Places y el guion dejaría de ser hermético.
+            "GOOGLE_MAPS_API_KEY": "",
             # Con esto la barra enseña los botones de lanzar los atajos.
             # La petición a la NASA la hace el navegador, así que la clave
             # llega hasta la página. En la verificación se dobla la respuesta.
