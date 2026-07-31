@@ -175,7 +175,7 @@ python tools/importar_fotos.py --limpiar   # vacía los puntos (se regeneran imp
 | 5 | Contexto único, luna, limpieza de la pantalla | 🟨 **Hecha y DESPLEGADA**, validada en iPhone el 28-07-2026. Sin cerrar: ver §4 de [`prompt-fase6.md`](docs/prompt-fase6.md) |
 | 6 | Pasos ciertos, cerrar la 2d y el chatbot | 🟨 **Pasos ciertos** (filtro `Origen`, contrastado contra la app Salud el 29-07-2026) y **chatbot hecho** (`/chat`, decisión 37). Pagada además la deuda de la Fase 5: sin datos duplicados en `/api/recommendations` y con el aviso de disco arreglado (decisión 38). Falta cerrar la 2d, y eso es tiempo, no trabajo |
 | 6b | **Cuatro pantallas separadas**: Inicio, Perfil, Mapa, Chat | ✅ **Cerrada** 29-07-2026, validada en el iPhone contra el servidor (decisiones 40 a 46) |
-| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1, §2, §3 y §4 hechos en local**: sistema visual con la gramática de la certeza en las seis pantallas y en los dos temas (decisión 55), el avance del viaje enseñado como tal, el **Diario con miniaturas** (decisión 56), y `manifest.json` + iconos + meta de iOS **sin service worker** (decisión 59). Falta validar la instalación en el iPhone y montar el envío de miniaturas en el atajo — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
+| 8 | Diseño, el avance del viaje, el diario y la PWA | 🟨 **§1, §2, §3 y §4 hechos en local**: sistema visual con gramática de certeza, avance del viaje, Diario integrado en Viaje sin miniaturas visibles por defecto, Fuego al final de Inicio bajo botón, y `manifest.json` + iconos + meta de iOS **sin service worker** (decisiones 55, 56, 59 y 61). Falta validar la instalación en el iPhone y decidir si el atajo manda copias reducidas de fotos — encargo en [`docs/prompt-fase8.md`](docs/prompt-fase8.md) |
 | 7 | Verificar todo, navegación fluida, el diario, y la PWA | 🟨 **§1 y §2 hechos**: `tools/verificar.py` recorre las cuatro pantallas en Chromium y `tools/verificar_sabotaje.sh` demuestra que caza cinco fallos metidos a propósito (decisión 47). Falta el §2 en adelante — encargo en [`docs/prompt-fase7.md`](docs/prompt-fase7.md) |
 
 **La Fase 3 está hecha, no cerrada,** y la diferencia es la misma que en la 2d.
@@ -2638,6 +2638,25 @@ para invalidarlo.
 
 - **Sin fecha.** Implementar `OllamaProvider` (el diseño está documentado en la
   propia clase): permitiría afinar el prompt sin conexión, en el propio camper.
+
+61. **Inicio absorbe Fuego y Viaje absorbe Diario.** El usuario volvió a pedir
+    que el fuego esté en Inicio, pero no como cuarta señal del panel ni como
+    una consulta automática: va **al final**, bajo botón, porque mirar FIRMS
+    cuesta GPS, red y atención, y no debe robar el arranque de "¿qué hago
+    aquí?". `/fuego` queda como redirección compatible a ese bloque.
+
+    El Diario deja de ser pantalla principal y vive dentro de `/mapa`, que en
+    la navegación se llama **Viaje**: progreso, trayecto, revivir y muro son la
+    misma cosa desde el punto de vista del uso real. `/diario` redirige a
+    `/mapa#diario` para no romper enlaces viejos.
+
+    Además, el diario **no pinta miniaturas por defecto**. Si solo han llegado
+    metadatos de una foto, no hay imagen que enseñar; inventar un recuadro roto
+    comunica peor que una línea clara con archivo, hora y lugar. La tubería de
+    miniaturas sigue existiendo para cuando el atajo mande una copia reducida,
+    pero la UI no depende de ella. La forma óptima sigue siendo no subir el
+    HEIC/JPEG original del iPhone: subir un JPEG reducido sin EXIF, de decenas
+    de KB, protege disco y ancho de banda.
 
 ## 8. Conceptos de esta fase
 

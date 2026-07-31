@@ -217,10 +217,15 @@ def logout() -> Any:
 @app.route("/")
 @auth.login_required
 def index() -> Any:
-    # La señal de fuego que vivía aquí se quitó a petición del usuario: sigue
-    # en su propia pantalla, /fuego, que es donde de verdad hace falta decidir
-    # una ruta (decisión 59). Por eso Inicio ya no necesita nada de `incendios`.
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        firms_map_key=Config.FIRMS_MAP_KEY,
+        firms_base=incendios.URL_BASE,
+        firms_sensor=incendios.SENSOR,
+        firms_grados=incendios.GRADOS_MAPA,
+        firms_espana=",".join(str(x) for x in incendios.CAJA_ESPANA),
+        firms_max_dias=incendios.MAX_DIAS,
+    )
 
 
 @app.route("/mapa")
@@ -240,15 +245,8 @@ def mapa() -> Any:
 @app.route("/diario")
 @auth.login_required
 def diario_page() -> Any:
-    """El muro cronológico: qué pasó cada día, fotos y notas mezcladas.
-
-    Pantalla propia y no una sección más del Mapa, porque contesta otra pregunta
-    (decisión 40): el Mapa es *dónde he estado* —el avance, el trayecto, los
-    sitios— y el Diario es *qué pasó*. Se apoyan en los mismos datos y en el
-    mismo `/api/ruta`, pero ninguna repite lo que enseña la otra: el «día a día»
-    se fue de allí al mudarse aquí, no se duplicó.
-    """
-    return render_template("diario.html", shortcut_fotos=Config.SHORTCUT_FOTOS)
+    """Compatibilidad con enlaces viejos: el diario vive dentro del viaje."""
+    return redirect(url_for("mapa") + "#diario")
 
 
 @app.route("/perfil")
@@ -261,22 +259,8 @@ def perfil_page() -> Any:
 @app.route("/fuego")
 @auth.login_required
 def fuego_page() -> Any:
-    """El mapa de incendios. Contesta «¿hacia dónde me muevo?».
-
-    Pantalla propia y no una capa de `/mapa`: aquel es el registro de dónde has
-    estado (decisión 40) y este es lo que está pasando ahora mismo y caduca en
-    horas. Mezclarlos haría que el mapa del viaje dejara de significar una cosa
-    sola, que es lo mismo que se decidió con los POIs.
-    """
-    return render_template(
-        "fuego.html",
-        firms_map_key=Config.FIRMS_MAP_KEY,
-        firms_base=incendios.URL_BASE,
-        firms_sensor=incendios.SENSOR,
-        firms_grados=incendios.GRADOS_MAPA,
-        firms_espana=",".join(str(x) for x in incendios.CAJA_ESPANA),
-        firms_max_dias=incendios.MAX_DIAS,
-    )
+    """Compatibilidad con enlaces viejos: fuego vive al final de Inicio."""
+    return redirect(url_for("index") + "#fuego-controles")
 
 
 @app.route("/chat")

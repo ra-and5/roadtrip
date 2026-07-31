@@ -410,10 +410,6 @@
   }
 
 
-  /* La señal de fuego (NASA FIRMS) vivió aquí; se quitó de Inicio a petición
-   * del usuario, que la sigue teniendo en su propia pantalla, /fuego, con el
-   * mapa y sin números de MW por línea (decisión 59). */
-
   /* El estado de los POIs se enseña con las palabras de cada caso, no con un
    * "no hay resultados" para todo. Los cuatro significan cosas distintas y
    * confundirlos es el fallo que costó descartar un espejo de Overpass: decir

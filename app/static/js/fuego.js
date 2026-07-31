@@ -1,7 +1,5 @@
-/* El mapa de incendios. Contesta "¿hacia dónde me muevo, y hacia dónde no?".
- *
- * Es pantalla propia y no una capa de /mapa: aquel es el registro de dónde has
- * estado (decisión 40) y esto es lo que está pasando ahora y caduca en horas.
+/* El mapa de focos, al final de Inicio. Contesta "¿hacia dónde me muevo, y
+ * hacia dónde no?" sin convertir cada punto caliente en una alarma.
  *
  * El reparto de trabajo es el de la decisión 53: la petición al satélite la
  * hace ESTE navegador —el dominio de la NASA no está en la lista blanca del
@@ -35,6 +33,7 @@
   const FRP_POTENTE = 20;
 
   const controles = document.getElementById("fuego-controles");
+  if (!controles) return;
   const estadoEl = document.getElementById("fuego-estado");
   const avisoEl = document.getElementById("fuego-aviso");
   const diasEl = document.getElementById("fuego-dias");
@@ -249,8 +248,7 @@
           "o quemas agrícolas: quita el filtro para verlos."
         );
       } else {
-        decir(pintados + " incendios activos " + donde + ", de " +
-              detecciones.length + " detecciones (" + dias + " día(s)).", "ok");
+        decir(pintados + " focos activos " + donde + " en " + dias + " día(s).", "ok");
       }
     } catch (err) {
       decir(
@@ -292,7 +290,7 @@
     // regalado.
     const pintados = pintar();
     if (detecciones.length && pintados === 0) {
-      decir("Ninguna detección potente. Quita el filtro para ver las demás.");
+      decir("Ningún foco potente. Quita el filtro para ver los demás.");
     }
   });
   document.getElementById("fuego-refrescar").addEventListener("click", cargar);
@@ -306,5 +304,5 @@
     cargar();
   });
 
-  cargar();
+  decir("Pulsa Actualizar si quieres mirar la ruta.");
 })();

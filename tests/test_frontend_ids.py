@@ -33,8 +33,8 @@ PAGINAS = {
     "perfil.js": "perfil.html",
     "mapa.js": "mapa.html",
     "chat.js": "chat.html",
-    "fuego.js": "fuego.html",
-    "diario.js": "diario.html",
+    "fuego.js": "index.html",
+    "diario.js": "mapa.html",
 }
 
 # Las tres formas que tiene este frontend de nombrar un id: la directa y los dos

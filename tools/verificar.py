@@ -1,4 +1,4 @@
-"""Recorre las seis pantallas en un navegador de verdad y dice qué se ha roto.
+"""Recorre la app en un navegador de verdad y dice qué se ha roto.
 
 Uso:
     python tools/verificar.py            # headless, es lo normal
@@ -698,7 +698,7 @@ def mapa_album_de_fotos(page: Any) -> str:
 
 
 def diario(page: Any) -> str:
-    """El muro cronológico: días, fotos y notas, y las miniaturas si las hay."""
+    """El muro cronológico: días, fotos como eventos y notas."""
     page.goto(f"{BASE}/diario")
     esperar(lambda: page.inner_text("#diario-muro").strip(), "no salió el muro del diario")
 
@@ -710,28 +710,13 @@ def diario(page: Any) -> str:
     if not page.locator("#diario-muro .apunte-texto").count():
         raise Fallo("el diario no enseña el texto de ninguna nota")
 
-    # Se siembran dos fotos CON miniatura y dos SIN, así que tienen que verse
-    # las dos formas. Exigir solo "alguna foto" dejaría pasar los dos fallos que
-    # de verdad importan aquí: que la miniatura no se sirva (y todo salga como
-    # hueco), o que una foto sin miniatura desaparezca del muro y haga creer que
-    # ese día hubo menos de lo que hubo.
-    imagenes = page.locator("#diario-muro .tira-foto").count()
-    huecos = page.locator("#diario-muro .tira-hueco").count()
-    if imagenes == 0:
-        raise Fallo("ninguna foto se enseña como miniatura: ¿se están sirviendo?")
-    if huecos == 0:
-        raise Fallo("las fotos sin miniatura no salen como hueco: se están perdiendo")
+    fotos = page.locator("#diario-muro .foto-evento").count()
+    if fotos == 0:
+        raise Fallo("las fotos no salen como eventos en el diario")
+    if page.locator("#diario-muro .tira-foto, #diario-muro .tira-hueco").count():
+        raise Fallo("el diario sigue intentando enseñar miniaturas")
 
-    # Y que la imagen haya CARGADO de verdad, no solo que el `<img>` exista: un
-    # 404 deja la etiqueta en su sitio con `naturalWidth` a cero, y el muro se
-    # vería lleno de recuadros rotos sin que nada fallara por aquí.
-    cargadas = page.locator("#diario-muro .tira-foto").evaluate_all(
-        "nodos => nodos.filter(n => n.complete && n.naturalWidth > 0).length"
-    )
-    if cargadas != imagenes:
-        raise Fallo(f"{imagenes - cargadas} de {imagenes} miniaturas no cargaron")
-
-    return f"{dias} días, {imagenes} miniaturas, {huecos} huecos y las notas legibles"
+    return f"{dias} días, {fotos} fotos como eventos y las notas legibles"
 
 
 def diario_filtro(page: Any) -> str:
@@ -778,7 +763,8 @@ def fuego_mapa(page: Any) -> str:
     )
     try:
         page.goto(f"{BASE}/fuego")
-        esperar(lambda: "incendios activos" in texto(page, "fuego-estado"),
+        page.click("#fuego-refrescar")
+        esperar(lambda: "focos activos" in texto(page, "fuego-estado"),
                 "el mapa de fuego no llegó a contar los incendios", segundos=20)
 
         # Con el filtro puesto sale UN círculo: el de 145 MW. Los otros dos son
@@ -809,7 +795,7 @@ def fuego_mapa(page: Any) -> str:
     finally:
         page.unroute("**/firms.modaps.eosdis.nasa.gov/**")
 
-    return "1 incendio de 3 detecciones agrupadas en 2 focos; el filtro esconde la industria"
+    return "1 foco potente y 2 focos al quitar el filtro; la industria queda escondida"
 
 
 def chat(page: Any) -> str:
@@ -927,7 +913,7 @@ class Corredor:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verificación de las seis pantallas.")
+    parser = argparse.ArgumentParser(description="Verificación de la app en navegador.")
     parser.add_argument("--ver", action="store_true", help="con ventana, no headless")
     parser.add_argument("--lento", action="store_true", help="ralentiza cada acción")
     parser.add_argument("--solo", default="", help="inicio | perfil | mapa | diario | fuego | chat")
@@ -1063,7 +1049,7 @@ def main() -> int:
               + ", ".join(corredor.fallos))
         print("No despliegues sin arreglarlo.\n")
         return 1
-    print("Todo en verde. Las seis pantallas responden en un navegador de verdad.")
+    print("Todo en verde. La app responde en un navegador de verdad.")
     print("Ojo: esto no prueba el GPS de iOS, ni IndexedDB a los 7 días, ni lo que")
     print("tarda en el servidor con un solo worker.\n")
     return 0

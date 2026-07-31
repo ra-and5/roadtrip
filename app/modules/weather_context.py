@@ -164,35 +164,60 @@ class Weather:
             return WaterSports(
                 rating="sin datos",
                 suitable=False,
-                reason="No hay datos de oleaje: esta ubicación no está junto al mar.",
+                reason=(
+                    self.marine.fallo
+                    or "No hay datos de oleaje: esta ubicación no está junto al mar."
+                ),
             )
 
         wave = self.marine.wave_height_m or 0.0
+        period = self.marine.wave_period_s
+        wind_wave = self.marine.wind_wave_height_m
+        swell = self.marine.swell_wave_height_m
         wind = self.wind_speed_kmh or 0.0
         gusts = self.wind_gusts_kmh or wind
+
+        def detalle(base: str) -> str:
+            partes = [base, f"Ola {wave:.1f} m"]
+            if period is not None:
+                partes.append(f"periodo {period:.0f} s")
+            if wind_wave is not None:
+                partes.append(f"mar de viento {wind_wave:.1f} m")
+            if swell is not None:
+                partes.append(f"mar de fondo {swell:.1f} m")
+            partes.append(f"viento {wind:.0f} km/h")
+            partes.append(f"rachas {gusts:.0f} km/h")
+            if self.precip_probability_pct is not None:
+                partes.append(f"lluvia {self.precip_probability_pct}%")
+            if self.marine.sea_temperature_c is not None:
+                partes.append(f"agua {self.marine.sea_temperature_c:.0f} °C")
+            return ". ".join([partes[0], ", ".join(partes[1:]) + "."])
 
         # El orden importa: se evalúa de lo más restrictivo a lo más permisivo,
         # y se devuelve el primer criterio que descarta.
         if self.weather_code in (95, 96, 99):
-            return WaterSports("desaconsejado", False, "Hay tormenta eléctrica: no entres al agua.")
+            return WaterSports(
+                "desaconsejado", False,
+                detalle("Hay tormenta eléctrica: no entres al agua."),
+            )
         if wave > 1.2:
             return WaterSports(
                 "desaconsejado", False,
-                f"Oleaje de {wave:.1f} m, demasiado para paddle surf recreativo.",
+                detalle("Oleaje demasiado alto para paddle surf recreativo."),
             )
         if gusts > 30:
             return WaterSports(
                 "desaconsejado", False,
-                f"Rachas de {gusts:.0f} km/h: el viento te arrastraría mar adentro.",
+                detalle("Rachas fuertes: el viento puede arrastrarte mar adentro."),
             )
         if wave <= 0.5 and wind <= 12:
-            reason = f"Mar casi plano ({wave:.1f} m) y viento flojo ({wind:.0f} km/h)."
-            if self.marine.sea_temperature_c is not None:
-                reason += f" Agua a {self.marine.sea_temperature_c:.0f} °C."
-            return WaterSports("excelente", True, reason)
+            return WaterSports(
+                "excelente", True,
+                detalle("Mar casi plano y viento flojo."),
+            )
         return WaterSports(
             "aceptable", True,
-            f"Oleaje de {wave:.1f} m y viento de {wind:.0f} km/h: viable con algo de esfuerzo.",
+            detalle("Viable, pero no es paseo plano."),
         )
 
     def summary(self) -> str:

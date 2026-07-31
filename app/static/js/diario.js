@@ -7,9 +7,9 @@
  * otra (decisión 40).
  *
  * El orden es cronológico y las fotos NO se separan de las notas: así es como se
- * recuerda un día. Lo único que se agrupa son las fotos seguidas, que se pintan
- * como una tira — es lo que convierte una lista de nombres de archivo en un
- * álbum sin romper la línea del tiempo.
+ * recuerda un día. Las fotos se enseñan como eventos, no como miniaturas: si
+ * solo han llegado metadatos no hay píxeles que cargar, y un recuadro roto
+ * comunica peor que una línea honrada en la cronología.
  */
 
 (function () {
@@ -42,31 +42,28 @@
     tira.className = "tira";
 
     fotos.forEach(function (foto) {
-      /* Con miniatura se enseña la foto; sin ella, su nombre. El hueco se dice
-       * en vez de disimularse: una foto que está en el viaje pero cuya imagen no
-       * ha llegado es información, y dejarla fuera haría creer que ese día hubo
-       * menos de lo que hubo. */
-      if (foto.miniatura) {
-        var img = document.createElement("img");
-        img.className = "tira-foto";
-        img.src = "/miniaturas/" + encodeURIComponent(foto.miniatura);
-        /* `alt` con el nombre real del archivo: es lo único que sabemos de la
-         * foto, y con la imagen sin cargar es lo que queda. */
-        img.alt = foto.archivo || "Foto del viaje";
-        img.loading = "lazy";
-        /* Sin esto el navegador no reserva sitio y el muro salta al cargar cada
-         * imagen — con mala cobertura, saltando durante segundos. */
-        img.width = 200;
-        img.height = 200;
-        img.title = (foto.archivo || "") + "  ·  " + foto.cuando.slice(11, 16);
-        tira.appendChild(img);
-      } else {
-        var hueco = document.createElement("span");
-        hueco.className = "tira-hueco";
-        hueco.textContent = foto.archivo || "foto";
-        hueco.title = "Esta foto no ha mandado su miniatura";
-        tira.appendChild(hueco);
-      }
+      var caja = document.createElement("div");
+      caja.className = "foto-evento";
+
+      var hora = document.createElement("span");
+      hora.className = "momento-hora";
+      hora.textContent = foto.cuando.slice(11, 16);
+      caja.appendChild(hora);
+
+      var cuerpo = document.createElement("div");
+      cuerpo.className = "foto-evento-cuerpo";
+
+      var nombre = document.createElement("strong");
+      nombre.textContent = foto.archivo || "Foto del viaje";
+      cuerpo.appendChild(nombre);
+
+      var meta = document.createElement("span");
+      meta.className = "apunte-lugar";
+      meta.textContent = foto.lugar || "Foto con metadatos, sin imagen subida";
+      cuerpo.appendChild(meta);
+
+      caja.appendChild(cuerpo);
+      tira.appendChild(caja);
     });
 
     return tira;

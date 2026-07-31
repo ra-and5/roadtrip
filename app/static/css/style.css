@@ -620,11 +620,8 @@ input[type="checkbox"] {
 /* Las tres señales. Reparto fijo en tres columnas y no `auto-fit`: son
    siempre las mismas, y que cambien de sitio o de ancho según cuántas hayan
    contestado haría que en marcha se leyera la equivocada. Una que falta deja
-   su hueco, que además dice que falta.
-
-   Fuego vivía aquí como cuarta señal y se quitó (decisión 59): sigue en su
-   propia pantalla, /fuego, que es donde de verdad hace falta para decidir una
-   ruta. Aquí solo sobraba. */
+   su hueco, que además dice que falta. Fuego vuelve a Inicio, pero como mapa
+   al final y bajo botón: no es un veredicto del tiempo, es una decisión de ruta. */
 .senales {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -998,60 +995,36 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
    10b. Diario — ¿qué pasó?
    -------------------------------------------------------------------------- */
 
-/* Las fotos seguidas se pintan como una tira, y las notas la cortan. Así el
-   álbum no rompe la cronología, que es lo que hace que un diario se lea como un
-   diario y no como una galería con fechas. */
+/* Las fotos seguidas se pintan como eventos compactos, y las notas la cortan.
+   Si solo han llegado metadatos, enseñar un nombre claro es mejor que enseñar
+   un falso hueco de imagen. */
 .tira {
   display: grid;
-  /* auto-fill + minmax con TECHO: tres miniaturas en un iPhone y cinco en una
-     pantalla ancha, sin media queries que mantener. El techo no es cosmético —
-     con `1fr` de máximo, un día con UNA sola foto la estiraba a todo el ancho de
-     la tarjeta y el muro perdía el ritmo justo en los días tranquilos, que son
-     la mayoría. */
-  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 7rem));
-  gap: var(--e1);
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--e2);
   margin: var(--e2) 0 var(--e4);
-  /* `stretch` es el valor por defecto de un grid, y estiraba cada miniatura a
-     lo alto de su fila: salían rectángulos verticales en vez de cuadrados, y
-     además de distinto alto según la fila. Con `start` mandan su `aspect-ratio`
-     y el álbum tiene una retícula regular, que es lo que lo hace legible. */
-  align-items: start;
 }
-.tira-foto {
-  width: 100%;
-  /* `height: auto` NO sobra. Los atributos `width`/`height` del `<img>` están
-     puestos para que el navegador reserve el hueco antes de descargar la imagen
-     —sin eso el muro salta con cada foto que llega, y con mala cobertura salta
-     durante segundos—, pero se mapean a reglas de presentación: el CSS anulaba
-     el `width` y dejaba vivo el `height: 200px`, así que las miniaturas salían
-     rectángulos verticales mientras los huecos, que son `<span>`, salían
-     cuadrados. Un `aspect-ratio` que no se aplica no da ningún error. */
-  height: auto;
-  aspect-ratio: 1;
-  object-fit: cover;
-  display: block;
-  border-radius: var(--r1);
-  background: var(--superficie-2);
-  border: 1px solid var(--trazo);
-}
-/* Una foto que está en el viaje pero cuya miniatura no ha llegado. Se dice en
-   vez de esconderla: dejarla fuera haría creer que ese día hubo menos de lo que
-   hubo. Va con la trama de «no lo sé», que ya significa eso en toda la app. */
-.tira-hueco {
+.foto-evento {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 1;
-  padding: var(--e1);
+  gap: var(--e3);
+  align-items: baseline;
+  min-width: 0;
+  padding: var(--e2) var(--e3);
   border-radius: var(--r1);
-  border: 1px dashed var(--trazo-fuerte);
-  background: var(--trama-hueco);
+  border: 1px solid var(--trazo);
+  background: var(--superficie-2);
+}
+.foto-evento-cuerpo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.foto-evento strong {
   font-family: var(--medida);
-  font-size: var(--t-micro);
-  color: var(--apagado);
-  text-align: center;
+  font-size: var(--t-mini);
   overflow: hidden;
-  word-break: break-all;
+  text-overflow: ellipsis;
 }
 
 .jornada-meta {

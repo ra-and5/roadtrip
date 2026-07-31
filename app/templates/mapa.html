@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Mapa{% endblock %}
+{% block title %}Viaje{% endblock %}
 
 {% block head_extra %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
@@ -13,7 +13,7 @@
   <div class="progreso-cabecera">
     <div>
       <span class="rotulo">Dónde has estado</span>
-      <h1>Mapa</h1>
+      <h1>Viaje</h1>
     </div>
     <select id="filtro-anio" aria-label="Filtrar por año"></select>
   </div>
@@ -86,16 +86,25 @@
   <ul class="visitados" id="visitados-lista"></ul>
 </section>
 
-<!-- El «día a día» se mudó al Diario, que es la pantalla que contesta «qué
-     pasó» (decisión 40). Aquí quedan el estado de la carga y los avisos de la
-     ruta, que sí son de esta pantalla: dicen cuántas fotos no se pueden dibujar
-     en el mapa. -->
 <section class="card">
   <p id="notas-estado" class="status" aria-live="polite"></p>
   <p class="muted" id="ruta-avisos" hidden></p>
-  <p class="muted">
-    Lo que pasó cada día, con sus fotos, está en <a href="{{ url_for('diario_page') }}">el diario</a>.
-  </p>
+</section>
+
+<section class="card" id="diario">
+  <div class="progreso-cabecera">
+    <div>
+      <span class="rotulo">Qué pasó</span>
+      <h2>Diario</h2>
+    </div>
+    <select id="diario-anio" aria-label="Filtrar diario por año"></select>
+  </div>
+  <p id="diario-estado" class="status" aria-live="polite">Cargando…</p>
+  <p class="muted" id="diario-avisos" hidden></p>
+</section>
+
+<section class="card" id="diario-card" hidden>
+  <div id="diario-muro"></div>
 </section>
 
 {% endblock %}
@@ -103,4 +112,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mapa.js') }}"></script>
+<script src="{{ url_for('static', filename='js/diario.js') }}"></script>
 {% endblock %}

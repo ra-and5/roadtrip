@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}¿Qué hago aquí?{% endblock %}
 
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+{% endblock %}
+
 {% block content %}
 <!-- Cada pieza se rellena y se muestra por separado. Es lo que permite que la
      app siga siendo útil aunque una de las fuentes haya fallado (decisión 9). -->
@@ -134,9 +138,67 @@
   </div>
 
 </section>
+
+<section class="card" id="fuego-controles"
+         data-firms-key="{{ firms_map_key }}"
+         data-firms-base="{{ firms_base }}"
+         data-firms-sensor="{{ firms_sensor }}"
+         data-firms-grados="{{ firms_grados }}"
+         data-firms-espana="{{ firms_espana }}">
+  <span class="rotulo">Ruta de hoy</span>
+  <h2>Focos cerca</h2>
+  <p class="muted">Para decidir por dónde moverte si hay humo o un frente activo.</p>
+
+  <div class="fuego-mandos">
+    <span class="mando">
+      <label for="fuego-ambito">Zona</label>
+      <select id="fuego-ambito">
+        <option value="cerca">A mi alrededor (330 km)</option>
+        <option value="espana" selected>España</option>
+      </select>
+    </span>
+
+    <span class="mando">
+      <label for="fuego-dias">Últimos</label>
+      <select id="fuego-dias">
+        <option value="1">1 día</option>
+        <option value="2">2 días</option>
+        <option value="3" selected>3 días</option>
+        <option value="5">5 días</option>
+      </select>
+    </span>
+
+    <label class="fuego-check">
+      <input type="checkbox" id="fuego-solo-fuertes" checked>
+      Solo focos potentes
+    </label>
+
+    <button type="button" id="fuego-refrescar" class="secondary">Actualizar</button>
+  </div>
+
+  <p class="status" id="fuego-estado" aria-live="polite">Pulsa actualizar si quieres mirar la ruta.</p>
+</section>
+
+<section class="card">
+  <div id="fuego-mapa" role="application" aria-label="Mapa de focos activos"></div>
+  <ul class="fuego-leyenda">
+    <li><span class="punto" style="background:#7f0000"></span> menos de 1 h</li>
+    <li><span class="punto" style="background:#e02b0a"></span> 1-4 h</li>
+    <li><span class="punto" style="background:#f28c28"></span> 4-12 h</li>
+    <li><span class="punto" style="background:#f7e017"></span> más de 12 h</li>
+  </ul>
+  <p class="muted">El color marca antigüedad y el tamaño marca intensidad. El
+    satélite pasa pocas veces al día y no ve bajo nubes: mapa limpio no significa riesgo cero.</p>
+  <p class="muted" id="fuego-aviso" hidden></p>
+
+  <a id="fuego-nasa" class="button secondary" href="https://firms.modaps.eosdis.nasa.gov/map/"
+     target="_blank" rel="noopener noreferrer">Abrir el mapa oficial de la NASA</a>
+</section>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 <script src="{{ url_for('static', filename='js/notas.js') }}"></script>
+<script src="{{ url_for('static', filename='js/fuego.js') }}"></script>
 {% endblock %}
