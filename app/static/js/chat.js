@@ -66,7 +66,7 @@
     if (!document.hidden && document.hasFocus()) return;
 
     try {
-      new Notification("Compañero respondió", {
+      new Notification("WhereAmAi respondió", {
         body: resumenNotificacion(texto),
         tag: "roadtrip-chat-respuesta",
         icon: "/static/icons/icon-192.png",

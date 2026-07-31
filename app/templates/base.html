@@ -12,17 +12,17 @@
   <!-- PWA instalable sin service worker: icono y modo standalone, pero sin una
        caché nueva que pueda dejar JavaScript viejo atrapado tras desplegar. -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Compañero">
+  <meta name="apple-mobile-web-app-title" content="WhereAmAi">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
-  <title>{% block title %}Compañero de viaje{% endblock %}</title>
+  <title>{% block title %}WhereAmAi{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head_extra %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">Compañero</span>
+    <span class="brand">WhereAmAi</span>
     {% if session.get('authenticated') %}
       <a class="logout" href="{{ url_for('logout') }}">Salir</a>
     {% endif %}

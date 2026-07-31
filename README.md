@@ -1,4 +1,4 @@
-# Compañero de viaje
+# WhereAmAi
 
 Aplicación web (PWA) que usa el GPS del móvil para saber dónde estás,
 recomendarte qué hacer cerca con ayuda de un LLM, guardar notas

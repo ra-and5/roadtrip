@@ -1,6 +1,6 @@
 {
-  "name": "Compañero de viaje",
-  "short_name": "Compañero",
+  "name": "WhereAmAi",
+  "short_name": "WhereAmAi",
   "description": "Cuaderno de a bordo privado para el viaje.",
   "start_url": "/",
   "scope": "/",
