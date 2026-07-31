@@ -47,6 +47,7 @@ from app.modules.ai_orchestrator import formatear_para_prompt
 from app.modules.contexto import Contexto
 from app.modules.llm_providers import AIError, LLMProvider, build_provider
 from app.modules.location_context import Place
+from app.modules import map_tools
 
 __all__ = [
     "AIError",
@@ -110,6 +111,10 @@ Cómo trabajas:
   hora a la que abre un sitio, ni dónde estuvo ayer si no te lo he contado. \
   Decir "no lo sé" vale más que acertar por casualidad, porque va a tomar \
   decisiones con tu respuesta estando lejos de casa.
+- **Si hay herramientas consultadas, manda sobre tu memoria general.** Para \
+  bares, supermercados, rutas y recuerdos del viaje, usa ese bloque como dato \
+  real. Si la herramienta avisa que no está configurada o no pudo mirar, dilo \
+  y no inventes resultados.
 - **Los veredictos vienen calculados** (deportes de agua, caminar de noche). \
   Respétalos, no los recalcules ni los contradigas.
 - **Si un dato viene marcado como SIMULADO, no lo presentes como cierto.**
@@ -215,7 +220,10 @@ def _format_historial(historial: list[dict[str, Any]]) -> str:
 
 
 def construir_prompt(
-    pregunta: str, contexto: Contexto, historial: list[dict[str, Any]]
+    pregunta: str,
+    contexto: Contexto,
+    historial: list[dict[str, Any]],
+    herramientas: map_tools.ToolBundle | None = None,
 ) -> str:
     """El bloque de texto que lee el modelo. Función PURA.
 
@@ -231,6 +239,9 @@ def construir_prompt(
     """
     return f"""\
 {formatear_para_prompt(contexto, [], tarea="Responde a lo que te pregunta.")}
+
+### HERRAMIENTAS CONSULTADAS
+{map_tools.formatear(herramientas or map_tools.ToolBundle())}
 
 ### CONVERSACIÓN RECIENTE
 {_format_historial(historial)}
@@ -265,6 +276,7 @@ def responder(
     historial: list[dict[str, Any]] | None = None,
     *,
     provider: LLMProvider | None = None,
+    tools_provider: map_tools.MapsProvider | None = None,
 ) -> Respuesta:
     """Contesta una pregunta sobre el viaje, aquí y ahora.
 
@@ -283,10 +295,18 @@ def responder(
             que sale de aquí, venga del proveedor que venga.
     """
     provider = provider or build_provider()
+    herramientas = map_tools.ejecutar(
+        pregunta, contexto.ubicacion, provider=tools_provider
+    )
 
     bruto = provider.generate(
         system=_SYSTEM_PROMPT,
-        context=construir_prompt(pregunta, contexto, ventana(historial or [])),
+        context=construir_prompt(
+            pregunta,
+            contexto,
+            ventana(historial or []),
+            herramientas,
+        ),
         schema=_OUTPUT_SCHEMA,
     )
 

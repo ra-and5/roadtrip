@@ -2658,6 +2658,29 @@ para invalidarlo.
     HEIC/JPEG original del iPhone: subir un JPEG reducido sin EXIF, de decenas
     de KB, protege disco y ancho de banda.
 
+62. **El chat gana herramientas, no un prompt infinito.** Para preguntas como
+    "bar más cerca" o "cuánto tardo de Burgos a Vitoria", la solución buena no
+    es meter más contexto permanente en cada llamada al modelo: eso cuesta
+    tokens siempre y sigue dejando al LLM inventar. Se añade
+    `app/modules/map_tools.py` como capa determinista:
+
+    - detecta si una pregunta necesita **sitios**, **rutas** o **memoria del
+      viaje**;
+    - consulta Google Places/Routes solo si `GOOGLE_MAPS_API_KEY` está
+      configurada;
+    - usa `FieldMask` mínimo, caché corta y errores legibles;
+    - si no puede mirar, mete el aviso en el prompt para que el modelo no
+      finja haber mirado;
+    - no toca `app.py`: el chat la llama antes del proveedor de LLM y añade un
+      bloque `HERRAMIENTAS CONSULTADAS`.
+
+    Esta fase deja montada la frontera escalable. Hoy no hay function calling
+    real entre proveedor y herramienta: se ejecuta una selección heurística
+    antes de llamar al modelo, porque ya cubre las preguntas útiles y funciona
+    igual con Anthropic, Gemini, Kimi y el futuro Ollama. Si mañana se añade
+    tool calling nativo, se cambia solo `chat.py`; `map_tools.py` sigue siendo
+    la capa de verdad.
+
 ## 8. Conceptos de esta fase
 
 Ideas que conviene entender para mantener y extender esto.

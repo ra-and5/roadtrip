@@ -310,6 +310,10 @@ def main() -> None:
              f"configurada ({len(clave_firms)} caracteres"
              f"{'' if len(clave_firms) == 32 else ', OJO: se esperan 32'})"
              if clave_firms else "AUSENTE (la tarjeta de fuego no consulta nada)")
+        dato("GOOGLE_MAPS_API_KEY",
+             "configurada (chat puede consultar Places/Routes)"
+             if Config.GOOGLE_MAPS_API_KEY
+             else "ausente (chat avisa y no inventa bares/rutas)")
         # La trampa de la decisión 15, que cuesta una tarde y no da NINGÚN
         # mensaje de error: con la cookie `Secure` (que es lo que hay por
         # defecto, y bien) y *Force HTTPS* desactivado en PythonAnywhere, el

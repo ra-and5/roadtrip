@@ -236,6 +236,16 @@ class Config:
     # los que duelen. Aun así solo se sirve a una sesión iniciada.
     FIRMS_MAP_KEY: str = _env("FIRMS_MAP_KEY", default="")
 
+    # --- Google Maps Platform (opcional) ---
+    # Clave para Places API (New) y Routes API. Vacía = las herramientas de
+    # sitios/rutas no consultan Google y el chat lo dice, no inventa.
+    #
+    # OJO: esta key NO debe viajar al navegador. Places y Routes se llaman
+    # desde el servidor, con field masks mínimos y caché propia para controlar
+    # coste. Si algún día se usa Maps JavaScript API en cliente, será otra key
+    # restringida por referrer.
+    GOOGLE_MAPS_API_KEY: str = _env("GOOGLE_MAPS_API_KEY", default="")
+
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.
     DATA_DIR: Path = Path(_env("DATA_DIR", default=str(BASE_DIR / "data")))

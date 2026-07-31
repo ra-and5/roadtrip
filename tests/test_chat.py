@@ -26,7 +26,7 @@ from werkzeug.security import generate_password_hash
 
 from app.app import app as flask_app
 from app.config import Config
-from app.modules import chat, storage
+from app.modules import chat, map_tools, storage
 from app.modules.contexto import ensamblar
 from app.modules.llm_providers import AIError, LLMProvider
 from app.modules.location_context import Place
@@ -53,6 +53,30 @@ class FakeProvider(LLMProvider):
         if self._error:
             raise self._error
         return self._respuesta
+
+
+class FakeTools:
+    """Herramienta de mapa doblada: no toca red, solo devuelve datos."""
+
+    def buscar_sitios(self, consulta: str, lat: float, lon: float) -> list[map_tools.ToolPlace]:
+        return [
+            map_tools.ToolPlace(
+                nombre="Bar Puerto",
+                abierto="abierto ahora",
+                rating=4.4,
+                direccion="Muelle 1",
+                maps_url="https://maps.example/bar-puerto",
+            )
+        ]
+
+    def calcular_ruta(self, origen: str, destino: str) -> map_tools.ToolRoute:
+        return map_tools.ToolRoute(
+            origen=origen,
+            destino=destino,
+            distancia_km=121.0,
+            duracion_trafico_min=90,
+            maps_url="https://maps.example/ruta",
+        )
 
 
 def _place() -> Place:
@@ -142,6 +166,24 @@ def test_el_prompt_solo_lleva_la_ventana() -> None:
     enviado = proveedor.llamadas[0]["context"]
     assert "mensaje 49" in enviado
     assert "mensaje 10" not in enviado
+
+
+def test_el_chat_mete_herramientas_en_el_prompt() -> None:
+    """Preguntar por un bar no puede depender de la memoria general del modelo."""
+    proveedor = FakeProvider()
+
+    chat.responder(
+        "bar más cerca",
+        _contexto(),
+        [],
+        provider=proveedor,
+        tools_provider=FakeTools(),
+    )
+
+    enviado = proveedor.llamadas[0]["context"]
+    assert "### HERRAMIENTAS CONSULTADAS" in enviado
+    assert "Bar Puerto" in enviado
+    assert "abierto ahora" in enviado
 
 
 # ---------------------------------------------------------------------------
