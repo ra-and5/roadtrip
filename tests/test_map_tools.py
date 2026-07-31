@@ -11,7 +11,7 @@ from typing import Any, Iterator
 import pytest
 
 from app.config import Config
-from app.modules import map_tools, storage
+from app.modules import aemet, map_tools, storage
 from app.modules.location_context import Place
 
 
@@ -151,6 +151,20 @@ class FakeMaps:
         return map_tools.ToolRoute(origen=origen, destino=destino)
 
 
+class FakeAemet(aemet.AemetClient):
+    def __init__(self) -> None:
+        pass
+
+    def prediccion_nacional(self) -> list[str]:
+        return ["hoy: chubascos fuertes en el norte"]
+
+    def avisos_espana(self) -> list[str]:
+        return ["Tormentas · Severe · Pirineo"]
+
+    def radar_nacional(self) -> str:
+        return "Radar nacional disponible: https://aemet.example/radar.png"
+
+
 def test_ejecuta_varias_herramientas_de_plan_sin_pasarse() -> None:
     provider = FakeMaps()
 
@@ -162,6 +176,22 @@ def test_ejecuta_varias_herramientas_de_plan_sin_pasarse() -> None:
 
     assert provider.consultas == ["restaurante", "bar", "cafe"]
     assert len(bundle.sitios) == 3
+
+
+def test_pregunta_de_territorio_mete_aemet_en_lecturas() -> None:
+    bundle = map_tools.ejecutar(
+        "cómo está España de avisos y radar de lluvia?",
+        Place(lat=38.39, lon=-0.51, name="San Vicente"),
+        provider=FakeMaps(),
+        aemet_client=FakeAemet(),
+    )
+
+    texto = map_tools.formatear(bundle)
+
+    assert "AEMET_TERRITORIO" in texto
+    assert "chubascos fuertes" in texto
+    assert "Tormentas" in texto
+    assert "Radar nacional" in texto
 
 
 def test_memoria_basica_lee_sqlite() -> None:

@@ -19,7 +19,7 @@ from typing import Any, Protocol
 import requests
 
 from app.config import Config
-from app.modules import storage
+from app.modules import aemet, storage
 from app.modules.location_context import Place, validate_coords
 
 _TOOLS_CACHE_TTL = 30 * 60
@@ -138,6 +138,15 @@ _PATRONES_PLANES: tuple[tuple[tuple[str, ...], re.Pattern[str]], ...] = (
     ),
 )
 _PALABRAS_AGUA = re.compile(r"\b(paddle|surf|tabla|kayak|mar|playa|ba[ñn]o|bañar)\b", re.I)
+_PALABRAS_TERRITORIO = re.compile(
+    r"\b("
+    r"españa|pais|pa[ií]s|territorio|nacional|pen[ií]nsula|avisos?|alertas?|"
+    r"aemet|radar|tormentas?|lluvia|nieve|calor|viento|temporal|zonas? mal|"
+    r"d[oó]nde est[aá] peor|d[oó]nde llueve"
+    r")\b",
+    re.I,
+)
+_PALABRAS_RADAR = re.compile(r"\b(radar|lluvia|tormenta|precipitaci[oó]n)\b", re.I)
 
 
 def _segundos_a_minutos(valor: str | None) -> int | None:
@@ -364,6 +373,16 @@ def _lecturas_contexto(pregunta: str, tiempo: Any | None) -> list[str]:
     return lineas
 
 
+def _lecturas_territorio(pregunta: str, client: aemet.AemetClient | None = None) -> list[str]:
+    if not _PALABRAS_TERRITORIO.search(pregunta):
+        return []
+    informe = aemet.informe_territorio(
+        incluir_radar=bool(_PALABRAS_RADAR.search(pregunta)),
+        client=client,
+    )
+    return aemet.formatear(informe)
+
+
 def _memoria_basica(pregunta: str) -> list[str]:
     if not _PALABRAS_MEMORIA.search(pregunta):
         return []
@@ -394,6 +413,7 @@ def ejecutar(
     *,
     provider: MapsProvider | None = None,
     tiempo: Any | None = None,
+    aemet_client: aemet.AemetClient | None = None,
 ) -> ToolBundle:
     """Ejecuta solo las herramientas que la pregunta parece necesitar."""
     provider = provider or GoogleMapsProvider()
@@ -422,7 +442,10 @@ def ejecutar(
         sitios=sitios,
         ruta=ruta,
         memoria=_memoria_basica(pregunta),
-        lecturas=_lecturas_contexto(pregunta, tiempo),
+        lecturas=(
+            _lecturas_contexto(pregunta, tiempo)
+            + _lecturas_territorio(pregunta, aemet_client)
+        ),
         avisos=avisos,
     )
 

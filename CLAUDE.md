@@ -2714,6 +2714,18 @@ para invalidarlo.
     se recalcula en el modelo: sale de `weather_context.water_sports()`, igual
     que en el dashboard.
 
+65. **AEMET es la fuente oficial del modo copiloto territorial.** Open-Meteo
+    sigue dando el tiempo local donde estás; AEMET responde la pregunta de país:
+    avisos oficiales CAP, predicción nacional y radar nacional. Va en
+    `app/modules/aemet.py`, detrás de `AEMET_API_KEY`, con caché corta y el
+    patrón HATEOAS de OpenData (`datos` -> descarga real).
+
+    El chat solo llama a AEMET cuando la pregunta huele a territorio: España,
+    avisos, radar, tormentas, lluvia, nieve, calor, viento, temporal o zonas
+    que estén mal. Si falta la key, el bloque de herramientas lo dice; el
+    modelo no debe inventar "cómo está el país". La key es de servidor y no
+    viaja al navegador.
+
 ## 8. Conceptos de esta fase
 
 Ideas que conviene entender para mantener y extender esto.

@@ -246,6 +246,12 @@ class Config:
     # restringida por referrer.
     GOOGLE_MAPS_API_KEY: str = _env("GOOGLE_MAPS_API_KEY", default="")
 
+    # --- AEMET OpenData (opcional) ---
+    # Fuente oficial española para modo copiloto territorial: predicción
+    # nacional, avisos meteorológicos CAP y radar nacional. Vacía = el chat lo
+    # dice y no inventa "cómo está España". Es key de servidor, no navegador.
+    AEMET_API_KEY: str = _env("AEMET_API_KEY", default="")
+
     # --- Almacenamiento ---
     # data/ está en .gitignore: es estado de la app, no código.
     DATA_DIR: Path = Path(_env("DATA_DIR", default=str(BASE_DIR / "data")))

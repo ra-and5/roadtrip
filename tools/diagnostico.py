@@ -314,6 +314,10 @@ def main() -> None:
              "configurada (chat puede consultar Places/Routes)"
              if Config.GOOGLE_MAPS_API_KEY
              else "ausente (chat avisa y no inventa bares/rutas)")
+        dato("AEMET_API_KEY",
+             "configurada (chat puede consultar predicción/avisos/radar de España)"
+             if Config.AEMET_API_KEY
+             else "ausente (chat avisa y no inventa meteo nacional)")
         # La trampa de la decisión 15, que cuesta una tarde y no da NINGÚN
         # mensaje de error: con la cookie `Secure` (que es lo que hay por
         # defecto, y bien) y *Force HTTPS* desactivado en PythonAnywhere, el
