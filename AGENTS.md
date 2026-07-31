@@ -2727,6 +2727,18 @@ para invalidarlo.
     modelo no debe inventar "cómo está el país". La key es de servidor y no
     viaja al navegador.
 
+66. **El chat avisa cuando llega la respuesta, sin service worker.** Se usa la
+    API `Notification` del navegador, pedida al enviar la primera pregunta para
+    que ocurra dentro de un gesto de usuario. Solo dispara una notificación si
+    la pestaña/PWA está en segundo plano; si estás mirando el chat, la burbuja
+    ya es el aviso.
+
+    Esto NO es push con la app cerrada. Hacer eso exigiría service worker, y la
+    decisión de la PWA sigue siendo no meter uno sin plan de invalidación. La
+    mejora cubre el caso importante de uso: preguntas algo, cambias de app o
+    bloqueas la pantalla un momento, y al llegar la respuesta el navegador te
+    avisa si diste permiso.
+
 ## 8. Conceptos de esta fase
 
 Ideas que conviene entender para mantener y extender esto.

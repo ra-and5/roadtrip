@@ -20,6 +20,9 @@
   "use strict";
 
   var posicion = null;
+  var permisoNotificacionesPedido = false;
+  var notificacionesPermitidas = false;
+  var promesaPermisoNotificaciones = null;
 
   function el(id) {
     return document.getElementById(id);
@@ -29,6 +32,61 @@
     var nodo = el("chat-estado");
     nodo.textContent = mensaje || "";
     nodo.classList.toggle("error", !!esError);
+  }
+
+  function prepararNotificaciones() {
+    if (!("Notification" in window) || !window.isSecureContext) return;
+    if (Notification.permission === "granted") {
+      notificacionesPermitidas = true;
+      return;
+    }
+    if (Notification.permission === "denied" || permisoNotificacionesPedido) return;
+
+    /* Se pide al enviar la primera pregunta, dentro de un gesto de usuario.
+     * Pedirlo al cargar la página lo bloquean navegadores móviles, y además
+     * sería ruido antes de que el usuario haya decidido usar el chat. */
+    permisoNotificacionesPedido = true;
+    promesaPermisoNotificaciones = Notification.requestPermission().then(function (permiso) {
+      notificacionesPermitidas = permiso === "granted";
+      return notificacionesPermitidas;
+    }).catch(function () {
+      notificacionesPermitidas = false;
+      return false;
+    });
+  }
+
+  function resumenNotificacion(texto) {
+    var limpio = String(texto || "").replace(/\s+/g, " ").trim();
+    if (limpio.length <= 140) return limpio;
+    return limpio.slice(0, 139).trim() + "…";
+  }
+
+  function lanzarNotificacion(texto) {
+    if (!notificacionesPermitidas || !("Notification" in window)) return;
+    if (!document.hidden && document.hasFocus()) return;
+
+    try {
+      new Notification("Compañero respondió", {
+        body: resumenNotificacion(texto),
+        tag: "roadtrip-chat-respuesta",
+        icon: "/static/icons/icon-192.png",
+      });
+    } catch (err) {
+      /* La notificación es comodidad, no parte del dato. Si el navegador la
+      * rechaza, la respuesta ya está pintada y guardada en el hilo. */
+    }
+  }
+
+  function notificarRespuesta(texto) {
+    if (notificacionesPermitidas) {
+      lanzarNotificacion(texto);
+      return;
+    }
+    if (promesaPermisoNotificaciones) {
+      promesaPermisoNotificaciones.then(function (permitidas) {
+        if (permitidas) lanzarNotificacion(texto);
+      });
+    }
   }
 
   function geolocationErrorMessage(err) {
@@ -181,6 +239,7 @@
       return;
     }
 
+    prepararNotificaciones();
     pintarMensaje("usuario", texto, null);
     estado("Pensando…");
     el("chat-enviar").disabled = true;
@@ -219,6 +278,7 @@
       }
 
       pintarMensaje("asistente", datos.respuesta.texto, datos.respuesta.modelo);
+      notificarRespuesta(datos.respuesta.texto);
       pintarAvisos(datos.warnings);
       estado("");
     } catch (err) {
