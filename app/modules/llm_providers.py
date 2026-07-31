@@ -45,6 +45,10 @@ class AIError(Exception):
     """Único error que sale de este módulo. Nunca contiene la API key."""
 
 
+class FallbackAIError(AIError):
+    """Todos los proveedores configurados fallaron."""
+
+
 # ---------------------------------------------------------------------------
 # Redacción de secretos
 # ---------------------------------------------------------------------------
@@ -180,6 +184,69 @@ class LLMProvider(ABC):
 
     def describe(self) -> str:
         return f"{self.name}/{self.model}"
+
+
+def _es_fallo_recuperable(exc: AIError) -> bool:
+    """¿Tiene sentido probar otro proveedor?
+
+    No se reintenta el MISMO 429: eso seguiría chocando contra la misma cuota.
+    Pero si hay otro proveedor configurado, sí tiene sentido cambiar de motor
+    dentro de la misma petición. No se consideran recuperables los 400, keys
+    malas o modelos inexistentes, porque otro proveedor escondería un bug de
+    configuración que hay que corregir.
+    """
+    texto = str(exc).lower()
+    return any(
+        pista in texto
+        for pista in (
+            "429",
+            "límite",
+            "limite",
+            "cuota",
+            "saturad",
+            "timeout",
+            "tardó",
+            "tardo",
+            "sin conexión",
+            "sin conexion",
+            "api connection",
+        )
+    )
+
+
+class FallbackProvider(LLMProvider):
+    """Proveedor compuesto: activo primero, alternativas configuradas después."""
+
+    name = "fallback"
+
+    def __init__(self, providers: list[LLMProvider]) -> None:
+        if not providers:
+            raise AIError("No hay ningún proveedor de IA configurado.")
+        self.providers = providers
+        self._last_provider: LLMProvider | None = None
+        super().__init__(">".join(p.describe() for p in providers))
+
+    def generate(self, *, system: str, context: str, schema: dict[str, Any]) -> str:
+        fallos: list[str] = []
+        for provider in self.providers:
+            try:
+                texto = provider.generate(system=system, context=context, schema=schema)
+                self._last_provider = provider
+                # Desde fuera tiene que verse quién contestó de verdad: el
+                # cacheo y la trazabilidad usan `name/model`.
+                self.name = provider.name
+                self.model = provider.model
+                self.last_usage = provider.last_usage
+                return texto
+            except AIError as exc:
+                fallos.append(f"{provider.describe()}: {exc}")
+                if not _es_fallo_recuperable(exc):
+                    raise
+
+        raise FallbackAIError(
+            "Todos los proveedores de IA configurados fallaron: "
+            + " | ".join(fallos)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +793,29 @@ _REGISTRY: dict[str, type[LLMProvider]] = {
 PROVIDER_NAMES: tuple[str, ...] = tuple(_REGISTRY)
 
 
+def _tiene_config(nombre: str) -> bool:
+    if nombre == "anthropic":
+        return bool(Config.ANTHROPIC_API_KEY)
+    if nombre == "gemini":
+        return bool(Config.GEMINI_API_KEY)
+    if nombre == "kimi":
+        return bool(Config.KIMI_API_KEY)
+    return False
+
+
+def _orden_fallback(activo: str) -> list[str]:
+    orden = [activo, "anthropic", "kimi", "gemini"]
+    salida: list[str] = []
+    for nombre in orden:
+        if nombre in salida:
+            continue
+        if nombre not in _REGISTRY or nombre == "ollama":
+            continue
+        if _tiene_config(nombre):
+            salida.append(nombre)
+    return salida
+
+
 def build_provider(name: str | None = None) -> LLMProvider:
     """Construye el proveedor pedido, o el configurado en LLM_PROVIDER.
 
@@ -740,4 +830,8 @@ def build_provider(name: str | None = None) -> LLMProvider:
             f"LLM_PROVIDER='{requested}' no es un proveedor conocido. "
             f"Opciones: {', '.join(PROVIDER_NAMES)}."
         )
+    if name is None:
+        nombres = _orden_fallback(requested)
+        if len(nombres) > 1:
+            return FallbackProvider([_REGISTRY[n]() for n in nombres])
     return provider_cls()

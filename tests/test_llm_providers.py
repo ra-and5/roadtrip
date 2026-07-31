@@ -18,6 +18,7 @@ from app.config import Config
 from app.modules.llm_providers import (
     AIError,
     AnthropicProvider,
+    FallbackProvider,
     GeminiProvider,
     KimiProvider,
     LLMProvider,
@@ -55,6 +56,8 @@ def test_registro_expone_todos_los_proveedores():
 def test_build_provider_usa_la_variable_de_entorno(monkeypatch):
     monkeypatch.setattr(Config, "LLM_PROVIDER", "gemini")
     monkeypatch.setattr(Config, "GEMINI_API_KEY", "AIza-de-mentira-para-el-test")
+    monkeypatch.setattr(Config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "")
     provider = build_provider()
     assert provider.name == "gemini"
 
@@ -69,6 +72,18 @@ def test_build_provider_acepta_un_nombre_explicito(monkeypatch):
 def test_build_provider_normaliza_espacios_y_mayusculas(monkeypatch):
     monkeypatch.setattr(Config, "GEMINI_API_KEY", "AIza-de-mentira-para-el-test")
     assert build_provider("  GEMINI ").name == "gemini"
+
+
+def test_build_provider_monta_fallback_si_hay_varias_keys(monkeypatch):
+    monkeypatch.setattr(Config, "LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(Config, "GEMINI_API_KEY", "AIza-de-mentira-para-el-test")
+    monkeypatch.setattr(Config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(Config, "KIMI_API_KEY", "sk-de-mentira-para-el-test")
+
+    provider = build_provider()
+
+    assert isinstance(provider, FallbackProvider)
+    assert [p.name for p in provider.providers[:2]] == ["gemini", "kimi"]
 
 
 def test_proveedor_desconocido_lista_las_opciones(monkeypatch):
@@ -92,6 +107,27 @@ def test_falta_de_key_sugiere_la_alternativa_gratuita(monkeypatch):
     with pytest.raises(AIError) as exc_info:
         build_provider("anthropic")
     assert "gemini" in str(exc_info.value).lower()
+
+
+def test_fallback_salta_un_429_y_deja_trazabilidad() -> None:
+    primero = FakeProvider(error=AIError("Límite de Gemini alcanzado (429)."))
+    segundo = FakeProvider(respuesta='{"ok": true}')
+    segundo.name = "kimi"
+    segundo.model = "kimi-k3"
+    provider = FallbackProvider([primero, segundo])
+
+    assert provider.generate(system="s", context="c", schema={}) == '{"ok": true}'
+    assert provider.name == "kimi"
+    assert provider.model == "kimi-k3"
+
+
+def test_fallback_no_tapa_errores_no_recuperables() -> None:
+    primero = FakeProvider(error=AIError("La API key de Gemini no es válida."))
+    segundo = FakeProvider(respuesta='{"ok": true}')
+    provider = FallbackProvider([primero, segundo])
+
+    with pytest.raises(AIError, match="API key"):
+        provider.generate(system="s", context="c", schema={})
 
 
 # --- Redacción de secretos --------------------------------------------------

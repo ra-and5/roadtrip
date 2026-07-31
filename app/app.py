@@ -1056,10 +1056,11 @@ def api_telemetria() -> Any:
 def healthz() -> Any:
     """Comprobación de vida. Sin autenticación, a propósito.
 
-    `ia_configurada` pregunta por el proveedor ACTIVO, no por una key concreta.
-    Antes miraba solo `ANTHROPIC_API_KEY`, así que un despliegue sano con
-    Gemini informaba `false`: justo el tipo de fallo silencioso de la
-    decisión 11, pero en la herramienta con la que compruebas el despliegue.
+    `ia_configurada` pregunta si hay algún proveedor utilizable por la app, no
+    por una key concreta. Antes miraba solo `ANTHROPIC_API_KEY`, así que un
+    despliegue sano con Gemini informaba `false`: justo el tipo de fallo
+    silencioso de la decisión 11, pero en la herramienta con la que compruebas
+    el despliegue.
 
     `build_provider()` valida el nombre del proveedor y su key sin llamar a la
     API: un health check no debe gastar cuota ni tardar 10 s. No se revela cuál

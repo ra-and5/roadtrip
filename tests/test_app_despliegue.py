@@ -76,12 +76,19 @@ def test_healthz_mira_el_proveedor_activo_no_la_key_de_anthropic(
     assert cliente.get("/healthz").get_json()["ia_configurada"] is True
 
 
-def test_healthz_detecta_que_falta_la_key_del_proveedor_activo(
+def test_healthz_acepta_fallback_si_el_activo_no_tiene_key(
     cliente: Any, proveedor: Any
 ) -> None:
     proveedor(activo="gemini", gemini="", anthropic="key-de-mentira")
 
-    # Tener la key del OTRO proveedor no cuenta: no es el que va a responder.
+    # Desde la decisión 63, tener otro proveedor configurado sí cuenta: la app
+    # puede responder aunque el activo esté sin key.
+    assert cliente.get("/healthz").get_json()["ia_configurada"] is True
+
+
+def test_healthz_detecta_que_no_hay_ningun_proveedor(cliente: Any, proveedor: Any) -> None:
+    proveedor(activo="gemini", gemini="", anthropic="")
+
     assert cliente.get("/healthz").get_json()["ia_configurada"] is False
 
 

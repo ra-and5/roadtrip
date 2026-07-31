@@ -2681,6 +2681,21 @@ para invalidarlo.
     tool calling nativo, se cambia solo `chat.py`; `map_tools.py` sigue siendo
     la capa de verdad.
 
+63. **Fallback entre proveedores ante fallos recuperables.** La decisión 12
+    ("sin reintento automático ante un 429") sigue siendo correcta para el
+    MISMO proveedor: reintentar Gemini cuando acaba de decir cuota agotada solo
+    bloquea el worker. Pero desde que hay varias keys configurables, no tiene
+    sentido rendirse si Gemini devuelve 429 y Kimi o Anthropic están listos.
+
+    `build_provider()` sin nombre explícito monta una cadena: proveedor activo
+    primero y luego alternativas configuradas. `build_provider("gemini")`
+    sigue devolviendo Gemini exacto para diagnóstico y tests. El fallback solo
+    salta ante fallos recuperables (429, cuota, saturación, timeout, conexión);
+    errores de configuración como key mala, modelo inexistente o 400 no se
+    esconden probando otro motor. Cuando una alternativa responde, el proveedor
+    compuesto cambia su `name/model` al proveedor real, para que la trazabilidad
+    y la caché digan quién contestó.
+
 ## 8. Conceptos de esta fase
 
 Ideas que conviene entender para mantener y extender esto.
