@@ -7,9 +7,8 @@
  * otra (decisión 40).
  *
  * El orden es cronológico y las fotos NO se separan de las notas: así es como se
- * recuerda un día. Las fotos se enseñan como eventos, no como miniaturas: si
- * solo han llegado metadatos no hay píxeles que cargar, y un recuadro roto
- * comunica peor que una línea honrada en la cronología.
+ * recuerda un día. Cuando llega miniatura se enseña; cuando solo llega el punto,
+ * la foto se queda como un evento limpio del álbum, sin nombres técnicos.
  */
 
 (function () {
@@ -37,6 +36,14 @@
 
   /* --- Piezas del muro ---------------------------------------------------- */
 
+  function miniaturaUrl(nombre) {
+    return "/miniaturas/" + encodeURIComponent(nombre);
+  }
+
+  function tituloFoto(foto) {
+    return foto.lugar || "Foto del viaje";
+  }
+
   function tiraDeFotos(fotos) {
     var tira = document.createElement("div");
     tira.className = "tira";
@@ -50,16 +57,36 @@
       hora.textContent = foto.cuando.slice(11, 16);
       caja.appendChild(hora);
 
+      var media = document.createElement("div");
+      media.className = "foto-media";
+      if (foto.miniatura) {
+        var img = document.createElement("img");
+        img.className = "foto-miniatura";
+        img.src = miniaturaUrl(foto.miniatura);
+        img.alt = "";
+        img.loading = "lazy";
+        media.appendChild(img);
+      } else {
+        var hueco = document.createElement("span");
+        hueco.className = "foto-placeholder";
+        hueco.textContent = "Foto";
+        media.appendChild(hueco);
+      }
+      caja.appendChild(media);
+
       var cuerpo = document.createElement("div");
       cuerpo.className = "foto-evento-cuerpo";
 
       var nombre = document.createElement("strong");
-      nombre.textContent = foto.archivo || "Foto del viaje";
+      nombre.textContent = tituloFoto(foto);
+      if (foto.archivo) nombre.title = foto.archivo;
       cuerpo.appendChild(nombre);
 
       var meta = document.createElement("span");
       meta.className = "apunte-lugar";
-      meta.textContent = foto.lugar || "Foto con metadatos, sin imagen subida";
+      meta.textContent = foto.altitud !== null && foto.altitud !== undefined
+        ? Math.round(foto.altitud) + " m"
+        : "Álbum del viaje";
       cuerpo.appendChild(meta);
 
       caja.appendChild(cuerpo);

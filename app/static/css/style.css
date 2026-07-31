@@ -616,6 +616,12 @@ input[type="checkbox"] {
   margin: 0 0 var(--e4);
   font-size: var(--t-lead);
 }
+.panel-astro {
+  margin: calc(var(--e3) * -1) 0 var(--e4);
+  font-family: var(--medida);
+  font-size: var(--t-mini);
+  color: var(--texto);
+}
 
 /* Las tres señales. Reparto fijo en tres columnas y no `auto-fit`: son
    siempre las mismas, y que cambien de sitio o de ancho según cuántas hayan
@@ -939,6 +945,39 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
   background: transparent;
 }
 #revivir-pie { flex: 1 1 100%; margin: 0; }
+.revivir-actual {
+  flex: 1 1 100%;
+  display: flex;
+  gap: var(--e3);
+  align-items: center;
+  min-width: 0;
+  padding: var(--e3);
+  border-radius: var(--r1);
+  border: 1px solid var(--trazo);
+  background: var(--superficie-2);
+}
+.revivir-actual[hidden] { display: none; }
+.revivir-actual img {
+  flex: 0 0 4.5rem;
+  width: 4.5rem;
+  height: 4.5rem;
+  object-fit: cover;
+  border-radius: var(--r1);
+}
+.revivir-cuerpo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.revivir-titulo {
+  font-size: var(--t-menor);
+  overflow-wrap: anywhere;
+}
+.revivir-texto {
+  margin: 0;
+  font-size: var(--t-menor);
+}
 
 /* El viaje día a día. La línea vertical convierte una lista de días en algo que
    avanza — que es la mitad de «constancia» que pedía la fase. */
@@ -995,9 +1034,7 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
    10b. Diario — ¿qué pasó?
    -------------------------------------------------------------------------- */
 
-/* Las fotos seguidas se pintan como eventos compactos, y las notas la cortan.
-   Si solo han llegado metadatos, enseñar un nombre claro es mejor que enseñar
-   un falso hueco de imagen. */
+/* Las fotos seguidas se pintan como eventos compactos, y las notas la cortan. */
 .tira {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -1007,12 +1044,36 @@ body .leaflet-bar a { border-bottom-color: var(--trazo); }
 .foto-evento {
   display: flex;
   gap: var(--e3);
-  align-items: baseline;
+  align-items: center;
   min-width: 0;
   padding: var(--e2) var(--e3);
   border-radius: var(--r1);
   border: 1px solid var(--trazo);
   background: var(--superficie-2);
+}
+.foto-media {
+  flex: 0 0 3.25rem;
+  width: 3.25rem;
+  height: 3.25rem;
+}
+.foto-miniatura,
+.foto-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r1);
+}
+.foto-miniatura {
+  object-fit: cover;
+}
+.foto-placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--trazo);
+  color: var(--apagado);
+  font-family: var(--medida);
+  font-size: var(--t-mini);
+  background: var(--superficie);
 }
 .foto-evento-cuerpo {
   min-width: 0;

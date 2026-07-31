@@ -650,7 +650,7 @@ def mapa_album_de_fotos(page: Any) -> str:
         # es lo mismo — que el álbum se refleje— y el sitio donde mirarlo cambió.
         page.goto(f"{BASE}/diario")
         esperar(lambda: page.inner_text("#diario-muro").strip(), "el diario no pintó los días")
-        return page.inner_text("#diario-muro").count("VERIFICACION_")
+        return page.locator("#diario-muro .foto-evento").count()
 
     alta = enviar_album(["VERIFICACION_1.jpeg", "VERIFICACION_2.jpeg"])
     if alta.get("guardados") != 2:
@@ -715,6 +715,9 @@ def diario(page: Any) -> str:
         raise Fallo("las fotos no salen como eventos en el diario")
     if page.locator("#diario-muro .tira-foto, #diario-muro .tira-hueco").count():
         raise Fallo("el diario sigue intentando enseñar miniaturas")
+    diario_txt = page.inner_text("#diario-muro")
+    if "metadatos" in diario_txt or "sin imagen subida" in diario_txt:
+        raise Fallo("el diario enseña texto técnico sobre fotos")
 
     return f"{dias} días, {fotos} fotos como eventos y las notas legibles"
 

@@ -30,7 +30,7 @@
    * pantalla dice que ya estás aquí. */
   const SECTIONS = [
     "place-card", "warnings-card", "reco-card",
-    "weather-card", "agua-card", "luna-card",
+    "weather-card", "agua-card", "luna-card", "weather-light",
   ];
 
   function setStatus(message, kind) {
@@ -229,11 +229,19 @@
 
     text("weather-water-reason", weather.water_sports.reason);
 
+    const luz = document.getElementById("weather-light");
     if (weather.sunrise && weather.sunset) {
+      const salida = weather.sunrise.slice(-5);
+      const puesta = weather.sunset.slice(-5);
       text(
         "weather-sun",
-        "Amanece " + weather.sunrise.slice(-5) + " · Anochece " + weather.sunset.slice(-5)
+        "Amanece " + salida + " · Anochece " + puesta
       );
+      text("weather-light", "Amanecer " + salida + " · Anochecer " + puesta);
+      luz.hidden = false;
+    } else {
+      text("weather-light", "");
+      luz.hidden = true;
     }
   }
 

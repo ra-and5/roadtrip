@@ -27,9 +27,7 @@
   // --- Renderizado ---------------------------------------------------------
 
   function renderCabecera(perfil) {
-    if (perfil.dia_del_viaje) {
-      text("perfil-titulo", "Día " + perfil.dia_del_viaje);
-    }
+    text("perfil-titulo", "Perfil");
     text("perfil-fecha", diaLegible(perfil.hoy));
   }
 

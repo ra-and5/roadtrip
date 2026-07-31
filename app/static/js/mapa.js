@@ -57,6 +57,7 @@
   const filtroEl = document.getElementById("filtro-anio");
   const botonRevivir = document.getElementById("revivir-btn");
   const slider = document.getElementById("revivir-slider");
+  const actualRevivir = document.getElementById("revivir-actual");
   const pieRevivir = document.getElementById("revivir-pie");
 
   const mapa = L.map("mapa").setView(INICIO, ZOOM_INICIAL);
@@ -166,6 +167,64 @@
     return div;
   }
 
+  function miniaturaUrl(nombre) {
+    return "/miniaturas/" + encodeURIComponent(nombre);
+  }
+
+  function tituloMomento(momento) {
+    if (momento.tipo === "foto") return momento.lugar || "Foto del viaje";
+    return momento.lugar || (momento.lat === null ? "Sin sitio" : "Sitio sin nombre");
+  }
+
+  function pintarMomentoActual(momento, indice) {
+    actualRevivir.textContent = "";
+    actualRevivir.hidden = !momento;
+    if (!momento) return;
+
+    if (momento.tipo === "foto" && momento.miniatura) {
+      const img = document.createElement("img");
+      img.src = miniaturaUrl(momento.miniatura);
+      img.alt = "";
+      img.loading = "lazy";
+      actualRevivir.appendChild(img);
+    }
+
+    const cuerpo = document.createElement("div");
+    cuerpo.className = "revivir-cuerpo";
+
+    const rotulo = document.createElement("span");
+    rotulo.className = "rotulo";
+    rotulo.textContent =
+      momento.tipo === "foto"
+        ? "Foto " + (indice + 1) + " de " + momentos.length
+        : "Nota " + (indice + 1) + " de " + momentos.length;
+    cuerpo.appendChild(rotulo);
+
+    const titulo = document.createElement("strong");
+    titulo.className = "revivir-titulo";
+    titulo.textContent = tituloMomento(momento);
+    if (momento.archivo) titulo.title = momento.archivo;
+    cuerpo.appendChild(titulo);
+
+    if (momento.texto) {
+      const texto = document.createElement("p");
+      texto.className = "revivir-texto";
+      texto.textContent = momento.texto;
+      cuerpo.appendChild(texto);
+    }
+
+    const pie = document.createElement("span");
+    pie.className = "muted";
+    let detalle = fechaLegible(momento.cuando);
+    if (momento.altitud !== null && momento.altitud !== undefined) {
+      detalle += "  ·  " + Math.round(momento.altitud) + " m";
+    }
+    pie.textContent = detalle;
+    cuerpo.appendChild(pie);
+
+    actualRevivir.appendChild(cuerpo);
+  }
+
   function contenidoMomento(momento) {
     /* Se construye con nodos del DOM y no con una cadena de HTML: el texto lo
      * escribe una persona y con innerHTML acabaría ejecutándose. Jinja escapa
@@ -174,7 +233,8 @@
 
     const titulo = document.createElement("strong");
     if (momento.tipo === "foto") {
-      titulo.textContent = "📷  " + momento.archivo;
+      titulo.textContent = "Foto · " + tituloMomento(momento);
+      if (momento.archivo) titulo.title = momento.archivo;
     } else {
       /* Sin nombre NO se caen las coordenadas encima: «43.5622, -6.1456» ocupa
        * el sitio del título y no dice nada que se pueda leer de un vistazo.
@@ -358,6 +418,7 @@
 
     pieRevivir.textContent =
       indice + 1 + " de " + momentos.length + "  ·  " + fechaLegible(momento.cuando);
+    pintarMomentoActual(momento, indice);
 
     capaFoco.clearLayers();
     if (momento.lat === null || momento.lon === null) return;
@@ -473,6 +534,7 @@
       const hay = momentos.length > 0;
       botonRevivir.disabled = !hay;
       slider.disabled = !hay;
+      pintarMomentoActual(hay ? momentos[0] : null, 0);
       pieRevivir.textContent = hay
         ? momentos.length + " momentos, de " + fechaLegible(datos.resumen.primera) +
           " a " + fechaLegible(datos.resumen.ultima)
