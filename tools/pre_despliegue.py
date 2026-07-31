@@ -15,6 +15,7 @@ el estado esperado.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import subprocess
 import sys
@@ -182,6 +183,24 @@ def ejecutar(res: Resultado, nombre: str, comando: list[str]) -> None:
         res.fallo(nombre, salida or f"código {proc.returncode}")
 
 
+def comprobar_pytest(res: Resultado) -> None:
+    """Corre la suite si pytest está instalado.
+
+    `pytest` vive en `requirements-dev.txt`, no en `requirements.txt`: el venv
+    de producción puede estar perfecto sin traerlo. En ese caso el semáforo no
+    debe bloquear un reload; debe decir cómo hacer una verificación completa en
+    una máquina de desarrollo.
+    """
+    if importlib.util.find_spec("pytest") is None:
+        res.aviso(
+            "pytest",
+            "no instalado en este virtualenv; es normal en producción. "
+            "Para correr tests instala requirements-dev.txt en local",
+        )
+        return
+    ejecutar(res, "pytest", [sys.executable, "-m", "pytest", "-q"])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -213,7 +232,7 @@ def main() -> int:
     comprobar_datos(res, exigir_viaje_vacio=args.estrenar)
 
     if args.tests:
-        ejecutar(res, "pytest", [sys.executable, "-m", "pytest", "-q"])
+        comprobar_pytest(res)
     else:
         res.aviso("pytest", "saltado; añade --tests para correrlo aquí")
 

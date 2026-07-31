@@ -2445,6 +2445,12 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
       datos, así que borrarlas requiere la confirmación explícita de
       `tools/estado_limpio.py --borrar-todo-el-viaje`.
 
+    En producción `pytest` puede no estar instalado porque vive en
+    `requirements-dev.txt`. Si se pide `--tests` y falta, `pre_despliegue.py`
+    da un aviso, no un fallo: un servidor sin dependencias de desarrollo puede
+    estar listo para reload. En una máquina de desarrollo, donde sí está
+    instalado, `--tests` sigue corriendo la suite y falla si falla la suite.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
