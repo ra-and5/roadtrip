@@ -802,8 +802,30 @@ def fuego_mapa(page: Any) -> str:
 
 
 def chat(page: Any) -> str:
+    page.add_init_script(
+        """
+        (() => {
+          window.__notificacionesChat = [];
+          class FakeNotification {
+            constructor(title, options) {
+              window.__notificacionesChat.push({title, options});
+            }
+            static permission = "granted";
+            static requestPermission() {
+              return Promise.resolve("granted");
+            }
+          }
+          Object.defineProperty(window, "Notification", {
+            value: FakeNotification,
+            configurable: true,
+          });
+        })();
+        """
+    )
     page.goto(f"{BASE}/chat")
     esperar(lambda: page.locator("#chat-texto").count() == 1, "no cargó el chat")
+    esperar(lambda: "Avisos activos" in page.inner_text("#chat-notificaciones"),
+            "el chat no detectó permiso de notificaciones")
 
     page.fill("#chat-texto", "¿Qué hago esta tarde?")
     page.click("#chat-enviar")
@@ -812,6 +834,11 @@ def chat(page: Any) -> str:
         "el chat no pintó la respuesta del proveedor falso",
         segundos=20,
     )
+    notificaciones = page.evaluate("window.__notificacionesChat")
+    if len(notificaciones) != 1:
+        raise Fallo(f"el chat no lanzó una notificación al responder: {notificaciones!r}")
+    if notificaciones[0].get("title") != "WhereAmAi respondió":
+        raise Fallo(f"la notificación tiene un título inesperado: {notificaciones[0]!r}")
 
     # Guardar y enviar son cosas distintas (decisión 37): la conversación tiene
     # que seguir ahí al recargar, sin volver a llamar al modelo.
@@ -831,7 +858,7 @@ def chat(page: Any) -> str:
         lambda: page.locator("#chat-hilo .chat-mensaje").count() == 0,
         "borrar la conversación no la borró",
     )
-    return "pregunta, respuesta, persiste al recargar y se puede borrar"
+    return "pregunta, notifica, persiste al recargar y se puede borrar"
 
 
 def api_sin_cache(sesion: Any) -> str:

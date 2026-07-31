@@ -23,6 +23,7 @@
   var permisoNotificacionesPedido = false;
   var notificacionesPermitidas = false;
   var promesaPermisoNotificaciones = null;
+  var ultimaNotificacion = null;
 
   function el(id) {
     return document.getElementById(id);
@@ -34,13 +35,30 @@
     nodo.classList.toggle("error", !!esError);
   }
 
-  function prepararNotificaciones() {
-    if (!("Notification" in window) || !window.isSecureContext) return;
-    if (Notification.permission === "granted") {
-      notificacionesPermitidas = true;
+  function actualizarBotonNotificaciones() {
+    var boton = el("chat-notificaciones");
+    if (!("Notification" in window) || !window.isSecureContext) {
+      boton.hidden = true;
       return;
     }
-    if (Notification.permission === "denied" || permisoNotificacionesPedido) return;
+    notificacionesPermitidas = Notification.permission === "granted";
+    boton.hidden = Notification.permission === "denied";
+    boton.disabled = notificacionesPermitidas;
+    boton.textContent = notificacionesPermitidas ? "Avisos activos" : "Activar avisos";
+  }
+
+  function pedirPermisoNotificaciones() {
+    if (!("Notification" in window) || !window.isSecureContext) return Promise.resolve(false);
+    if (Notification.permission === "granted") {
+      notificacionesPermitidas = true;
+      actualizarBotonNotificaciones();
+      return Promise.resolve(true);
+    }
+    if (Notification.permission === "denied") {
+      actualizarBotonNotificaciones();
+      return Promise.resolve(false);
+    }
+    if (promesaPermisoNotificaciones) return promesaPermisoNotificaciones;
 
     /* Se pide al enviar la primera pregunta, dentro de un gesto de usuario.
      * Pedirlo al cargar la página lo bloquean navegadores móviles, y además
@@ -48,11 +66,14 @@
     permisoNotificacionesPedido = true;
     promesaPermisoNotificaciones = Notification.requestPermission().then(function (permiso) {
       notificacionesPermitidas = permiso === "granted";
+      actualizarBotonNotificaciones();
       return notificacionesPermitidas;
     }).catch(function () {
       notificacionesPermitidas = false;
+      actualizarBotonNotificaciones();
       return false;
     });
+    return promesaPermisoNotificaciones;
   }
 
   function resumenNotificacion(texto) {
@@ -62,18 +83,19 @@
   }
 
   function lanzarNotificacion(texto) {
-    if (!notificacionesPermitidas || !("Notification" in window)) return;
-    if (!document.hidden && document.hasFocus()) return;
+    if (!notificacionesPermitidas || !("Notification" in window)) return false;
 
     try {
-      new Notification("WhereAmAi respondió", {
+      ultimaNotificacion = new Notification("WhereAmAi respondió", {
         body: resumenNotificacion(texto),
         tag: "roadtrip-chat-respuesta",
         icon: "/static/icons/icon-192.png",
       });
+      return true;
     } catch (err) {
       /* La notificación es comodidad, no parte del dato. Si el navegador la
       * rechaza, la respuesta ya está pintada y guardada en el hilo. */
+      return false;
     }
   }
 
@@ -239,7 +261,7 @@
       return;
     }
 
-    prepararNotificaciones();
+    pedirPermisoNotificaciones();
     pintarMensaje("usuario", texto, null);
     estado("Pensando…");
     el("chat-enviar").disabled = true;
@@ -312,6 +334,10 @@
     }
   });
 
+  el("chat-notificaciones").addEventListener("click", function () {
+    pedirPermisoNotificaciones();
+  });
+
   el("chat-borrar").addEventListener("click", async function () {
     try {
       await fetch("/api/chat", { method: "DELETE" });
@@ -325,4 +351,5 @@
 
   cargarHistorial();
   situar();
+  actualizarBotonNotificaciones();
 })();
