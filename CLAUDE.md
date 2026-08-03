@@ -2450,6 +2450,25 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     estar listo para reload. En una máquina de desarrollo, donde sí está
     instalado, `--tests` sigue corriendo la suite y falla si falla la suite.
 
+67. **Los avisos de AEMET vienen en un TAR con ~300 archivos, no en un XML.**
+    Comprobado contra la API real el 03-08-2026: `avisos_cap/ultimoelaborado/area/esp`
+    devuelve un `.tar` (no gzip) con un CAP XML por zona de España, y la
+    mayoría son "nivel verde" (`severity=Minor`) — el aviso de referencia sin
+    riesgo que AEMET emite a diario para cada provincia, no un aviso de
+    verdad. La primera versión trataba la respuesta como texto plano:
+    `ET.fromstring` fallaba sobre el TAR entero y el fallback devolvía las
+    cabeceras binarias como si fueran un aviso legible. **No daba ningún
+    error**, solo un aviso ilegible metido en el prompt del modelo — la
+    decisión 11 otra vez, y en la pieza que se supone que dice si hay que
+    preocuparse por el tiempo en España.
+
+    Arreglo: `avisos_espana()` abre el TAR con `tarfile`, descarta el nivel
+    verde (177 de 301 el día que se midió) y ordena lo que queda por
+    severidad, así que un aviso rojo no se pierde detrás del `[:8]` si el
+    TAR lo trae en la posición 200. Se cachea el resultado ya filtrado (unas
+    líneas), no el TAR de ~4 MB: guardar eso en la caché de SQLite, que
+    serializa a JSON, lo infla sin aportar nada que no esté ya en la URL.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese

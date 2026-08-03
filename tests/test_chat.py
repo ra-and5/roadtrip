@@ -276,7 +276,9 @@ def test_el_prompt_lleva_ubicacion_tiempo_y_luna() -> None:
 def test_la_respuesta_sale_del_json() -> None:
     proveedor = FakeProvider(json.dumps({"respuesta": "Vete a la playa."}))
 
-    respuesta = chat.responder("¿qué hago?", _contexto(), [], provider=proveedor)
+    respuesta = chat.responder(
+        "¿qué hago?", _contexto(), [], provider=proveedor, tools_provider=FakeTools()
+    )
 
     assert respuesta.texto == "Vete a la playa."
     assert respuesta.proveedor == "fake"
@@ -288,7 +290,10 @@ def test_una_respuesta_sin_json_no_se_tira() -> None:
     Tirarla sería perder algo útil por una formalidad."""
     proveedor = FakeProvider("Vete a la playa.")
 
-    assert chat.responder("?", _contexto(), [], provider=proveedor).texto == "Vete a la playa."
+    assert (
+        chat.responder("?", _contexto(), [], provider=proveedor, tools_provider=FakeTools()).texto
+        == "Vete a la playa."
+    )
 
 
 def test_cualquier_fallo_del_proveedor_sale_como_aierror() -> None:
@@ -297,7 +302,7 @@ def test_cualquier_fallo_del_proveedor_sale_como_aierror() -> None:
     proveedor = FakeProvider(error=AIError("cuota agotada"))
 
     with pytest.raises(AIError):
-        chat.responder("?", _contexto(), [], provider=proveedor)
+        chat.responder("?", _contexto(), [], provider=proveedor, tools_provider=FakeTools())
 
 
 # ---------------------------------------------------------------------------

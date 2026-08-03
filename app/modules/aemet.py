@@ -8,8 +8,10 @@ API key. Si falta, se devuelve un aviso; no se inventa un mapa meteorológico.
 
 from __future__ import annotations
 
+import io
 import re
 import json
+import tarfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any
@@ -119,7 +121,43 @@ class AemetClient:
         return lineas[:4]
 
     def avisos_espana(self) -> list[str]:
-        return _parse_avisos_cap(self._descargar_datos(_AVISOS_ESPANA))[:8]
+        """Avisos CAP relevantes (Moderate/Severe/Extreme), la señal sin el ruido.
+
+        Comprobado contra la API real (03-08-2026): el endpoint no devuelve un
+        XML, devuelve un TAR con ~300 archivos, uno por zona de España, la
+        mayoría "nivel verde" (severity=Minor) — el aviso de referencia sin
+        riesgo que AEMET emite a diario para cada provincia. La primera versión
+        trataba ese TAR como texto plano: `ET.fromstring` fallaba y el fallback
+        devolvía el TAR entero (cabeceras binarias incluidas) como si fuera un
+        aviso legible. No daba ningún error, solo un aviso ilegible en el
+        prompt del modelo — el fallo silencioso de la decisión 11.
+        """
+        inicial = self._endpoint(_AVISOS_ESPANA)
+        datos_url = inicial.get("datos") if isinstance(inicial, dict) else ""
+        if not datos_url:
+            descripcion = inicial.get("descripcion") if isinstance(inicial, dict) else ""
+            raise AemetError(_limpiar(descripcion or "AEMET no devolvió URL de datos."))
+
+        # Se cachea el resultado ya filtrado (unas líneas), no el TAR de ~4 MB:
+        # guardarlo crudo en la caché de SQLite (que serializa a JSON) lo
+        # infla y no aporta nada que no esté ya en `datos_url`.
+        key = "aemet:avisos:" + datos_url
+        cached = storage.cache_get(key, _CACHE_TTL)
+        if cached is not None:
+            return list(cached)
+
+        try:
+            response = requests.get(datos_url, timeout=Config.HTTP_TIMEOUT)
+            response.raise_for_status()
+            contenido = response.content
+        except requests.Timeout as exc:
+            raise AemetError("La descarga de avisos de AEMET tardó demasiado.") from exc
+        except requests.RequestException as exc:
+            raise AemetError("No se pudo descargar los avisos de AEMET.") from exc
+
+        avisos = _parse_avisos_tar(contenido)[:8]
+        storage.cache_set(key, avisos)
+        return avisos
 
     def radar_nacional(self) -> str:
         inicial = self._endpoint(_RADAR_NACIONAL)
@@ -156,6 +194,53 @@ def _parse_prediccion_textual(texto: str) -> list[str]:
 def _texto_xml(elem: ET.Element, nombre: str) -> str:
     encontrado = elem.find(".//{*}" + nombre)
     return _limpiar(encontrado.text if encontrado is not None else "")
+
+
+_SEVERIDAD_RANGO = {"Extreme": 4, "Severe": 3, "Moderate": 2, "Minor": 1}
+
+
+def _parse_avisos_tar(contenido: bytes) -> list[str]:
+    """Desempaqueta el TAR de AEMET y descarta el "nivel verde" (sin riesgo).
+
+    Un aviso naranja no puede quedar en la posición 200 de una lista de 300 y
+    perderse por un `[:8]` que corta antes de llegar: se filtra el ruido
+    primero (Minor = referencia diaria sin riesgo) y se ordena lo que queda
+    por severidad, para que Extreme y Severe salgan siempre delante.
+    """
+    try:
+        tf = tarfile.open(fileobj=io.BytesIO(contenido))
+    except tarfile.TarError:
+        # AEMET podría cambiar el envoltorio sin avisar; se intenta como XML
+        # plano antes de rendirse, en vez de fallar de golpe (decisión 9).
+        return _parse_avisos_cap(contenido.decode("utf-8", errors="replace"))
+
+    relevantes: list[tuple[int, str]] = []
+    for miembro in tf.getmembers():
+        extraido = tf.extractfile(miembro)
+        if extraido is None:
+            continue
+        try:
+            raiz = ET.fromstring(extraido.read())
+        except ET.ParseError:
+            continue
+        info = raiz.find(".//{*}info")
+        if info is None:
+            continue
+        severidad = _texto_xml(info, "severity")
+        rango = _SEVERIDAD_RANGO.get(severidad, 0)
+        if rango <= 1:
+            continue
+        evento = _texto_xml(info, "event")
+        urgencia = _texto_xml(info, "urgency")
+        zona = _texto_xml(info, "areaDesc")
+        inicio = _texto_xml(info, "onset")
+        fin = _texto_xml(info, "expires")
+        partes = [p for p in (evento, severidad, urgencia, zona, inicio, fin) if p]
+        if partes:
+            relevantes.append((rango, " · ".join(partes)))
+
+    relevantes.sort(key=lambda item: item[0], reverse=True)
+    return [texto for _, texto in relevantes]
 
 
 def _parse_avisos_cap(texto: str) -> list[str]:
