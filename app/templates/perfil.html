@@ -2,16 +2,17 @@
 {% block title %}Perfil{% endblock %}
 
 {% block content %}
-<div class="card">
-  <div class="progreso-cabecera">
-    <div>
-      <span class="rotulo">Tú · hoy</span>
-      <h1 id="perfil-titulo">Perfil</h1>
-    </div>
-    <span class="muted" id="perfil-fecha"></span>
+{# La cabecera de pantalla NO es una tarjeta: era una caja entera para un título
+   y una fecha, y ponía al mismo nivel visual «cómo se llama esto» y «cuántos
+   pasos llevo». Un título va sobre el papel; las tarjetas son para los datos. #}
+<header class="pantalla-cabecera">
+  <div>
+    <span class="rotulo">Tú · hoy</span>
+    <h1 id="perfil-titulo">Perfil</h1>
   </div>
-  <p id="perfil-estado" class="status" aria-live="polite">Cargando…</p>
-</div>
+  <span class="muted" id="perfil-fecha"></span>
+</header>
+<p id="perfil-estado" class="status status-suelto" aria-live="polite">Cargando…</p>
 
 <section class="card" id="cuerpo-card" hidden>
   <h2>Tu día</h2>
@@ -38,7 +39,7 @@
   <p class="atajo">
     <a class="button secondary"
        href="shortcuts://run-shortcut?name={{ shortcut_telemetria|urlencode }}">
-      Enviar pasos y batería ahora
+      Enviar pasos ahora
     </a>
     <span class="muted">Abre Atajos. Al volver, recarga para verlos.</span>
   </p>

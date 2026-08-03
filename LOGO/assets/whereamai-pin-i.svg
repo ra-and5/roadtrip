@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 20 18 59" width="15" height="49" fill="none" aria-hidden="true">
+  <rect x="12.4" y="55" width="5.2" height="24" rx="2.6" fill="currentColor"></rect>
+  <path d="M15 48C10.5 42.7 7.5 39.5 7.5 33.6A7.5 7.5 0 1 1 22.5 33.6C22.5 39.5 19.5 42.7 15 48Z" fill="var(--brand-mint,#35C39A)"></path>
+  <circle cx="15" cy="33.2" r="2.9" fill="var(--brand-ink,#121917)"></circle>
+</svg>

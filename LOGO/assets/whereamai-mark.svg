@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" fill="none" role="img" aria-label="WhereAmAi">
+  <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 79 37 21 58 79" stroke-width="10.5"></path><path d="M25.5 60H48.5" stroke-width="8.8"></path><path d="M76 76V55" stroke-width="10.5"></path>
+  </g>
+  <path d="M76 46.5C67 37.2 62 32.4 62 24A14 14 0 1 1 90 24C90 32.4 85 37.2 76 46.5Z" fill="currentColor"></path>
+  <circle cx="76" cy="23.2" r="5.4" fill="var(--brand-mint,#6FDCB6)"></circle>
+</svg>

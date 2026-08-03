@@ -19,6 +19,10 @@
      nota (decisión 40). Todo lo de aquí es AHORA. -->
 <section id="place-card" class="card panel" hidden>
   <span class="rotulo" id="place-momento"></span>
+  <!-- El sitio PRESIDE. Es la respuesta a la pregunta que da nombre a la app, y
+       antes competía en peso con el resumen del tiempo que va justo debajo. Lo
+       primero que se mira desde una furgoneta es dónde estás; lo segundo, qué
+       tiempo hace con ello. -->
   <h2 id="place-label"></h2>
   <p class="panel-linea">
     <span id="weather-summary"></span>
@@ -70,7 +74,9 @@
 <div class="card">
   <button id="locate-btn" class="primary">Recomiéndame algo</button>
   <div class="botonera">
-    <button id="refresh-btn" class="secondary" hidden>Otra distinta</button>
+    <!-- Etiquetas cortas a propósito: a 320 px «Otra distinta» rompía en dos
+         líneas, y una etiqueta pulsable partida parece un fallo de maquetación. -->
+    <button id="refresh-btn" class="secondary" hidden>Otra</button>
     <button id="contexto-btn" class="secondary">Actualizar</button>
   </div>
   <p id="status" class="status" aria-live="polite"></p>
@@ -113,7 +119,9 @@
     <select id="pois-categoria">
       <option value="">Todo</option>
     </select>
-    <button id="pois-btn" class="secondary">Buscar sitios cerca</button>
+    <!-- «Buscar» y no «Buscar sitios cerca»: el título de la tarjeta ya lo dice,
+         y el texto largo rompía en tres líneas a 320 px. -->
+    <button id="pois-btn" class="secondary">Buscar</button>
   </div>
   <div id="pois-grupos" class="pois-grupos" hidden></div>
 </section>
@@ -178,9 +186,10 @@
   </div>
 
   <p class="status" id="fuego-estado" aria-live="polite">Pulsa actualizar si quieres mirar la ruta.</p>
-</section>
 
-<section class="card">
+  <!-- El mapa vive en la MISMA tarjeta que sus mandos. Estaban en dos, y un
+       mando separado de lo que gobierna obliga a mirar arriba y abajo para
+       entender qué estás viendo. -->
   <div id="fuego-mapa" role="application" aria-label="Mapa de focos activos"></div>
   <ul class="fuego-leyenda">
     <li><span class="punto" style="background:#7f0000"></span> menos de 1 h</li>
@@ -193,7 +202,7 @@
   <p class="muted" id="fuego-aviso" hidden></p>
 
   <a id="fuego-nasa" class="button secondary" href="https://firms.modaps.eosdis.nasa.gov/map/"
-     target="_blank" rel="noopener noreferrer">Abrir el mapa oficial de la NASA</a>
+     target="_blank" rel="noopener noreferrer">Mapa de la NASA</a>
 </section>
 {% endblock %}
 

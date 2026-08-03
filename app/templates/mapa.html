@@ -55,7 +55,7 @@
   <p class="atajo">
     <a class="button secondary"
        href="shortcuts://run-shortcut?name={{ shortcut_fotos|urlencode }}">
-      Enviar fotos nuevas del álbum
+      Enviar fotos
     </a>
     <span class="muted">Abre Atajos. Al volver, recarga para verlas.</span>
   </p>
@@ -87,11 +87,13 @@
   <ul class="visitados" id="visitados-lista"></ul>
 </section>
 
-<section class="card">
-  <p id="notas-estado" class="status" aria-live="polite"></p>
-  <p class="muted" id="ruta-avisos" hidden></p>
-</section>
+<!-- Dos líneas de estado no necesitan una tarjeta: cuando no hay nada que decir,
+     una tarjeta vacía parece un bloque que no ha cargado. -->
+<p id="notas-estado" class="status status-suelto" aria-live="polite"></p>
+<p class="muted status-suelto" id="ruta-avisos" hidden></p>
 
+<!-- El muro va DENTRO de la tarjeta del Diario, no en una aparte: eran dos cajas
+     para una sola cosa, con el título separado de lo que titula. -->
 <section class="card" id="diario">
   <div class="progreso-cabecera">
     <div>
@@ -102,10 +104,10 @@
   </div>
   <p id="diario-estado" class="status" aria-live="polite">Cargando…</p>
   <p class="muted" id="diario-avisos" hidden></p>
-</section>
 
-<section class="card" id="diario-card" hidden>
-  <div id="diario-muro"></div>
+  <div id="diario-card" hidden>
+    <div id="diario-muro"></div>
+  </div>
 </section>
 
 {% endblock %}

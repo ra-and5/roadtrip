@@ -1,0 +1,49 @@
+{# La marca, en un solo sitio.
+
+   Vive aparte porque se usa en dos: la cabecera de todas las pantallas y, en
+   grande, el login. Dos copias del mismo SVG se separarían en cuanto se tocara
+   una —y el logo es justo lo que no puede tener dos versiones—.
+
+   La geometría es la del handoff y NO se redibuja: la caja de diseño es 100×100,
+   el hueco de 8,5 unidades entre la punta de la chincheta y el arranque del asta
+   es lo que hace que se lea como una «i» y no como un pin pegado.
+
+   Los colores no van escritos aquí: los ponen `currentColor` y las variables de
+   marca del CSS, para que la misma pieza sirva en claro, en oscuro y sobre el
+   degradado sin tener tres versiones. #}
+
+{# El monograma «Ai» suelto. Dentro del badge de degradado va en tinta. #}
+{% macro monograma() %}
+<svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
+  <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 79 37 21 58 79" stroke-width="10.5"/>
+    <path d="M25.5 60H48.5" stroke-width="8.8"/>
+    <path d="M76 76V55" stroke-width="10.5"/>
+  </g>
+  <path d="M76 46.5C67 37.2 62 32.4 62 24A14 14 0 1 1 90 24C90 32.4 85 37.2 76 46.5Z"
+        fill="currentColor"/>
+  <circle cx="76" cy="23.2" r="5.4" fill="var(--brand-mint-light)"/>
+</svg>
+{% endmacro %}
+
+{# El logotipo. La palabra es «WhereAmA» + la chincheta como última letra: por eso
+   el `viewBox` empieza encima de la chincheta y acaba en la línea base (y=79),
+   que es lo que permite alinearla con `vertical-align: baseline` como una letra
+   más. El `<span class="sr-only">i</span>` es para que un lector de pantalla lea
+   «WhereAmAi» y no «WhereAmA». #}
+{% macro logotipo() %}
+<span class="wam-logo">WhereAmA<svg class="wam-i" viewBox="6 20 18 59" fill="none" aria-hidden="true">
+  <rect class="wam-asta" x="12.4" y="55" width="5.2" height="24" rx="2.6"/>
+  <path class="wam-chincheta"
+        d="M15 48C10.5 42.7 7.5 39.5 7.5 33.6A7.5 7.5 0 1 1 22.5 33.6C22.5 39.5 19.5 42.7 15 48Z"/>
+  <circle class="wam-hueco" cx="15" cy="33.2" r="2.9"/>
+</svg><span class="sr-only">i</span></span>
+{% endmacro %}
+
+{# El lockup completo: badge + logotipo. #}
+{% macro lockup(clase="") %}
+<span class="brand {{ clase }}">
+  <span class="brand-badge">{{ monograma() }}</span>
+  {{ logotipo() }}
+</span>
+{% endmacro %}

@@ -34,6 +34,24 @@
       tiempo. Un aviso en naranja al lado de ese mapa se lee como un incendio
       más. Es además la convención de las cartas náuticas para «precaución».
 
+   4. CADA TONO TIENE UN PAPEL Y SOLO UNO. Es la regla que hizo falta al adoptar
+      la marca: el menta del logo pasó a ser la ACCIÓN, y entonces el verde de
+      «bueno» dejó de poder ser verde —un botón y un veredicto se leían igual en
+      el panel de Inicio, que es justo donde se decide si sales a andar—. La
+      salida no fue apagar el veredicto, sino moverlo al otro extremo del propio
+      degradado del logo:
+
+        162°  menta    la acción, la marca, los enlaces, el foco
+         96°  lima     veredicto BUENO
+         35°  ámbar    veredicto REGULAR, y la atención sobre el MUNDO
+         10°  rojo     veredicto MALO
+        330°  magenta  la fuente FALLÓ  (no se toca)
+         --   trama    no lo sé          (no se toca)
+
+      Los cuatro colores de los focos de la NASA no están en esta lista porque no
+      son nuestros: son una escala de antigüedad reservada, y viven en el
+      JavaScript de Fuego.
+
    Lo que NO hay, a propósito: sombras (ninguna), degradados decorativos, iconos
    de terceros y animación dispersa. La única orquestación es la entrada de las
    barras del Perfil, y se apaga entera con `prefers-reduced-motion`.
@@ -44,24 +62,46 @@
    1. Tokens
    -------------------------------------------------------------------------- */
 
+/* --- Constantes de marca ---
+   Van FUERA de las media queries porque no dependen del esquema: son la
+   identidad, no la interfaz. Los SVG de `static/brand/` las referencian por
+   nombre (`fill="var(--brand-mint, …)"`), así que basta con que existan aquí
+   para que el logo se pinte solo.
+
+   El degradado es del handoff y no se recalcula: menta claro -> menta -> lima,
+   a 150°. Es lo único de la app que lleva degradado, y se gasta en un sitio: el
+   badge del monograma. */
+:root {
+  --brand-ink:        #0D1310;
+  --brand-mint-light: #6FDCB6;
+  --brand-mint:       #35C39A;
+  --brand-lime:       #9BDD6E;
+  --brand-deep:       #12604A;
+  --brand-gradient:   linear-gradient(150deg, #6FDCB6 0%, #35C39A 46%, #9BDD6E 100%);
+}
+
 :root {
   /* --- Color, modo claro ---
      Ni el crema (#f6f4ee) de antes ni el gris por defecto. El papel es frío,
      con un punto de verde, porque a pleno sol un fondo cálido y un texto oscuro
      se empastan; y porque el crema con acento verde es exactamente el aspecto
      que produce cualquier generador cuando no se le pide nada. */
-  --papel:        #edf1f0;
+  --papel:        #eaf0ed;
   --superficie:   #ffffff;
-  --superficie-2: #f5f8f7;   /* lo hundido: campos, pistas de barra, burbujas */
-  --tinta:        #0f1614;
-  --apagado:      #5a6864;   /* 5,3:1 sobre superficie: legible, no decorativo */
+  --superficie-2: #f4f7f5;   /* lo hundido: campos, pistas de barra, burbujas */
+  --tinta:        #0D1310;
+  --apagado:      #586762;   /* 5,4:1 sobre superficie: legible, no decorativo */
   --trazo:        #d3dcd9;
   --trazo-fuerte: #b4c2be;
 
-  /* La acción, siempre la misma: agua profunda del Cantábrico. */
-  --sonda:        #0b6e7a;
+  /* La acción, siempre la misma: el menta profundo de la marca.
+     Antes era un teal (#0b6e7a) que no tenía nada que ver con el logo. Ahora el
+     acento ES la marca, y por eso el veredicto "bueno" se ha tenido que mover al
+     otro extremo del degradado (la lima): con los dos en menta, un botón y un
+     "hace buen tiempo" se leían igual en el panel. Ver la cabecera, punto 4. */
+  --sonda:        #12604A;
   --sonda-tinta:  #ffffff;   /* lo que se escribe ENCIMA de --sonda */
-  --sonda-suave:  #e0f0f2;
+  --sonda-suave:  #dff3ea;
 
   /* El fallo. Ver el punto 3 de la cabecera. */
   --baliza:       #a8005e;
@@ -81,8 +121,15 @@
   --ahora:        #b8791c;
 
   /* Veredictos. Son datos, no adornos: se calculan en Python (decisión 5) y
-     aquí solo se pintan. */
-  --bueno-fondo:  #d6ebdd;  --bueno-tinta:  #14452c;
+     aquí solo se pintan.
+
+     "Bueno" es LIMA y no el verde de antes, y no es un capricho: el acento de la
+     app pasó a ser el menta de la marca, y un veredicto verde al lado de un botón
+     verde no se distingue en marcha. La lima está a 96° de tono contra los 162°
+     del menta —66° de separación, que sí se ve— y además sale del propio
+     degradado del logo, así que el semáforo entero sigue siendo de la marca.
+     Ámbar y rojo no se tocan: ya estaban bien separados. */
+  --bueno-fondo:  #e6f4d2;  --bueno-tinta:  #3d6b12;
   --regular-fondo:#f6e7c4;  --regular-tinta:#4a3812;
   --malo-fondo:   #f5d3d0;  --malo-tinta:   #5c1d15;
 
@@ -105,6 +152,7 @@
   --t-h2:    1.1875rem;
   --t-h1:    1.4375rem;
   --t-cifra: 1.75rem;    /* los marcadores del Mapa */
+  --t-lugar: 2rem;       /* el sitio en Inicio: lo único que preside una pantalla */
 
   /* --- Espaciado, base 4 --- */
   --e1: 0.25rem;  --e2: 0.5rem;   --e3: 0.75rem;  --e4: 1rem;
@@ -131,18 +179,23 @@
 @media (prefers-color-scheme: dark) {
   :root {
     /* De noche en una furgoneta el fondo casi negro no es estética: es no
-       deslumbrarse a las tres de la mañana ni perder la visión nocturna. */
-    --papel:        #0a0e0d;
+       deslumbrarse a las tres de la mañana ni perder la visión nocturna.
+
+       `--superficie` es exactamente el `#121917` del `theme-color` de la PWA y
+       del `background_color` del manifest: la tarjeta, la barra de estado de iOS
+       y la pantalla de arranque son el mismo color, así que la app no "empieza"
+       con un salto de tono al abrirse. */
+    --papel:        #0b100e;
     --superficie:   #121917;
     --superficie-2: #182120;
-    --tinta:        #e4ebe8;
-    --apagado:      #8b9995;
+    --tinta:        #eef2f0;
+    --apagado:      #8fa09b;
     --trazo:        #263130;
     --trazo-fuerte: #384644;
 
-    --sonda:        #4fc3d1;
-    --sonda-tinta:  #06181b;
-    --sonda-suave:  #0e2e33;
+    --sonda:        #6fdcb6;
+    --sonda-tinta:  #0d1310;
+    --sonda-suave:  #10312a;
 
     --baliza:       #ff77b5;
     --baliza-suave: #330b21;
@@ -152,7 +205,10 @@
 
     --ahora:        #e0a94a;
 
-    --bueno-fondo:  #12331f;  --bueno-tinta:  #9fe0b6;
+    /* Aquí es donde el choque se veía de verdad: el verde de "bueno" (#9fe0b6) y
+       el menta de la marca son casi el mismo color sobre fondo oscuro. La lima
+       lo resuelve sin tocar el significado. */
+    --bueno-fondo:  #1b3310;  --bueno-tinta:  #b5e585;
     --regular-fondo:#332811;  --regular-tinta:#f0cf8a;
     --malo-fondo:   #3a1512;  --malo-tinta:   #f4a9a0;
   }
@@ -267,24 +323,80 @@ summary::marker { color: var(--trazo-fuerte); }
   border-bottom: 1px solid var(--trazo);
 }
 
+/* --- La marca ---
+   El logotipo NO es una palabra con un icono al lado: la última letra de
+   «WhereAmAi» ES la chincheta, así que icono y logotipo son la misma pieza. Por
+   eso el glifo se compone como una letra más y no como una imagen pegada.
+
+   Sin descargar ninguna tipografía (decisión 55): la palabra va en la cara del
+   sistema y el glifo es un SVG con las medidas en `em`, así que se asienta solo
+   sobre la línea base sea cual sea la fuente que acabe usando el dispositivo.
+   El handoff de marca ya contaba con este caso en su checklist. */
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--e2);
+  min-width: 0;
+}
+
+/* El badge del monograma: lo único de la app con degradado, y por eso se
+   reconoce. El `inset` claro de arriba es lo que le da el relieve de un icono de
+   iOS sin gastar una sombra. */
+.brand-badge {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.65rem; height: 1.65rem;
+  border-radius: 8px;
+  background: var(--brand-gradient);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.brand-badge svg {
+  width: 66%; height: 66%;   /* la zona segura del icono, del handoff */
+  display: block;
+  color: var(--brand-ink);   /* el monograma va en tinta sobre el degradado */
+}
+
+.wam-logo {
+  font-size: 1.0625rem;
   font-weight: 640;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.035em;
+  color: var(--tinta);
+  /* El logotipo no parte de línea nunca, ni a 320 px. */
+  white-space: nowrap;
 }
-/* Una brújula minúscula dibujada con dos círculos: el único ornamento de la
-   app, y cuesta cero bytes de red. */
-.brand::before {
-  content: "";
-  width: 0.6rem; height: 0.6rem;
-  border-radius: 50%;
-  border: 2px solid var(--sonda);
-  border-top-color: transparent;
-  transform: rotate(45deg);
-  align-self: center;
+/* La «i». El `viewBox` recorta desde encima de la chincheta hasta la línea base,
+   así que `vertical-align: baseline` la coloca sola. */
+.wam-i {
+  display: inline-block;
+  vertical-align: baseline;
+  height: 1.279em;
+  width: 0.39em;
+  margin-left: 0.013em;
 }
+.wam-i .wam-asta     { fill: currentColor; }
+.wam-i .wam-chincheta{ fill: var(--sonda); }
+/* El hueco de la chincheta es el fondo de la barra, no un color fijo: si fuera
+   fijo, en el otro esquema saldría un punto de otra app. */
+.wam-i .wam-hueco    { fill: var(--superficie); }
+
+/* La marca en grande, para el login. */
+.brand-grande { gap: var(--e3); }
+.brand-grande .brand-badge { width: 3rem; height: 3rem; border-radius: 14px; }
+.brand-grande .wam-logo { font-size: 1.75rem; }
+
+.portada { text-align: left; }
+.portada .brand { margin-bottom: var(--e2); }
+.portada-bajada {
+  margin: 0 0 var(--e6);
+  font-family: var(--medida);
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.brand-enlace { text-decoration: none; min-width: 0; }
 
 .logout {
   color: var(--apagado);
@@ -527,6 +639,23 @@ input[type="checkbox"] {
   color: var(--apagado);
   font-size: var(--t-menor);
 }
+
+/* Una línea de estado que vive sobre el papel, sin tarjeta alrededor. Sin
+   `min-height` para que, cuando no dice nada, no reserve un hueco que parece un
+   bloque a medio cargar. */
+.status-suelto {
+  margin: 0 0 var(--e4);
+  min-height: 0;
+  padding: 0 var(--e1);
+}
+.status-suelto:empty { margin: 0; }
+
+/* El cierre de una pantalla: la letra pequeña y la acción que no compite. */
+.cierre {
+  margin-top: var(--e6);
+  padding: 0 var(--e1);
+}
+.cierre .muted { display: block; margin-bottom: var(--e3); }
 .status.error, .error { color: var(--baliza); font-weight: 550; }
 
 /* `.ok` es la confirmación de que lo que acabas de hacer ha llegado —«2 fotos
@@ -606,15 +735,32 @@ input[type="checkbox"] {
 
 /* --- El panel: dónde estás y los cuatro veredictos --- */
 
-.panel h2 { font-size: var(--t-h1); margin-bottom: var(--e1); }
+/* El sitio preside la pantalla. Antes iba a `--t-h1` y competía con el resumen
+   del tiempo que tiene justo debajo; ahora hay un escalón claro entre «dónde
+   estás» y «qué tiempo hace», que es el orden en que se leen. `balance` para que
+   «Cudillero, Asturias» no parta dejando una palabra suelta. */
+.panel h2 {
+  font-size: var(--t-lugar);
+  font-weight: 660;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--e2);
+  text-wrap: balance;
+  /* Un topónimo largo sin espacios («Sanlúcar-de-Barrameda») no puede desbordar
+     la tarjeta a 320 px: a este cuerpo, una sola palabra ya llena la línea. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
 .panel-linea {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--e3);
   flex-wrap: wrap;
-  margin: 0 0 var(--e4);
-  font-size: var(--t-lead);
+  margin: 0 0 var(--e3);
+  font-size: var(--t-menor);
+  color: var(--apagado);
+  text-wrap: pretty;
 }
 .panel-astro {
   margin: calc(var(--e3) * -1) 0 var(--e4);
@@ -631,7 +777,8 @@ input[type="checkbox"] {
 .senales {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--e1);
+  gap: var(--e2);
+  margin-top: var(--e4);
 }
 .senal {
   display: flex;
@@ -640,8 +787,8 @@ input[type="checkbox"] {
      líneas, su veredicto se desalinea del de al lado y la fila deja de leerse
      como una fila. */
   justify-content: space-between;
-  gap: var(--e1);
-  padding: var(--e2) var(--e2) var(--e3);
+  gap: var(--e2);
+  padding: var(--e3) var(--e3) var(--e3);
   border-radius: var(--r1);
   background: var(--superficie-2);
   /* El filete de color va arriba, del ancho de la casilla: es lo que se ve de
@@ -657,9 +804,10 @@ input[type="checkbox"] {
   color: var(--apagado);
 }
 .senal-valor {
-  font-size: var(--t-menor);
-  font-weight: 620;
+  font-size: var(--t-lead);
+  font-weight: 640;
   line-height: 1.15;
+  letter-spacing: -0.01em;
   /* Un veredicto largo no puede ensanchar su columna y descolocar las otras
      tres: se corta y el texto entero está en el detalle. */
   overflow: hidden;

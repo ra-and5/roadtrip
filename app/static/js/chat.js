@@ -89,7 +89,7 @@
       ultimaNotificacion = new Notification("WhereAmAi respondió", {
         body: resumenNotificacion(texto),
         tag: "roadtrip-chat-respuesta",
-        icon: "/static/icons/icon-192.png",
+        icon: "/static/brand/icon-192.png",
       });
       return true;
     } catch (err) {

@@ -2,18 +2,22 @@
 {% block title %}Preguntar{% endblock %}
 
 {% block content %}
-<section class="card">
-  <span class="rotulo">Sabe dónde estás</span>
-  <h1>Preguntar</h1>
-  <!-- Se dice de dónde sale la respuesta. Un chatbot que no enseña sobre qué
-       está razonando parece que lo sabe todo, y luego se le cree cuando no lo
-       sabe. -->
-  <p class="muted" id="chat-contexto">Buscando dónde estás…</p>
-  <p class="muted" id="chat-avisos" hidden></p>
-  <button type="button" id="chat-notificaciones" class="secondary" hidden>
-    Activar avisos
-  </button>
-</section>
+<header class="pantalla-cabecera">
+  <div>
+    <span class="rotulo">Sabe dónde estás</span>
+    <h1>Preguntar</h1>
+  </div>
+</header>
+<!-- Se dice de dónde sale la respuesta. Un chatbot que no enseña sobre qué
+     está razonando parece que lo sabe todo, y luego se le cree cuando no lo
+     sabe. -->
+<p class="muted status-suelto" id="chat-contexto">Buscando dónde estás…</p>
+<p class="muted status-suelto" id="chat-avisos" hidden></p>
+<!-- Activar avisos es una utilidad, no la acción de la pantalla: a tamaño de
+     botón principal competía con «Preguntar», que es a lo que se viene. -->
+<button type="button" id="chat-notificaciones" class="secondary pequeno" hidden>
+  Activar avisos
+</button>
 
 <section class="card">
   <div id="chat-hilo" class="chat-hilo" aria-live="polite" aria-label="Conversación"></div>
@@ -27,13 +31,15 @@
   <p class="status" id="chat-estado" aria-live="polite"></p>
 </section>
 
-<section class="card">
-  <button type="button" id="chat-borrar" class="secondary">Borrar la conversación</button>
+<!-- Fuera de tarjeta y en pequeño: borrar la conversación es lo último que se
+     hace y no debe pesar como una acción principal. -->
+<div class="cierre">
   <p class="muted">
     Se guarda entera para poder releerla, pero al modelo solo le van los últimos
     turnos: lo que se guarda es gratis, lo que se envía se paga.
   </p>
-</section>
+  <button type="button" id="chat-borrar" class="secondary pequeno">Borrar la conversación</button>
+</div>
 
 {% endblock %}
 

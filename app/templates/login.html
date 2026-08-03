@@ -2,8 +2,12 @@
 {% block title %}Entrar{% endblock %}
 
 {% block content %}
-<div class="card">
-  <span class="rotulo">Cuaderno de a bordo</span>
+{# Es la primera pantalla que se ve, y hasta ahora era texto plano. El lockup en
+   grande con su bajada es lo que hace que la app se presente en vez de pedir una
+   contraseña a secas. #}
+<div class="card portada">
+  {{ marca.lockup("brand-grande") }}
+  <p class="portada-bajada">Cuaderno de a bordo</p>
   <h1>Entrar</h1>
 
   {% if error %}

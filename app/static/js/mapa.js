@@ -18,6 +18,22 @@
 (function () {
   "use strict";
 
+  /* Los colores con que Leaflet dibuja sobre el lienzo.
+   *
+   * Van escritos aquí y no como `var(--…)` porque Leaflet no pinta con CSS:
+   * recibe cadenas de color en las opciones de cada capa. Son los mismos valores
+   * que los tokens de marca del CSS, y esa duplicación es deliberada — la
+   * alternativa (leer `getComputedStyle` del `:root` en cada dibujado) cuesta un
+   * reflow por capa para ahorrar tres constantes.
+   *
+   * `foco` es el ámbar de «ahora» del CSS, y se usa para lo mismo: señalar en
+   * cuál de los momentos estás al revivir el viaje. */
+  const MARCA = {
+    trayecto: "#12604A",   /* --brand-deep  */
+    foto:     "#6FDCB6",   /* --brand-mint-light */
+    foco:     "#d19a2e",   /* el ámbar de «ahora» */
+  };
+
   /* Dos fondos, y ninguno sobra:
    *
    *   Mapa      lee mejor. Los nombres de los pueblos, las carreteras y los
@@ -380,7 +396,7 @@
        * de 300 puntos que 300 polylines de dos. */
       L.polyline(
         ubicados.map(function (m) { return [m.lat, m.lon]; }),
-        { color: "#1b3a2f", weight: 3, opacity: 0.65 }
+        { color: MARCA.trayecto, weight: 3, opacity: 0.7 }
       ).addTo(capaTrayecto);
     }
 
@@ -391,8 +407,8 @@
       const marcador =
         momento.tipo === "foto"
           ? L.circleMarker([momento.lat, momento.lon], {
-              radius: 5, color: "#1b3a2f", weight: 2,
-              fillColor: "#7fbfa3", fillOpacity: 0.9,
+              radius: 5, color: MARCA.trayecto, weight: 2,
+              fillColor: MARCA.foto, fillOpacity: 0.9,
             })
           : L.marker([momento.lat, momento.lon]);
 
@@ -427,7 +443,7 @@
     /* Un halo alrededor del momento actual. Sin él, al recorrer un pueblo con
      * diez fotos juntas no se distingue en cuál estás. */
     L.circleMarker([momento.lat, momento.lon], {
-      radius: 16, color: "#d19a2e", weight: 3, fill: false,
+      radius: 16, color: MARCA.foco, weight: 3, fill: false,
     }).addTo(capaFoco);
 
     const marcador = marcadores.get(indice);

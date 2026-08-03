@@ -190,8 +190,10 @@
     try {
       if (!coords) {
         coords = await posicionActual();
+        /* Blanco con anillo del verde de marca: tiene que distinguirse de los
+         * focos, que son de la escala de la NASA (rojo a amarillo) y no se tocan. */
         L.circleMarker([coords.latitude, coords.longitude], {
-          radius: 6, color: "#1b3a2f", fillColor: "#fff", fillOpacity: 1, weight: 2,
+          radius: 6, color: "#12604A", fillColor: "#fff", fillOpacity: 1, weight: 2,
         }).bindPopup("Estás aquí").addTo(capaYo);
       }
 

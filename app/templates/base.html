@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% import "_marca.html" as marca %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -15,16 +15,29 @@
   <meta name="apple-mobile-web-app-title" content="WhereAmAi">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <!-- El SVG primero y el PNG detrás: quien entienda vectorial se queda con el
+       nítido a cualquier tamaño, y el resto cae al de 32 sin pedir los dos.
+       iOS NO redondea por su cuenta si el icono ya viene redondeado, así que el
+       `apple-touch-icon` es el de la marca a sangre. -->
+  <link rel="icon" href="{{ url_for('static', filename='brand/favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='brand/favicon-32.png') }}" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/apple-touch-icon-180.png') }}">
   <title>{% block title %}WhereAmAi{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head_extra %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">WhereAmAi</span>
+    {# La cabecera lleva la marca a casa: el badge es lo que se reconoce de reojo
+       y el logotipo lo que la nombra. Enlaza a Inicio porque un logo que no se
+       puede pulsar para volver es un logo que estorba. #}
     {% if session.get('authenticated') %}
+      <a class="brand-enlace" href="{{ url_for('index') }}" aria-label="WhereAmAi, ir a Inicio">
+        {{ marca.lockup() }}
+      </a>
       <a class="logout" href="{{ url_for('logout') }}">Salir</a>
+    {% else %}
+      {{ marca.lockup() }}
     {% endif %}
   </header>
 

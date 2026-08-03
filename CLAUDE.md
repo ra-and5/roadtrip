@@ -2469,6 +2469,118 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     líneas), no el TAR de ~4 MB: guardar eso en la caché de SQLite, que
     serializa a JSON, lo infla sin aportar nada que no esté ya en la URL.
 
+68. **La marca entra entera, menos su tipografía — y el verde de «bueno» tuvo que
+    moverse.** Llegó la identidad a `LOGO/`: un monograma **Ai** cuyo punto de la
+    «i» es una chincheta de mapa, sobre un degradado menta→lima. Integrarla no fue
+    pegar un logo: fue descubrir que **el acento de la app y un veredicto del
+    tiempo pasaban a ser el mismo color**.
+
+    El choque, medido antes de tocar nada: el menta de marca (`#35C39A`, tono
+    162°) contra el verde de «bueno» que ya existía (`#9fe0b6` en oscuro, tono
+    145°). A 17° de distancia y sobre fondo negro son el mismo color. En el panel
+    de Inicio eso significa que «AIRE: bueno» y el botón «Recomiéndame algo» se
+    leen igual — y ese panel existe justamente para decidir de un vistazo si sales
+    a andar. No da ningún error: solo un instrumento que deja de distinguir una
+    acción de una lectura (decisión 11 otra vez, ahora en el color).
+
+    **La salida no fue apagar la marca ni renunciar al semáforo**, que eran las
+    dos tentaciones. Fue darle a cada tono un papel y solo uno, y mover «bueno» al
+    **otro extremo del propio degradado del logo**, la lima:
+
+    | Tono | Papel |
+    |---|---|
+    | 162° menta | la acción, la marca, los enlaces, el foco |
+    | 96° lima | veredicto **bueno** |
+    | 35° ámbar | veredicto regular, y la atención sobre el MUNDO |
+    | 10° rojo | veredicto malo |
+    | 330° magenta | **la fuente falló** (intocable) |
+    | trama | **no lo sé** (intocable) |
+
+    66° entre la acción y el veredicto: eso sí se ve. Y como la lima sale del
+    degradado de la marca, el semáforo no queda como un injerto — sigue siendo de
+    la casa. Los cuatro colores de los focos de la NASA no están en la tabla
+    porque no son nuestros: son escala reservada y viven en el JavaScript de
+    Fuego.
+
+    **Lo que se rechaza del handoff, y por qué.** Es alta fidelidad en geometría y
+    color, pero traía cuatro cosas que este proyecto ya había decidido al revés:
+
+    - **Space Grotesk y Manrope por Google Fonts.** Rompe la decisión 55, mete un
+      dominio que `tools/verificar.py` bloquea y son decenas de KB con mala
+      cobertura. El logotipo se compone con la cara del sistema **más el glifo SVG
+      real de la chincheta**, que sí es un asset de marca. El propio README del
+      logo ya contemplaba el caso en su checklist. Consecuencia que hay que
+      conocer: las medidas del glifo (`height: 1.279em`) están calibradas para una
+      semibold geométrica; en iPhone eso es SF y encaja, pero en una fallback más
+      pesada el asta se ve fina. Es el precio de no descargar nada.
+    - **Service worker** para precachear la marca. La decisión 59 lo prohíbe sin
+      plan de invalidación, y un icono nuevo no vale un JavaScript viejo atrapado.
+    - **`status-bar-style: black-translucent`.** Solo funciona con app oscura; en
+      modo claro deja texto blanco sobre fondo claro. Se queda `default` porque
+      conservamos los dos esquemas — que en un camper no son gusto: claro para el
+      sol de mediodía, oscuro para no perder la visión nocturna.
+    - **Un solo `theme-color`.** Se conservan los dos por esquema. En el manifest
+      sí va `#121917`, que es el color del splash, y coincide exactamente con
+      `--superficie` en oscuro: la barra de estado, la tarjeta y la pantalla de
+      arranque son el mismo color, así que la app no «empieza» con un salto.
+
+    **Y la marca se define una vez.** El lockup vive en `app/templates/_marca.html`
+    como macros, no copiado en la cabecera y en el login: dos copias del mismo SVG
+    se separan en cuanto se toca una, y el logo es justo lo que no puede tener dos
+    versiones. Los colores no van escritos en el SVG — los ponen `currentColor` y
+    las variables de marca, para que la misma pieza sirva en claro, en oscuro y
+    sobre el degradado.
+
+    Del mismo pase salieron dos arreglos que no son de marca:
+
+    - **Cinco etiquetas pulsables rompían en dos y tres líneas a 320 px**
+      («Buscar sitios cerca» llegaba a tres). Una etiqueta pulsable partida parece
+      un fallo de maquetación, y a 320 px es donde se usa esto con una mano. Se
+      acortan: el título de la tarjeta ya dice el contexto que sobraba en el botón.
+    - **Las cabeceras de pantalla dejan de ser tarjetas.** Había una caja entera
+      para un título y una fecha, lo que ponía al mismo nivel visual «cómo se llama
+      esto» y «cuántos pasos llevo». Un título va sobre el papel; las tarjetas son
+      para los datos. Por lo mismo, el muro del Diario entra en la tarjeta que lo
+      titula (eran dos) y las líneas de estado sueltas salen de la suya, que
+      vacía parecía un bloque a medio cargar.
+
+    Comprobado con el barrido de 4 pantallas × 320/375/414/768 px × claro y
+    oscuro: **cero scroll horizontal y cero texto pulsable partido**. Y los seis
+    sabotajes siguen saliendo cazados, que es lo que dice que la red no se rompió
+    al mover las plantillas.
+
+    **Y la mudanza de los iconos dejó su propio fallo mudo, que es lo que obliga a
+    un test nuevo.** Los iconos pasaron de `static/icons/` a `static/brand/` y se
+    repuntaron la plantilla base y el manifest — pero `chat.js` seguía pidiendo
+    `/static/icons/icon-192.png` para la notificación del chat. Un icono que no
+    existe **no da ningún error**: la notificación sale igual, sin icono. Es la
+    decisión 42 otra vez, pero un escalón más abajo: allí la frontera sin red era
+    entre Python y el navegador, y aquí es entre **lo que el código nombra y lo
+    que hay en el disco**.
+
+    `tests/test_static_existen.py` recorre las dos formas de nombrar un estático
+    —`url_for('static', filename=…)` en las plantillas y una ruta `/static/…`
+    escrita a mano en el JavaScript— más los iconos del manifest, y exige que el
+    archivo esté. Se comprobó que **falla** al reintroducir el bug, que es lo
+    único que demuestra que un test sirve.
+
+    Dos detalles del propio test, porque los dos son el mismo error que viene a
+    cazar: la expresión regular exige que la ruta acabe en **extensión**, porque
+    los comentarios del código citan directorios («los tiles se sirven desde
+    /static/vendor/leaflet/») y sin eso el test se inventaba archivos que nadie
+    pide; y hay un test que comprueba que **se encontraron referencias**, porque
+    una expresión regular que deja de casar no falla — simplemente no comprueba
+    nada, y se queda en verde para siempre.
+
+    **Los PNG de marca se optimizan sin pérdida, y solo sin pérdida.** Los que se
+    sirven pasan de 595 KB a 264 KB (56 % menos) con un reencode PNG, verificando
+    que **los píxeles quedan idénticos**: una optimización que cambia un píxel del
+    logo no es una optimización, es otro logo. Cuantizar a 256 colores los dejaría
+    en 10 KB, y se descarta: el icono es un degradado y ahí el banding se ve, a
+    cambio de ahorrar 250 KB que se descargan **una vez al instalar la PWA**, no
+    en cada pantalla. `LOGO/` se queda intacto como fuente de verdad del handoff;
+    `app/static/brand/` es lo que se sirve.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
