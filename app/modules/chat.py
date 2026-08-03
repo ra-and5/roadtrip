@@ -298,8 +298,16 @@ def responder(
             que sale de aquí, venga del proveedor que venga.
     """
     provider = provider or build_provider()
+    # `momento.dt` y no `datetime.now()`: es la hora del SITIO donde estás, con
+    # su zona (decisión 32). El servidor corre en UTC, así que preguntar "¿a qué
+    # hora salgo?" a las 21:00 en Asturias calcularía las salidas desde las
+    # 19:00 y recomendaría una hora que ya ha pasado.
     herramientas = map_tools.ejecutar(
-        pregunta, contexto.ubicacion, provider=tools_provider, tiempo=contexto.tiempo
+        pregunta,
+        contexto.ubicacion,
+        provider=tools_provider,
+        tiempo=contexto.tiempo,
+        ahora=contexto.momento.dt,
     )
 
     bruto = provider.generate(

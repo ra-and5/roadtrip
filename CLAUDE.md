@@ -2581,6 +2581,91 @@ Por qué las cosas son como son. Si algo parece raro, probablemente está aquí.
     en cada pantalla. `LOGO/` se queda intacto como fuente de verdad del handoff;
     `app/static/brand/` es lo que se sirve.
 
+69. **El tráfico entra por Google, y la DGT no puede entrar todavía.** Se pidió
+    tráfico en tiempo real: cortes, accidentes, atascos y a qué horas. Lo
+    primero fue comprobar las fuentes contra la API real antes de escribir nada
+    (§2), y eso ahorró el módulo entero.
+
+    **La DGT sí publica lo que hace falta, y es bueno.** `infocar.dgt.es`
+    sirve DATEX II sin API key, verificado el 03-08-2026: un atasco real traía
+    `impactOnTraffic=congested`, `delaysType=veryLongDelays`,
+    `lengthAffected=3000 m`, `overallStartTime`, coordenadas, carretera (AP-8),
+    pueblo y provincia. Se refresca cada ~42 s.
+
+    **Y no se puede consultar desde este despliegue, por las dos vías a la vez:**
+
+    - **desde el servidor**, `infocar.dgt.es` **no está en la lista blanca** del
+      proxy de PythonAnywhere → 403 → la app lo leería como «fuente caída» y
+      degradaría en silencio (decisión 21);
+    - **desde el navegador**, que es como se resolvió la NASA en la decisión 53,
+      tampoco: su CORS es `access-control-allow-origin: https://etraffic.dgt.es`,
+      **no `*`**.
+
+    Escribir `dgt.py` primero habría dejado una tarjeta permanentemente vacía en
+    producción con un motivo indescifrable. Queda pedida la lista blanca por el
+    formulario que exige PythonAnywhere (`support.anaconda.com`, criterio: *«an
+    official, public, documented API»*), junto con `firms.modaps.eosdis.nasa.gov`,
+    que sigue pendiente desde el 29-07-2026.
+
+    Dato que ahorra tiempo al retomarlo: la nacional **v3 está muerta**
+    (`/datex2/v3/dgt/SituationPublication/incidencias.xml` → 404, expiró el
+    12-01-2026). Vivas hoy: `sct` (Cataluña) y `dt-gv` (País Vasco). La v3.6 no
+    se pudo localizar — las páginas del dataset en `nap.dgt.es` dan 404 y su API
+    CKAN devuelve 403.
+
+    **Lo que sí se monta, porque funciona hoy:** Google Routes ya estaba
+    integrado en `map_tools.py` y `.googleapis.com` **sí** está en la lista
+    blanca (comodín, verificado). Da congestión y predicción por hora de salida.
+    Las dos fuentes **no son redundantes, son complementarias**: Google dice
+    *cuánto vas a tardar y dónde está parado*; la DGT diría *por qué, y si hay
+    algo cortado*.
+
+    De ahí sale lo que de verdad importa de esta decisión: **el aviso de
+    cobertura**. Google no ve accidentes ni cortes, así que un «tráfico fluido»
+    leído por un modelo se convierte en «la carretera está despejada» — una
+    afirmación sobre algo que no se ha mirado. `_AVISO_SIN_INCIDENCIAS` se mete
+    en el propio texto que lee el modelo y le prohíbe afirmarlo, remitiendo a la
+    DGT. Entra también **cuando la pregunta habla de incidencias y no hemos
+    podido mirar nada**, que es el caso que más engaña: preguntar «¿hay algún
+    corte en la A-8?» y no recibir datos no significa que no lo haya. Es la
+    decisión 37 (no se afirma que no hay POIs sin buscarlos) y la 53 (lo que el
+    satélite no ve) aplicadas al tráfico.
+
+    Cuatro decisiones más, todas del mismo tipo:
+
+    - **El veredicto se calcula en Python** (`veredicto_trafico()`), como el
+      oleaje y la luna (decisión 5). Umbrales razonados: 12 % sobre el tiempo en
+      marcha libre es *denso* y 30 % es *atasco*, **con un suelo absoluto de 4
+      minutos** porque una proporción sola miente en trayectos cortos — un 30 %
+      de 6 minutos es un semáforo. Y `sin_datos` **no es `fluido`**: sin el
+      tiempo en marcha libre no hay con qué comparar (decisión 22).
+    - **La hora de salida entra en la clave de caché.** Sin eso, «¿y si salgo a
+      las 8?» devolvería lo cacheado para las 20:00: las mismas cifras para todas
+      las horas, sin un solo error, y decidiendo a qué hora salir con el dato de
+      otra hora (decisión 11, como el proveedor y el modelo en la caché de
+      recomendaciones). El TTL del tráfico baja a 5 minutos: un bar sigue donde
+      estaba dentro de media hora, una retención no.
+    - **Los tramos se cuentan, no se miden en kilómetros.** Google los da por
+      índice de punto de la polilínea y los puntos no están a distancias iguales:
+      convertirlo a km sería una cifra convincente e inventada.
+    - **Las horas de salida solo si las piden.** Son cuatro llamadas de pago
+      contra una, así que «¿cuánto tardo a Vitoria?» no puede dispararlas de
+      rebote. `MAX_HORAS_SALIDA` va con nombre y test propio por lo mismo que
+      `VENTANA_HISTORIAL` (decisión 37): si se rompe no falla nada, solo sube la
+      factura.
+
+    **Y el bug que solo apareció probando contra la API real, que es la moraleja
+    de todo esto.** Con «¿a qué hora salgo a Vitoria para evitar el atasco?», el
+    patrón de «a …» enganchaba la **«a» de «a qué hora»** y mandaba a Google
+    `destination = "qué hora salgo a Vitoria para evitar el atasco"`. Google
+    **geocodifica eso sin protestar** y devolvió una ruta de 63,8 km con su
+    tiempo y su tráfico: ningún error, un viaje convincente a un sitio que nadie
+    pidió. Se arregla probando *cada* conector de la frase y descartando lo que
+    no parece un sitio —empieza por interrogativo, o por un verbo («voy a
+    dormir» no es una ruta a «dormir»), o mide más de 40 caracteres—. Con
+    `finditer` sobre el patrón largo no bastaba: no solapa, así que la primera
+    coincidencia se comía la oración y no quedaba dónde buscar la buena.
+
 ## 7. Roadmap
 
 ### El orden que viene, y por qué es ese
